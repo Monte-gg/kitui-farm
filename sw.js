@@ -1,6 +1,7 @@
-// Caches only the app shell. The API lives on another origin (Render) and is
-// always fetched from the network so listings, orders and checkout stay current.
-const CACHE = 'kitui-farm-v3';
+// Pages are network-first so a new deployment is picked up immediately; static
+// assets are served from cache and refreshed in the background. The API lives on
+// another origin (Render) and is never intercepted.
+const CACHE = 'kitui-farm-v4';
 const SHELL = [
   './',
   './login.html',
@@ -12,12 +13,13 @@ const SHELL = [
   './profile.html',
   './settings.html',
   './manifest.json',
-  './icons/icon-192x192.png',
-  './icons/icon-512x512.png'
+  './icons/icon-192x192.png?v=2',
+  './icons/icon-512x512.png?v=2'
 ];
 
 const BASE = self.location.href;
 const SHELL_URLS = SHELL.map(path => new URL(path, BASE).href);
+const OFFLINE_PAGE = new URL('./login.html', BASE).href;
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -39,18 +41,37 @@ self.addEventListener('fetch', event => {
 
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;
-  if (!SHELL_URLS.includes(url.href)) return;
 
-  event.respondWith(
-    caches.match(request).then(cached => {
-      if (cached) return cached;
-      return fetch(request).then(response => {
+  const accept = request.headers.get('accept') || '';
+  const isPage = request.mode === 'navigate' || accept.includes('text/html');
+
+  if (isPage) {
+    // Network first: never trap users on a stale page after a deploy.
+    event.respondWith(
+      fetch(request).then(response => {
         if (response.ok) {
           const clone = response.clone();
           caches.open(CACHE).then(cache => cache.put(request, clone));
         }
         return response;
-      });
+      }).catch(() => caches.match(request).then(cached => cached || caches.match(OFFLINE_PAGE)))
+    );
+    return;
+  }
+
+  if (!SHELL_URLS.includes(url.href)) return;
+
+  // Cache first, then refresh in the background so assets self-heal.
+  event.respondWith(
+    caches.match(request).then(cached => {
+      const network = fetch(request).then(response => {
+        if (response.ok) {
+          const clone = response.clone();
+          caches.open(CACHE).then(cache => cache.put(request, clone));
+        }
+        return response;
+      }).catch(() => cached);
+      return cached || network;
     })
   );
 });
