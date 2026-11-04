@@ -1,6 +1,6 @@
 // Caches only the app shell. The API lives on another origin (Render) and is
 // always fetched from the network so listings, orders and checkout stay current.
-const CACHE = 'kitui-farm-v2';
+const CACHE = 'kitui-farm-v3';
 const SHELL = [
   './',
   './login.html',

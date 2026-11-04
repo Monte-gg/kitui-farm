@@ -156,34 +156,63 @@
   <div class="get-app-icon"><img src="icons/icon-192x192.png" alt="" width="38" height="38"></div>
   <div class="get-app-body">
     <p class="get-app-title">Get the KITUI FARM app</p>
-    <p class="get-app-desc">Tap download to install the app on your phone. It opens full-screen like a store app.</p>
+    <p class="get-app-desc">Install the app on your phone. It opens full-screen like a store app.</p>
   </div>
   <div class="get-app-actions"><button class="get-app-btn" id="getAppBtn" type="button">Download app</button></div>
-  <p class="get-app-status" id="getAppStatus" hidden></p>
 </section>
 <script>
 (function(){
   var btn=document.getElementById('getAppBtn');
-  var status=document.getElementById('getAppStatus');
+  var block=document.getElementById('getAppBlock');
   var promptEvent=null;
-  if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(function(){}); }
-  window.addEventListener("beforeinstallprompt",function(e){ e.preventDefault(); promptEvent=e; },[]);
+  var waiters=[];
+  function flush(event){
+    promptEvent=event;
+    var pending=waiters.splice(0);
+    pending.forEach(function(fn){ fn(event); });
+  }
+  window.addEventListener("beforeinstallprompt",function(event){
+    event.preventDefault();
+    flush(event);
+  },[]);
   window.addEventListener("appinstalled",function(){
-    if(status){ status.hidden=false; status.textContent="KITUI FARM is installed. Open it from your home screen."; }
     if(btn){ btn.disabled=true; btn.textContent="Installed"; }
   });
+  if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(function(){}); }
+  // Already installed as an app: no need to offer the download again.
+  try {
+    if(window.matchMedia&&window.matchMedia("(display-mode: standalone)").matches&&block){ block.hidden=true; }
+  } catch(error) { /* ignore */ }
+  function run(event){
+    btn.disabled=true;
+    btn.textContent="Installing\u2026";
+    event.prompt().then(function(choice){
+      if(choice&&choice.outcome==="accepted"){ btn.textContent="Installed"; return; }
+      btn.disabled=false; btn.textContent="Download app";
+    }).catch(function(){
+      btn.disabled=false; btn.textContent="Download app";
+    });
+  }
   if(btn){
     btn.addEventListener("click",function(){
-      if(promptEvent){
-        promptEvent.prompt().then(function(choice){
-          if(choice&&choice.outcome==="accepted"&&btn){ btn.textContent="Installing\u2026"; }
-        }).catch(function(){});
-        return;
-      }
-      if(status){
-        status.hidden=false;
-        status.textContent="In Chrome (Android) tap the menu \u22ee then Add to Home screen; in Safari (iPhone) tap Share then Add to Home Screen.";
-      }
+      if(promptEvent){ run(promptEvent); return; }
+      // Chrome hands over the prompt event a moment after load; wait for it.
+      var settled=false;
+      btn.disabled=true;
+      btn.textContent="Preparing\u2026";
+      waiters.push(function(event){
+        if(settled){ return; }
+        settled=true;
+        btn.disabled=false;
+        btn.textContent="Download app";
+        run(event);
+      });
+      setTimeout(function(){
+        if(settled){ return; }
+        settled=true;
+        btn.disabled=false;
+        btn.textContent="Download app";
+      },4000);
     });
   }
 })();
