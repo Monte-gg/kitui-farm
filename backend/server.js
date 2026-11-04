@@ -40,6 +40,7 @@ const SQLITE_SCHEMA = `
         id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL COLLATE NOCASE UNIQUE,
         phone TEXT NOT NULL UNIQUE, role TEXT NOT NULL CHECK (role IN ('buyer', 'farmer')),
         password_salt TEXT NOT NULL, password_hash TEXT NOT NULL, location TEXT NOT NULL DEFAULT '',
+        profile_photo TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sessions (
@@ -104,6 +105,10 @@ function createSqliteStore(dbPath) {
     if (dbPath !== ':memory:') fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     const db = new DatabaseSync(dbPath);
     db.exec(SQLITE_SCHEMA);
+    const userColumns = db.prepare('PRAGMA table_info(users)').all();
+    if (!userColumns.some(column => column.name === 'profile_photo')) {
+        db.exec("ALTER TABLE users ADD COLUMN profile_photo TEXT NOT NULL DEFAULT ''");
+    }
     seedListings(db);
     const inTransaction = new AsyncLocalStorage();
     let queue = Promise.resolve();
@@ -168,6 +173,9 @@ function createPostgresStore(connectionString, options = {}) {
         max: Number(process.env.PGPOOL_MAX) || 5,
         ssl: local ? false : { rejectUnauthorized: false }
     });
+    const ready = options.autoMigrate
+        ? pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_photo TEXT NOT NULL DEFAULT ''")
+        : Promise.resolve();
     const session = new AsyncLocalStorage();
 
     // Postgres reports a unique violation as 23505; the routes branch on the
@@ -181,6 +189,7 @@ function createPostgresStore(connectionString, options = {}) {
         return sql.replace(/\?/g, () => `$${++index}`);
     };
     const query = async (sql, params) => {
+        await ready;
         const runner = session.getStore() || pool;
         try {
             return await runner.query(toPostgres(sql), params);
@@ -202,9 +211,11 @@ function createPostgresStore(connectionString, options = {}) {
             return { changes: Number(result.rowCount) || 0 };
         },
         async exec(sql) {
+            await ready;
             await pool.query(sql);
         },
         async transaction(action) {
+            await ready;
             const client = await pool.connect();
             try {
                 await client.query('BEGIN');
@@ -228,7 +239,7 @@ function createStore(options = {}) {
     if (options.db) return options.db;
     if (options.dbPath) return createSqliteStore(options.dbPath);
     const connectionString = options.databaseUrl || process.env.DATABASE_URL;
-    if (connectionString) return createPostgresStore(connectionString);
+    if (connectionString) return createPostgresStore(connectionString, { autoMigrate: true });
     return createSqliteStore(process.env.DB_PATH || path.join(__dirname, 'data', 'kitui-farm.sqlite'));
 }
 
@@ -254,7 +265,7 @@ function normalizedPhone(value) {
 }
 
 function publicUser(user) {
-    return { id: user.id, name: user.name, email: user.email, phone: user.phone, role: user.role, location: user.location };
+    return { id: user.id, name: user.name, email: user.email, phone: user.phone, role: user.role, location: user.location, profilePhoto: user.profile_photo || '' };
 }
 
 function publicListing(row) {
@@ -491,6 +502,13 @@ function createApp(options = {}) {
         }
         if ('location' in patch) {
             fields.push('location = ?'); values.push(text(patch.location, 160));
+        }
+        if ('profilePhoto' in patch) {
+            const photo = patch.profilePhoto;
+            if (typeof photo !== 'string' || photo.length > 400000 || (photo && !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/.test(photo))) {
+                return res.status(400).json({ error: 'Choose a valid JPG, PNG, or WebP profile photo.' });
+            }
+            fields.push('profile_photo = ?'); values.push(photo);
         }
         if (!fields.length) return res.status(400).json({ error: 'No supported profile fields were supplied.' });
         try {

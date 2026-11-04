@@ -149,10 +149,27 @@
             else avatar.textContent = initials(user.name);
             removePhotoButton.hidden = !photo;
         }
-        function loadProfilePhoto() {
-            try { profilePhoto = localStorage.getItem(photoKey) || ''; } catch (error) { profilePhoto = ''; }
+        function cacheProfilePhoto(photo) {
+            profilePhoto = photo || '';
+            user.profilePhoto = profilePhoto;
+            try {
+                if (profilePhoto) localStorage.setItem(photoKey, profilePhoto);
+                else localStorage.removeItem(photoKey);
+                const users = readArray('kituiFarmUsers');
+                const account = users.find(item => item.id === user.id);
+                if (account) { account.profilePhoto = profilePhoto; saveArray('kituiFarmUsers', users); }
+            } catch (error) { /* keep the server copy even if browser storage is unavailable */ }
+            paintAvatar(profilePhoto);
+        }
+        async function loadProfilePhoto() {
+            try { profilePhoto = localStorage.getItem(photoKey) || user.profilePhoto || ''; } catch (error) { profilePhoto = user.profilePhoto || ''; }
             if (!/^data:image\/(?:jpeg|png|webp);base64,/i.test(profilePhoto)) profilePhoto = '';
             paintAvatar(profilePhoto);
+            try {
+                const response = await fetch('/api/profile');
+                const result = await response.json();
+                if (response.ok && result.user) cacheProfilePhoto(result.user.profilePhoto || '');
+            } catch (error) { /* use the saved browser copy while offline */ }
         }
         function resizePhoto(file) {
             return new Promise((resolve, reject) => {
@@ -197,15 +214,26 @@
             }
             photoMessage.textContent = 'Preparing photo…'; photoMessage.classList.remove('error');
             try {
-                profilePhoto = await resizePhoto(file); localStorage.setItem(photoKey, profilePhoto); paintAvatar(profilePhoto);
-                photoMessage.textContent = 'Profile photo updated.';
+                const resized = await resizePhoto(file);
+                const response = await fetch('/api/profile', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profilePhoto: resized }) });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || 'Could not save your profile photo.');
+                cacheProfilePhoto(result.user.profilePhoto || resized);
+                photoMessage.textContent = 'Profile photo saved to your account.';
             } catch (error) {
                 photoMessage.textContent = error.message || 'Could not save this photo.'; photoMessage.classList.add('error');
             } finally { photoInput.value = ''; }
         });
-        removePhotoButton.addEventListener('click', () => {
-            try { localStorage.removeItem(photoKey); } catch (error) { /* storage may be disabled */ }
-            profilePhoto = ''; paintAvatar(''); photoMessage.textContent = 'Profile photo removed.'; photoMessage.classList.remove('error');
+        removePhotoButton.addEventListener('click', async () => {
+            removePhotoButton.disabled = true;
+            try {
+                const response = await fetch('/api/profile', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profilePhoto: '' }) });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || 'Could not remove your profile photo.');
+                cacheProfilePhoto(''); photoMessage.textContent = 'Profile photo removed from your account.'; photoMessage.classList.remove('error');
+            } catch (error) {
+                photoMessage.textContent = error.message || 'Could not remove this photo.'; photoMessage.classList.add('error');
+            } finally { removePhotoButton.disabled = false; }
         });
         form.addEventListener('submit', async event => {
             event.preventDefault();

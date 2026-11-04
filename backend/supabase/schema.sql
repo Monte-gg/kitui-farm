@@ -20,8 +20,11 @@ create table if not exists users (
     password_salt text not null,
     password_hash text not null,
     location text not null default '',
+    profile_photo text not null default '',
     created_at text not null
 );
+
+alter table users add column if not exists profile_photo text not null default '';
 
 create unique index if not exists idx_users_email_lower on users (lower(email));
 

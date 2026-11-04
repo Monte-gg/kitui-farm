@@ -21,7 +21,7 @@
                     ? users.find(user => user.id === session.userId)
                     : null;
                 return account && account.role === session.role
-                    ? { ...session, name: account.name, phone: account.phone, location: account.location || '' }
+                    ? { ...session, name: account.name, phone: account.phone, location: account.location || '', profilePhoto: account.profilePhoto || '' }
                     : null;
             } catch {
                 return null;
@@ -273,6 +273,7 @@
             node.textContent = '';
             let photo = '';
             try { photo = localStorage.getItem(`kituiFarmProfilePhoto_${userId}`) || ''; } catch (error) { /* storage may be disabled */ }
+            if (!photo && dashboardSession && dashboardSession.userId === userId) photo = dashboardSession.profilePhoto || '';
             if (/^data:image\/(?:jpeg|png|webp);base64,/i.test(photo)) {
                 const image = document.createElement('img'); image.src = photo; image.alt = ''; node.appendChild(image);
             } else node.textContent = initials;
