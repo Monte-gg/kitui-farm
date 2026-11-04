@@ -122,7 +122,7 @@
         .form-message { margin: 0; color: var(--green-dark); font-size: 13px; }
         .form-message.error { color: var(--danger); }
         .photo-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-        .photo-preview { width: 72px; height: 64px; border-radius: 8px; object-fit: cover; }
+        .photo-preview { width: min(100%, 320px); max-height: 190px; border-radius: 8px; object-fit: cover; background: #111; }
         .table-wrap { overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; text-align: left; }
         th, td { padding: 13px 15px; border-bottom: 1px solid #edf0eb; white-space: nowrap; font-size: 13px; }
@@ -215,10 +215,11 @@
                     <div class="field"><label for="minimumOrder">Minimum order (kg)</label><input id="minimumOrder" name="minimumOrder" type="number" min="1" step="1" placeholder="e.g. 10" required></div>
                     <div class="field"><label for="price">Price per kg (KES)</label><input id="price" name="price" type="number" min="1" step="0.01" placeholder="e.g. 120" required></div>
                     <div class="field"><label for="location">Pickup / farm location</label><input id="location" name="location" placeholder="e.g. Mutomo, Kitui South" maxlength="80" required></div>
-                    <div class="field full"><label for="photo">Produce photo (optional, max 700 KB)</label>
-                        <div class="photo-tools"><input id="photo" name="photo" type="file" accept="image/*"><button class="button secondary small" type="button" id="removePhotoButton" hidden>Remove photo</button></div>
-                        <img class="photo-preview" id="photoPreview" alt="Selected produce photo preview" hidden>
-                        <p class="form-message" id="photoMessage" role="status" aria-live="polite"></p>
+                    <div class="field full"><label for="photo">Product photo or video (optional)</label>
+                        <div class="photo-tools"><input id="photo" name="photo" type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime"><button class="button secondary small" type="button" id="removePhotoButton" hidden>Remove media</button></div>
+                        <p class="form-message" id="photoMessage" role="status" aria-live="polite">Photos up to 700 KB; MP4, WebM, or MOV videos up to 5 MB.</p>
+                        <img class="photo-preview" id="photoPreview" alt="Selected product photo preview" hidden>
+                        <video class="photo-preview" id="videoPreview" controls playsinline preload="metadata" aria-label="Selected product video preview" hidden></video>
                     </div>
                     <div class="form-actions">
                         <button class="button" type="submit" id="saveListingButton">Publish listing</button>
@@ -239,7 +240,7 @@
             </div>
             <div class="table-wrap">
                 <table>
-                    <thead><tr><th>Image</th><th>Crop name</th><th>Stock left</th><th>Price / kg</th><th>Status</th><th>Action</th></tr></thead>
+                    <thead><tr><th>Photo / video</th><th>Crop name</th><th>Stock left</th><th>Price / kg</th><th>Status</th><th>Action</th></tr></thead>
                     <tbody id="inventoryBody"></tbody>
                 </table>
                 <div class="empty-state" id="inventoryEmpty" hidden>No listings yet. Add your first crop to start selling.</div>
@@ -279,6 +280,7 @@
         const listingMessage = document.getElementById('listingMessage');
         const photoInput = document.getElementById('photo');
         let photoRemoved = false;
+        let videoPreviewUrl = '';
         let editingId = null;
 
         function updateFarmerHeader() {
@@ -352,7 +354,7 @@
 
             const inventoryBody = document.getElementById('inventoryBody');
             inventoryBody.innerHTML = listings.map(item => `<tr>
-                <td><span class="produce-thumb">${item.image ? `<img src="${item.image}" alt="">` : iconFor(item.category)}</span></td>
+                <td><span class="produce-thumb">${item.image ? `<img src="${item.image}" alt="">` : item.videoUrl ? '▶' : iconFor(item.category)}</span></td>
                 <td><strong>${escapeHtml(item.name)}</strong><br><span style="color:var(--muted)">${escapeHtml(item.category)} · MOQ ${item.minimumOrder} kg</span></td>
                 <td>${Number(item.quantity).toLocaleString('en-KE')} kg</td>
                 <td>KES ${Number(item.price).toLocaleString('en-KE')}</td>
@@ -391,6 +393,13 @@
             photoRemoved = false;
             document.getElementById('photoPreview').hidden = true;
             document.getElementById('photoPreview').removeAttribute('src');
+            const videoPreview = document.getElementById('videoPreview');
+            videoPreview.pause();
+            videoPreview.hidden = true;
+            videoPreview.removeAttribute('src');
+            videoPreview.load();
+            if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+            videoPreviewUrl = '';
             document.getElementById('removePhotoButton').hidden = true;
             document.getElementById('photoMessage').textContent = '';
             document.getElementById('photoMessage').classList.remove('error');
@@ -404,12 +413,15 @@
             const file = photoInput.files[0];
             if (photoRemoved) return null;
             if (!file) return undefined;
-            if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) throw new Error('Choose a PNG, JPEG, or WebP image.');
-            if (file.size > 700 * 1024) throw new Error('Photo must be 700 KB or smaller.');
+            const photoTypes = ['image/png', 'image/jpeg', 'image/webp'];
+            const videoTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
+            if (photoTypes.includes(file.type) && file.size > 700 * 1024) throw new Error('Photo must be 700 KB or smaller.');
+            if (videoTypes.includes(file.type) && file.size > 5 * 1024 * 1024) throw new Error('Video must be 5 MB or smaller.');
+            if (!photoTypes.includes(file.type) && !videoTypes.includes(file.type)) throw new Error('Choose a PNG, JPEG, or WebP photo, or an MP4, WebM, or MOV video.');
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
                 reader.onload = () => resolve(reader.result);
-                reader.onerror = () => reject(new Error('Could not read the selected photo.'));
+                reader.onerror = () => reject(new Error('Could not read the selected media.'));
                 reader.readAsDataURL(file);
             });
         }
@@ -417,24 +429,43 @@
         photoInput.addEventListener('change', () => {
             const file = photoInput.files[0];
             const preview = document.getElementById('photoPreview');
+            const videoPreview = document.getElementById('videoPreview');
             const message = document.getElementById('photoMessage');
             if (!file) return;
-            if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size > 700 * 1024) {
+            const photoTypes = ['image/png', 'image/jpeg', 'image/webp'];
+            const videoTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
+            const isPhoto = photoTypes.includes(file.type);
+            const isVideo = videoTypes.includes(file.type);
+            if ((!isPhoto && !isVideo) || (isPhoto && file.size > 700 * 1024) || (isVideo && file.size > 5 * 1024 * 1024)) {
                 photoInput.value = '';
-                message.textContent = ['image/png', 'image/jpeg', 'image/webp'].includes(file.type)
-                    ? 'Photo must be 700 KB or smaller.'
-                    : 'Choose a PNG, JPEG, or WebP image.';
+                message.textContent = !isPhoto && !isVideo
+                    ? 'Choose a PNG, JPEG, or WebP photo, or an MP4, WebM, or MOV video.'
+                    : isPhoto ? 'Photo must be 700 KB or smaller.' : 'Video must be 5 MB or smaller.';
                 message.classList.add('error');
                 return;
             }
             photoRemoved = false;
-            message.textContent = '';
+            message.textContent = isVideo ? 'Video selected. It will be uploaded with this listing.' : 'Photo selected.';
             message.classList.remove('error');
+            videoPreview.pause();
+            videoPreview.hidden = true;
+            videoPreview.removeAttribute('src');
+            videoPreview.load();
+            if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+            videoPreviewUrl = '';
+            document.getElementById('removePhotoButton').hidden = false;
+            if (isVideo) {
+                preview.hidden = true;
+                preview.removeAttribute('src');
+                videoPreviewUrl = URL.createObjectURL(file);
+                videoPreview.src = videoPreviewUrl;
+                videoPreview.hidden = false;
+                return;
+            }
             const reader = new FileReader();
             reader.onload = () => {
                 preview.src = reader.result;
                 preview.hidden = false;
-                document.getElementById('removePhotoButton').hidden = false;
             };
             reader.onerror = () => {
                 photoInput.value = '';
@@ -448,8 +479,15 @@
             photoRemoved = true;
             document.getElementById('photoPreview').hidden = true;
             document.getElementById('photoPreview').removeAttribute('src');
+            const videoPreview = document.getElementById('videoPreview');
+            videoPreview.pause();
+            videoPreview.hidden = true;
+            videoPreview.removeAttribute('src');
+            videoPreview.load();
+            if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+            videoPreviewUrl = '';
             document.getElementById('removePhotoButton').hidden = true;
-            document.getElementById('photoMessage').textContent = 'Photo removed. You can choose a replacement.';
+            document.getElementById('photoMessage').textContent = 'Product media removed. Choose a replacement if needed.';
             document.getElementById('photoMessage').classList.remove('error');
         });
 
@@ -479,9 +517,11 @@
                     quantity,
                     minimumOrder,
                     price,
-                    location: document.getElementById('location').value.trim(),
-                    image: image === null ? '' : image || (previous && previous.image) || ''
+                    location: document.getElementById('location').value.trim()
                 };
+                if (image === null) listingInput.image = '';
+                else if (image) listingInput.image = image;
+                else if (!previous) listingInput.image = '';
                 const result = await apiRequest(previous ? `/api/listings/${encodeURIComponent(previous.id)}` : '/api/listings', {
                     method: previous ? 'PATCH' : 'POST',
                     body: JSON.stringify(listingInput)
@@ -516,9 +556,25 @@
                     photoRemoved = false;
                     photoInput.value = '';
                     const preview = document.getElementById('photoPreview');
+                    const videoPreview = document.getElementById('videoPreview');
                     preview.hidden = !item.image;
                     if (item.image) preview.src = item.image;
-                    document.getElementById('removePhotoButton').hidden = !item.image;
+                    videoPreview.pause();
+                    videoPreview.hidden = !item.videoUrl;
+                    videoPreview.removeAttribute('src');
+                    if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+                    videoPreviewUrl = '';
+                    if (item.videoUrl) {
+                        fetch(item.videoUrl).then(response => {
+                            if (!response.ok) throw new Error('Could not load the saved video preview.');
+                            return response.blob();
+                        }).then(blob => {
+                            if (editingId !== item.id) return;
+                            videoPreviewUrl = URL.createObjectURL(blob);
+                            videoPreview.src = videoPreviewUrl;
+                        }).catch(() => setMessage('photoMessage', 'Could not load the saved video preview.', true));
+                    }
+                    document.getElementById('removePhotoButton').hidden = !item.image && !item.videoUrl;
                     document.getElementById('listingFormTitle').textContent = `Edit ${item.name}`;
                     document.getElementById('saveListingButton').textContent = 'Save changes';
                     document.getElementById('cancelEditButton').hidden = false;

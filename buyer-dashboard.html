@@ -121,6 +121,9 @@
         .product-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
         .product-title { margin: 0 0 5px; font-size: 17px; }
         .seller { margin: 0; color: var(--muted); font-size: 12px; }
+        .listing-video-button { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; background: var(--surface); color: var(--green-dark); font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
+        .listing-video-button:disabled { opacity: .65; cursor: wait; }
+        .listing-video { display: block; width: 100%; max-height: 250px; margin-top: 9px; border-radius: 9px; background: #111; }
         .verified { color: var(--green); font-weight: 700; white-space: nowrap; }
         .price-row { display: flex; align-items: baseline; gap: 4px; margin: 15px 0 5px; }
         .price { color: var(--green-dark); font-size: 21px; font-weight: 750; }
@@ -283,6 +286,7 @@
         ];
         let currentFilter = 'all';
         let query = '';
+        const productVideoUrls = [];
         const marketNotice = document.getElementById('marketNotice');
 
         document.getElementById('buyerName').textContent = buyer.name;
@@ -339,12 +343,16 @@
             const image = item.image
                 ? `<img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}">`
                 : categoryIcon(item.category);
+            const videoControl = item.videoUrl
+                ? `<button class="listing-video-button" type="button" data-video-id="${escapeHtml(item.id)}">▶ Watch farm video</button><video class="listing-video" controls playsinline preload="none" hidden></video>`
+                : '';
             const isBulk = Number(item.minimumOrder) >= 100;
             return `<article class="product-card">
                 <div class="product-image">${image}<span class="product-category">${escapeHtml(item.category)}</span></div>
                 <div class="product-content">
                     <div class="product-title-row"><div><h3 class="product-title">${escapeHtml(item.name)}</h3>
                         <p class="seller">${escapeHtml(item.sellerName)} <span class="verified">✓ Verified</span></p></div></div>
+                    ${videoControl}
                     <div class="price-row"><span class="price">KES ${Number(item.price).toLocaleString('en-KE')}</span><span class="unit">/ kg</span></div>
                     <div class="product-meta"><span>MOQ: ${Number(item.minimumOrder)} kg${isBulk ? ' · Wholesale' : ''}</span><span>${escapeHtml(item.location)}</span></div>
                     <label class="qty-label" for="qty-${escapeHtml(item.id)}">Quantity (kg)</label>
@@ -358,6 +366,7 @@
             </article>`;
         }
         function renderProducts() {
+            productVideoUrls.splice(0).forEach(url => URL.revokeObjectURL(url));
             const all = getListings();
             const visible = all.filter(item => {
                 const matchesFilter = currentFilter === 'all'
@@ -466,7 +475,29 @@
             query = event.target.value.trim();
             renderProducts();
         });
-        document.getElementById('productGrid').addEventListener('click', event => {
+        document.getElementById('productGrid').addEventListener('click', async event => {
+            const videoButton = event.target.closest('[data-video-id]');
+            if (videoButton) {
+                const player = videoButton.parentElement.querySelector('.listing-video');
+                videoButton.disabled = true;
+                videoButton.textContent = 'Loading video…';
+                try {
+                    const response = await fetch(`/api/listings/${encodeURIComponent(videoButton.dataset.videoId)}/video`);
+                    if (!response.ok) throw new Error('Could not load this product video.');
+                    const videoUrl = URL.createObjectURL(await response.blob());
+                    productVideoUrls.push(videoUrl);
+                    player.src = videoUrl;
+                    player.hidden = false;
+                    videoButton.hidden = true;
+                    await player.play().catch(() => {});
+                } catch (error) {
+                    videoButton.disabled = false;
+                    videoButton.textContent = '▶ Try video again';
+                    marketNotice.textContent = error.message || 'Could not load this product video.';
+                    marketNotice.hidden = false;
+                }
+                return;
+            }
             const addId = event.target.dataset.add;
             const buyId = event.target.dataset.buy;
             if (!addId && !buyId) return;

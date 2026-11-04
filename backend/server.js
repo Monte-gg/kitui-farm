@@ -272,7 +272,11 @@ function publicListing(row) {
     return {
         id: row.id, farmerId: row.farmer_id, sellerName: row.seller_name, name: row.name,
         category: row.category, quantity: row.quantity, minimumOrder: row.minimum_order,
-        price: row.price, location: row.location, image: row.image, createdAt: row.created_at
+        price: row.price, location: row.location,
+        image: /^data:video\/(?:mp4|webm|quicktime);base64,/i.test(row.image || '') ? '' : row.image,
+        videoUrl: /^data:video\/(?:mp4|webm|quicktime);base64,/i.test(row.image || '')
+            ? `/api/listings/${encodeURIComponent(row.id)}/video` : '',
+        createdAt: row.created_at
     };
 }
 
@@ -318,8 +322,13 @@ function validateListing(input, partial = false) {
             result.price = number;
         } else {
             const image = typeof value === 'string' ? value : '';
-            if (image.length > 1000000 || (image && !/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(image))) {
-                return 'image must be a valid PNG, JPEG, or WebP data URL from an image under 700 KB.';
+            const videoMatch = /^data:video\/(mp4|webm|quicktime);base64,([A-Za-z0-9+/]+={0,2})$/i.exec(image);
+            const validPhoto = image.length <= 1000000
+                && /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(image);
+            const validVideo = videoMatch && image.length <= 7100000
+                && Buffer.from(videoMatch[2], 'base64').length <= 5 * 1024 * 1024;
+            if (image && !validPhoto && !validVideo) {
+                return 'Choose a PNG, JPEG, or WebP photo up to 700 KB, or an MP4, WebM, or MOV video up to 5 MB.';
             }
             result.image = image;
         }
@@ -365,7 +374,7 @@ function createApp(options = {}) {
         }
         next();
     });
-    app.use('/api', express.json({ limit: '2mb', strict: true }));
+    app.use('/api', express.json({ limit: '8mb', strict: true }));
 
     async function createSession(user, res, remember) {
         const token = crypto.randomBytes(32).toString('hex');
@@ -546,6 +555,23 @@ function createApp(options = {}) {
         res.json({ settings });
     });
 
+    app.get('/api/listings/:id/video', auth, async (req, res, next) => {
+        try {
+            const row = await store.get('SELECT farmer_id, quantity, image FROM listings WHERE id = ?', [req.params.id]);
+            const match = row && /^data:(video\/(?:mp4|webm|quicktime));base64,([A-Za-z0-9+/]+={0,2})$/i.exec(row.image || '');
+            if (!match || (row.quantity <= 0 && row.farmer_id !== req.user.id)) {
+                return res.status(404).json({ error: 'Product video not found.' });
+            }
+            const video = Buffer.from(match[2], 'base64');
+            res.setHeader('Content-Type', match[1]);
+            res.setHeader('Content-Length', String(video.length));
+            res.setHeader('Cache-Control', 'private, max-age=300');
+            res.end(video);
+        } catch (error) {
+            next(error);
+        }
+    });
+
     app.get('/api/listings', auth, async (req, res) => {
         if (req.query.scope === 'mine' && req.user.role !== 'farmer') return res.status(403).json({ error: 'A farmer account is required.' });
         const rows = req.query.scope === 'mine'
@@ -570,7 +596,7 @@ function createApp(options = {}) {
         if (!current) return res.status(404).json({ error: 'Listing not found.' });
         const patch = validateListing(req.body, true);
         if (typeof patch === 'string') return res.status(400).json({ error: patch });
-        const listing = { ...publicListing(current), ...patch };
+        const listing = { ...publicListing(current), image: current.image || '', ...patch };
         if (listing.quantity > 0 && listing.quantity < listing.minimumOrder) return res.status(400).json({ error: 'Stock must meet the minimum order quantity.' });
         await store.run(`
             UPDATE listings SET name = ?, category = ?, quantity = ?, minimum_order = ?, price = ?, location = ?, image = ?
