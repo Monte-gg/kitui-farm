@@ -9,6 +9,9 @@ const express = require('express');
 
 const ROOT = path.resolve(__dirname, '..');
 const COOKIE = 'kitui_farm_session';
+// Static front ends (for example GitHub Pages) are allowed to call this API.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://monte-gg.github.io')
+    .split(',').map(origin => origin.trim()).filter(Boolean);
 const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_SETTINGS = { theme: 'system', density: 'comfortable', confirmDeletes: true };
 const CATEGORIES = new Set(['Fruits', 'Vegetables', 'Grains & Pulses', 'Roots & Tubers']);
@@ -337,9 +340,17 @@ function createApp(options = {}) {
         if (req.path.startsWith('/api/') && req.headers.origin) {
             let origin;
             try { origin = new URL(req.headers.origin).origin; } catch { return res.status(403).json({ error: 'Invalid request origin.' }); }
-            if (origin !== `${req.protocol}://${req.get('host')}`) {
+            const sameOrigin = origin === `${req.protocol}://${req.get('host')}`;
+            if (ALLOWED_ORIGINS.includes(origin)) {
+                res.setHeader('Access-Control-Allow-Origin', origin);
+                res.setHeader('Vary', 'Origin');
+                res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+                res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+                res.setHeader('Access-Control-Max-Age', '600');
+            } else if (!sameOrigin) {
                 return res.status(403).json({ error: 'Cross-origin requests are not allowed.' });
             }
+            if (req.method === 'OPTIONS') return res.status(204).end();
         }
         next();
     });
@@ -353,10 +364,15 @@ function createApp(options = {}) {
             [tokenHash, user.id, expiresAt]);
         const maxAge = remember ? `; Max-Age=${Math.floor(SESSION_MS / 1000)}` : '';
         res.setHeader('Set-Cookie', `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict${secureCookie}${maxAge}`);
+        return token;
     }
 
     async function auth(req, res, next) {
-        const token = cookies(req.headers.cookie)[COOKIE];
+        // Cookie sessions cover same-origin use; a bearer token covers static
+        // front ends on another origin, where third-party cookies are blocked.
+        const header = req.headers.authorization || '';
+        const bearer = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+        const token = bearer || cookies(req.headers.cookie)[COOKIE];
         if (!token || !/^[a-f0-9]{64}$/.test(token)) return res.status(401).json({ error: 'Please log in to continue.' });
         const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
         const session = await store.get(`
@@ -402,8 +418,8 @@ function createApp(options = {}) {
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             `, [id, name, email, phone, accountRole, salt.toString('hex'), hash.toString('hex'), new Date().toISOString()]);
             const user = await store.get('SELECT * FROM users WHERE id = ?', [id]);
-            await createSession(user, res, Boolean(req.body.remember));
-            res.status(201).json({ user: publicUser(user) });
+            const token = await createSession(user, res, Boolean(req.body.remember));
+            res.status(201).json({ user: publicUser(user), token });
         } catch (error) {
             if (error.errcode === 2067) {
                 return res.status(409).json({ error: 'An account already exists with this email or phone number.' });
@@ -438,8 +454,8 @@ function createApp(options = {}) {
                 return res.status(401).json({ error: 'Email/phone or password is incorrect.' });
             }
             attempts.delete(req.ip);
-            await createSession(user, res, Boolean(req.body.remember));
-            res.json({ user: publicUser(user) });
+            const token = await createSession(user, res, Boolean(req.body.remember));
+            res.json({ user: publicUser(user), token });
         } catch (error) {
             next(error);
         }
@@ -720,6 +736,7 @@ function createApp(options = {}) {
     app.get('/manifest.json', (req, res) => res.sendFile(path.join(PWA_ROOT, 'manifest.json')));
     app.get('/sw.js', (req, res) => res.sendFile(path.join(PWA_ROOT, 'sw.js')));
     app.get('/install.js', (req, res) => res.sendFile(path.join(PWA_ROOT, 'install.js')));
+    app.get('/api-base.js', (req, res) => res.sendFile(path.join(PWA_ROOT, 'api-base.js')));
     app.use('/icons', express.static(path.join(PWA_ROOT, 'icons')));
 
     app.use('/api', (req, res) => res.status(404).json({ error: 'API endpoint not found.' }));

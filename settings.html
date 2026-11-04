@@ -1,15 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <script src="api-base.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#4a8c3f">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <link rel="manifest" href="/manifest.json">
-    <link rel="icon" href="/icons/icon-192x192.png" type="image/png" sizes="192x192">
-    <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
-    <link rel="mask-icon" href="/icons/icon.svg" color="#4a8c3f">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="icons/icon-192x192.png" type="image/png" sizes="192x192">
+    <link rel="apple-touch-icon" href="icons/icon-192x192.png">
+    <link rel="mask-icon" href="icons/icon.svg" color="#4a8c3f">
     <title>App Settings - KITUI FARM</title>
     <script>
         const settingsSession = (() => {
@@ -152,13 +153,12 @@
             <div class="form-actions"><button class="button" type="submit">Save settings</button><button class="button secondary" id="resetSettings" type="button">Reset to defaults</button><p class="message" id="settingsMessage" role="status" aria-live="polite"></p></div>
         </form>
 <section class="get-app" id="getAppBlock" aria-label="Get the KITUI FARM app">
-  <div class="get-app-icon"><img src="/icons/icon-192x192.png" alt="" width="38" height="38"></div>
+  <div class="get-app-icon"><img src="icons/icon-192x192.png" alt="" width="38" height="38"></div>
   <div class="get-app-body">
     <p class="get-app-title">Get the KITUI FARM app</p>
-    <p class="get-app-desc">Add it to your phone’s home screen — it opens full-screen like an app. No app store needed.</p>
-    <p class="get-app-steps"><strong>Android (Chrome):</strong> tap ⋮ → <strong>Add to Home screen</strong>. <strong>iPhone (Safari):</strong> tap Share → <strong>Add to Home Screen</strong>.</p>
+    <p class="get-app-desc">Tap download to install the app on your phone. It opens full-screen like a store app.</p>
   </div>
-  <div class="get-app-actions"><button class="get-app-btn" id="getAppBtn" type="button">Get app</button></div>
+  <div class="get-app-actions"><button class="get-app-btn" id="getAppBtn" type="button">Download app</button></div>
   <p class="get-app-status" id="getAppStatus" hidden></p>
 </section>
 <script>
@@ -166,7 +166,7 @@
   var btn=document.getElementById('getAppBtn');
   var status=document.getElementById('getAppStatus');
   var promptEvent=null;
-  if("serviceWorker" in navigator){ navigator.serviceWorker.register("/sw.js",{scope:"/"}).catch(function(){}); }
+  if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(function(){}); }
   window.addEventListener("beforeinstallprompt",function(e){ e.preventDefault(); promptEvent=e; },[]);
   window.addEventListener("appinstalled",function(){
     if(status){ status.hidden=false; status.textContent="KITUI FARM is installed. Open it from your home screen."; }
@@ -175,10 +175,15 @@
   if(btn){
     btn.addEventListener("click",function(){
       if(promptEvent){
-        promptEvent.prompt().then(function(c){ if(c&&c.outcome==="accepted"&&btn){ btn.textContent="Installing…"; } }).catch(function(){});
+        promptEvent.prompt().then(function(choice){
+          if(choice&&choice.outcome==="accepted"&&btn){ btn.textContent="Installing\u2026"; }
+        }).catch(function(){});
         return;
       }
-      if(status){ status.hidden=false; status.textContent="Use the steps above: Android Chrome → menu ⋮ → Add to Home screen; iPhone Safari → Share → Add to Home Screen."; }
+      if(status){
+        status.hidden=false;
+        status.textContent="In Chrome (Android) tap the menu \u22ee then Add to Home screen; in Safari (iPhone) tap Share then Add to Home Screen.";
+      }
     });
   }
 })();
