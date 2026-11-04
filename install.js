@@ -13,7 +13,7 @@
   }
 
   function hideInstall() {
-    if (block) block.hidden = true;
+    if (block) { block.hidden = true; block.style.setProperty('display', 'none', 'important'); }
     try { localStorage.setItem(installKey, 'yes'); } catch (error) { /* storage may be disabled */ }
   }
 
