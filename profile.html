@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Profile - Kitui Farm Enterprise</title>
+    <script>
+        const profileSession = (() => {
+            try {
+                const session = JSON.parse(localStorage.getItem('kituiFarmSession') || sessionStorage.getItem('kituiFarmSession') || 'null');
+                const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
+                const user = Array.isArray(users) && session ? users.find(account => account.id === session.userId) : null;
+                return user && user.role === session.role ? user : null;
+            } catch {
+                return null;
+            }
+        })();
+        if (!profileSession) window.location.replace('login.html');
+    </script>
+    <script>
+        try {
+            const preferences = JSON.parse(localStorage.getItem(`kituiFarmSettings_${profileSession.id}`) || '{}');
+            const theme = preferences.theme || 'system';
+            document.documentElement.dataset.theme = theme === 'system'
+                ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+                : theme;
+            document.documentElement.dataset.density = preferences.density || 'comfortable';
+        } catch {
+            document.documentElement.dataset.theme = 'light';
+            document.documentElement.dataset.density = 'comfortable';
+        }
+    </script>
+    <style>
+        :root {
+            --green: #4a8c3f; --green-dark: #2d5a27; --green-light: #edf5e9;
+            --ink: #263126; --muted: #6d776c; --line: #e4e9e1; --surface: #fff;
+            --bg: #f5f7f2; --danger: #b42318;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        :root[data-theme="dark"] {
+            --green: #83bd76; --green-dark: #b7dcae; --green-light: #263b27;
+            --ink: #e8eee6; --muted: #a6b1a3; --line: #39453a; --surface: #202820;
+            --bg: #151b15; --danger: #ff9a8f;
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); }
+        button, input { font: inherit; }
+        .topbar { background: var(--surface); border-bottom: 1px solid var(--line); }
+        .topbar-inner, main { width: min(900px, calc(100% - 36px)); margin: auto; }
+        .topbar-inner { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+        .brand { display: flex; align-items: center; gap: 11px; }
+        .brand-mark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--green-light); font-size: 22px; }
+        .brand strong { color: var(--green-dark); }
+        .nav { display: flex; gap: 8px; }
+        .button { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 9px 14px; border: 0; border-radius: 8px; background: var(--green); color: white; font-weight: 650; text-decoration: none; cursor: pointer; }
+        .button:hover { filter: brightness(.94); }
+        .button.secondary { border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+        main { padding: 34px 0 60px; }
+        .eyebrow { margin-bottom: 8px; color: var(--green); font-size: 12px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+        h1 { margin: 0 0 8px; color: var(--green-dark); font-size: clamp(26px, 5vw, 34px); }
+        .intro { margin: 0 0 23px; color: var(--muted); line-height: 1.5; }
+        .card { overflow: hidden; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); box-shadow: 0 3px 14px rgba(34,54,29,.04); }
+        .identity { display: flex; align-items: center; gap: 15px; padding: 23px; border-bottom: 1px solid var(--line); }
+        .avatar { display: grid; place-items: center; width: 62px; height: 62px; border-radius: 50%; background: var(--green-light); color: var(--green-dark); font-size: 24px; font-weight: 750; }
+        .identity h2 { margin: 0 0 4px; font-size: 19px; }
+        .identity p { margin: 0; color: var(--muted); font-size: 13px; }
+        form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px; padding: 23px; }
+        .field { min-width: 0; }
+        .field.full { grid-column: 1 / -1; }
+        label { display: block; margin-bottom: 7px; color: var(--ink); font-size: 13px; font-weight: 650; }
+        input { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+        input:focus { outline: 2px solid #d1e5c7; border-color: var(--green); }
+        input[readonly] { background: var(--bg); color: var(--muted); }
+        .hint { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+        .actions { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+        .message { margin: 0; color: var(--green-dark); font-size: 13px; }
+        .message.error { color: var(--danger); }
+        @media (max-width: 560px) {
+            .topbar-inner, main { width: calc(100% - 28px); }
+            .topbar-inner { min-height: 68px; }
+            .brand strong { font-size: 13px; }
+            .brand-mark { width: 36px; height: 36px; }
+            .nav .button { min-height: 36px; padding: 7px 9px; font-size: 12px; }
+            main { padding-top: 25px; }
+            form { grid-template-columns: 1fr; padding: 18px; }
+            .field.full, .actions { grid-column: auto; }
+            .identity { padding: 18px; }
+        }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <div class="brand"><span class="brand-mark" aria-hidden="true">🌱</span><strong>Kitui Farm Enterprise</strong></div>
+            <nav class="nav" aria-label="Account navigation">
+                <a class="button secondary" id="dashboardLink" href="farmer-dashboard.html">Dashboard</a>
+                <a class="button secondary" href="settings.html">Settings</a>
+            </nav>
+        </div>
+    </header>
+    <main>
+        <p class="eyebrow">Account</p>
+        <h1>My profile</h1>
+        <p class="intro">View and update the details buyers and farmers use to identify and contact you.</p>
+        <section class="card">
+            <div class="identity">
+                <div class="avatar" id="avatar" aria-hidden="true"></div>
+                <div><h2 id="profileHeading"></h2><p id="roleLabel"></p></div>
+            </div>
+            <form id="profileForm" novalidate>
+                <div class="field"><label for="name">Full name</label><input id="name" maxlength="80" required></div>
+                <div class="field"><label for="email">Gmail address</label><input id="email" type="email" readonly><p class="hint">Email address is your login ID and can’t be changed here.</p></div>
+                <div class="field"><label for="phone">Kenyan phone number</label><input id="phone" type="tel" inputmode="tel" placeholder="+254 712345678" required></div>
+                <div class="field"><label for="role">Account type</label><input id="role" readonly></div>
+                <div class="field full"><label for="location" id="locationLabel">Location</label><input id="location" maxlength="120" required></div>
+                <div class="actions"><button class="button" type="submit">Save changes</button><p class="message" id="profileMessage" role="status" aria-live="polite"></p></div>
+            </form>
+        </section>
+    </main>
+    <script>
+        const user = profileSession;
+        const form = document.getElementById('profileForm');
+        const message = document.getElementById('profileMessage');
+        const roleName = user.role === 'farmer' ? 'Farmer' : 'Buyer';
+        const dashboardLink = document.getElementById('dashboardLink');
+
+        dashboardLink.href = user.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
+        document.getElementById('avatar').textContent = user.name.split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase();
+        document.getElementById('profileHeading').textContent = user.name;
+        document.getElementById('roleLabel').textContent = `${roleName} account`;
+        document.getElementById('name').value = user.name;
+        document.getElementById('email').value = user.email;
+        document.getElementById('phone').value = user.phone || '';
+        document.getElementById('role').value = roleName;
+        document.getElementById('location').value = user.location || '';
+        document.getElementById('locationLabel').textContent = user.role === 'farmer' ? 'Farm location' : 'Default delivery location';
+
+        function readArray(key) {
+            const value = JSON.parse(localStorage.getItem(key) || '[]');
+            if (!Array.isArray(value)) throw new Error(`Saved ${key} data is invalid.`);
+            return value;
+        }
+        function saveArray(key, value) {
+            localStorage.setItem(key, JSON.stringify(value));
+        }
+        form.addEventListener('submit', async event => {
+            event.preventDefault();
+            const name = document.getElementById('name').value.trim();
+            const rawPhone = document.getElementById('phone').value.replace(/\D/g, '');
+            let phone = rawPhone;
+            if (phone.startsWith('254')) phone = phone.slice(3);
+            if (phone.startsWith('0')) phone = phone.slice(1);
+            const location = document.getElementById('location').value.trim();
+            if (!name || !/^[17]\d{8}$/.test(phone) || !location) {
+                message.textContent = 'Enter a name, a valid 9-digit Kenyan phone number, and location.';
+                message.classList.add('error');
+                return;
+            }
+            try {
+                const response = await fetch('/api/profile', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, phone: '+254' + phone, location })
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || 'Could not save your profile.');
+                const updatedUser = result.user;
+                const users = readArray('kituiFarmUsers');
+                const account = users.find(item => item.id === user.id);
+                if (!account) throw new Error('Your saved account could not be found.');
+                Object.assign(account, updatedUser);
+                saveArray('kituiFarmUsers', users);
+
+                for (const storage of [localStorage, sessionStorage]) {
+                    const raw = storage.getItem('kituiFarmSession');
+                    if (!raw) continue;
+                    const session = JSON.parse(raw);
+                    if (session.userId === user.id) {
+                        session.name = name;
+                        session.phone = account.phone;
+                        session.location = location;
+                        storage.setItem('kituiFarmSession', JSON.stringify(session));
+                    }
+                }
+
+                if (user.role === 'farmer') {
+                    saveArray('kituiFarmListings', readArray('kituiFarmListings').map(item =>
+                        item.farmerId === user.id ? { ...item, sellerName: name, location } : item));
+                    saveArray('kituiFarmOrders', readArray('kituiFarmOrders').map(order => ({
+                        ...order,
+                        items: order.items.map(line => line.farmerId === user.id ? { ...line, sellerName: name } : line)
+                    })));
+                } else {
+                    saveArray('kituiFarmOrders', readArray('kituiFarmOrders').map(order =>
+                        order.buyerId === user.id ? { ...order, buyerName: name } : order));
+                }
+
+                user.name = name;
+                user.phone = account.phone;
+                user.location = location;
+                document.getElementById('avatar').textContent = name.split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase();
+                document.getElementById('profileHeading').textContent = name;
+                message.textContent = 'Your profile has been updated.';
+                message.classList.remove('error');
+            } catch (error) {
+                message.textContent = error.message || 'Could not save your profile.';
+                message.classList.add('error');
+            }
+        });
+    </script>
+</body>
+</html>

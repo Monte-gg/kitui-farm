@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Marketplace - Kitui Farm Enterprise</title>
+    <script>
+        const dashboardSession = (() => {
+            try {
+                const session = JSON.parse(localStorage.getItem('kituiFarmSession') || sessionStorage.getItem('kituiFarmSession') || 'null');
+                const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
+                const account = Array.isArray(users) && session
+                    ? users.find(user => user.id === session.userId)
+                    : null;
+                return account && account.role === session.role
+                    ? { ...session, name: account.name, phone: account.phone, location: account.location || '' }
+                    : null;
+            } catch {
+                return null;
+            }
+        })();
+        if (!dashboardSession || !dashboardSession.userId) {
+            window.location.replace('login.html');
+        } else if (dashboardSession.role !== 'buyer') {
+            window.location.replace(dashboardSession.role === 'farmer' ? 'farmer-dashboard.html' : 'login.html');
+        }
+    </script>
+    <script>
+        try {
+            const preferences = JSON.parse(localStorage.getItem(`kituiFarmSettings_${dashboardSession.userId}`) || '{}');
+            const theme = preferences.theme || 'system';
+            document.documentElement.dataset.theme = theme === 'system'
+                ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+                : theme;
+            document.documentElement.dataset.density = preferences.density || 'comfortable';
+        } catch {
+            document.documentElement.dataset.theme = 'light';
+            document.documentElement.dataset.density = 'comfortable';
+        }
+    </script>
+    <meta name="theme-color" content="#f5f7f2">
+    <style>
+        :root {
+            --green: #4a8c3f;
+            --green-dark: #2d5a27;
+            --green-light: #edf5e9;
+            --ink: #263126;
+            --muted: #6d776c;
+            --line: #e4e9e1;
+            --surface: #fff;
+            --bg: #f5f7f2;
+            --danger: #b42318;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        :root[data-theme="dark"] {
+            --green: #83bd76;
+            --green-dark: #b7dcae;
+            --green-light: #263b27;
+            --ink: #e8eee6;
+            --muted: #a6b1a3;
+            --line: #39453a;
+            --surface: #202820;
+            --bg: #151b15;
+            --danger: #ff9a8f;
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; background: var(--bg); color: var(--ink); }
+        button, input { font: inherit; }
+        button { -webkit-tap-highlight-color: transparent; }
+        .topbar { position: sticky; z-index: 4; top: 0; background: rgba(255,255,255,.96); border-bottom: 1px solid var(--line); backdrop-filter: blur(10px); }
+        .topbar-inner, .page { width: min(1180px, calc(100% - 40px)); margin: auto; }
+        .topbar-inner { min-height: 78px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+        .brand { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+        .brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; background: var(--green-light); font-size: 23px; }
+        .brand strong { display: block; color: var(--green-dark); font-size: 16px; }
+        .brand small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
+        .header-actions { display: flex; align-items: center; gap: 12px; }
+        .buyer-name { color: #414b40; font-size: 13px; font-weight: 650; }
+        .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 9px; padding: 10px 14px; background: var(--green); color: white; font-weight: 650; cursor: pointer; text-decoration: none; transition: background .18s, transform .18s; }
+        .button:hover { background: #3a7a2a; transform: translateY(-1px); }
+        .button.secondary { background: white; border: 1px solid var(--line); color: var(--ink); }
+        .button.secondary:hover { border-color: var(--green); color: var(--green-dark); }
+        :root[data-theme="dark"] .button.secondary { background: #293329; color: var(--ink); }
+        .cart-menu { position: relative; }
+        .cart-button { position: relative; min-width: 46px; min-height: 42px; padding: 9px 13px; font-size: 17px; }
+        .cart-count { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border: 2px solid white; border-radius: 50px; background: #e27b28; color: white; font-size: 10px; font-weight: 750; }
+        .page { padding: 30px 0 56px; }
+        .hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 22px; margin-bottom: 22px; }
+        h1, h2, p { margin-top: 0; }
+        h1 { margin-bottom: 8px; color: var(--green-dark); font-size: clamp(26px, 4vw, 34px); letter-spacing: -.6px; }
+        h2 { margin-bottom: 5px; font-size: 20px; }
+        .subheading { margin: 0; color: var(--muted); }
+        .location { display: inline-flex; align-items: center; gap: 6px; margin-top: 8px; color: var(--muted); font-size: 13px; }
+        .search-box { display: flex; gap: 8px; width: min(100%, 560px); padding: 6px; border: 1px solid var(--line); border-radius: 12px; background: white; box-shadow: 0 3px 12px rgba(34,54,29,.04); }
+        .search-box input { flex: 1; min-width: 0; border: 0; outline: 0; padding: 9px 11px; color: var(--ink); font-size: 14px; }
+        .search-box input::placeholder { color: #99a196; }
+        :root[data-theme="dark"] .search-box,
+        :root[data-theme="dark"] .filter-button,
+        :root[data-theme="dark"] .cart-panel { background: var(--surface); color: var(--ink); }
+        :root[data-theme="dark"] .search-box input { background: transparent; color: var(--ink); }
+        .section-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin: 25px 0 14px; }
+        .section-head p { margin: 0; color: var(--muted); font-size: 13px; }
+        .filters { display: flex; flex-wrap: wrap; gap: 9px; margin-bottom: 19px; }
+        .filter-button { border: 1px solid var(--line); border-radius: 999px; padding: 9px 14px; background: white; color: #536050; font-size: 13px; font-weight: 600; cursor: pointer; transition: .18s; }
+        .filter-button:hover, .filter-button.active { border-color: var(--green); background: var(--green); color: white; }
+        :root[data-theme="dark"] .filter-button { color: var(--ink); }
+        .product-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 17px; }
+        .product-card { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 3px 12px rgba(34,54,29,.035); }
+        .product-image { display: grid; place-items: center; position: relative; height: 170px; overflow: hidden; background: linear-gradient(140deg, #f1f7e9, #e1eed9); font-size: 64px; }
+        :root[data-theme="dark"] .product-image { background: linear-gradient(140deg, #283729, #354937); }
+        .product-image img { width: 100%; height: 100%; object-fit: cover; }
+        .product-category { position: absolute; top: 12px; left: 12px; border-radius: 50px; padding: 6px 9px; background: rgba(255,255,255,.93); color: var(--green-dark); font-size: 11px; font-weight: 700; }
+        :root[data-theme="dark"] .product-category { background: #202820; }
+        .product-content { padding: 15px; }
+        .product-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+        .product-title { margin: 0 0 5px; font-size: 17px; }
+        .seller { margin: 0; color: var(--muted); font-size: 12px; }
+        .verified { color: var(--green); font-weight: 700; white-space: nowrap; }
+        .price-row { display: flex; align-items: baseline; gap: 4px; margin: 15px 0 5px; }
+        .price { color: var(--green-dark); font-size: 21px; font-weight: 750; }
+        .unit { color: var(--muted); font-size: 12px; }
+        .product-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 12px; }
+        .qty-label { display: block; margin-top: 13px; color: #4d594a; font-size: 11px; font-weight: 650; }
+        .qty-input { width: 105px; height: 35px; margin-top: 5px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; }
+        :root[data-theme="dark"] .qty-input, :root[data-theme="dark"] .cart-address { background: #202820; color: var(--ink); }
+        .product-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 13px; }
+        .product-actions .button { padding: 9px 8px; font-size: 12px; }
+        .payment-note { margin: 8px 0 0; color: var(--muted); font-size: 10px; text-align: center; }
+        .empty-state, .notice { padding: 25px; border: 1px dashed #d5dfd0; border-radius: 12px; color: var(--muted); text-align: center; background: rgba(255,255,255,.6); }
+        .notice { margin-top: 15px; border-style: solid; text-align: left; }
+        .panel { margin-top: 27px; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: white; }
+        .panel-header { padding: 18px 20px; border-bottom: 1px solid var(--line); }
+        .panel-header p { margin: 0; color: var(--muted); font-size: 13px; }
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; text-align: left; }
+        th, td { padding: 13px 15px; border-bottom: 1px solid #edf0eb; white-space: nowrap; font-size: 13px; }
+        th { background: #fbfcfa; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .045em; text-transform: uppercase; }
+        tbody tr:last-child td { border-bottom: 0; }
+        .status-pill { display: inline-flex; border-radius: 999px; padding: 5px 9px; background: #fff6e8; color: #985b08; font-size: 11px; font-weight: 650; }
+        .cart-panel { position: absolute; z-index: 5; top: calc(100% + 8px); right: 0; width: min(390px, calc(100vw - 28px)); padding: 17px; border: 1px solid var(--line); border-radius: 13px; background: white; box-shadow: 0 12px 35px rgba(27,48,22,.15); }
+        :root[data-theme="dark"] .topbar { background: rgba(32,40,32,.96); }
+        :root[data-theme="dark"] th { background: #252e25; }
+        :root[data-density="compact"] .page { padding-top: 20px; }
+        :root[data-density="compact"] .product-grid { gap: 12px; }
+        :root[data-density="compact"] .product-content { padding: 12px; }
+        :root[data-density="compact"] .panel-header { padding: 14px 17px; }
+        :root[data-density="compact"] th, :root[data-density="compact"] td { padding-top: 9px; padding-bottom: 9px; }
+        .cart-panel-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+        .cart-panel-header h2 { margin: 0; }
+        .cart-close { padding: 5px 9px; font-size: 12px; }
+        .cart-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid #edf0eb; font-size: 13px; }
+        .cart-line strong { display: block; }
+        .cart-line small { color: var(--muted); }
+        .cart-footer { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+        .cart-address { width: 100%; margin: 0 0 10px; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+        .cart-total { display: flex; justify-content: space-between; margin-bottom: 12px; font-size: 14px; font-weight: 700; }
+        .cart-footer .button { width: 100%; }
+        [hidden] { display: none !important; }
+        @media (max-width: 900px) { .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+        @media (max-width: 680px) {
+            .topbar-inner, .page { width: min(100% - 28px, 1180px); }
+            .topbar-inner { min-height: 70px; flex-wrap: wrap; padding: 10px 0; }
+            .buyer-name { display: none; }
+            .header-actions { flex-wrap: wrap; justify-content: flex-end; }
+            .hero { align-items: flex-start; flex-direction: column; }
+            .search-box { width: 100%; }
+            .product-image { height: 145px; }
+        }
+        @media (max-width: 480px) {
+            .product-grid { grid-template-columns: 1fr; }
+            .product-image { height: 185px; }
+            .section-head { align-items: flex-start; flex-direction: column; }
+            .brand strong { font-size: 14px; }
+            .brand-mark { width: 38px; height: 38px; }
+            .header-actions { gap: 7px; }
+            .header-actions .button.secondary { padding: 9px; font-size: 12px; }
+        }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true">🌱</span>
+                <span><strong>Kitui Farm Enterprise</strong><small>Fresh from local farms</small></span>
+            </div>
+            <div class="header-actions">
+                <span class="buyer-name" id="buyerName"></span>
+                <a class="button secondary" href="profile.html">My Profile</a>
+                <a class="button secondary" href="settings.html">Settings</a>
+                <div class="cart-menu" id="cartMenu">
+                    <button class="button secondary cart-button" id="cartToggle" type="button" aria-label="Open shopping cart" aria-expanded="false" aria-controls="cartPanel">
+                        🛒 <span class="cart-count" id="cartCount">0</span>
+                    </button>
+                    <aside class="cart-panel" id="cartPanel" hidden aria-label="Shopping cart">
+                        <div class="cart-panel-header">
+                            <h2>Your cart</h2>
+                            <button class="button secondary cart-close" id="cartClose" type="button" aria-label="Close shopping cart">Close</button>
+                        </div>
+                        <div id="cartContents"></div>
+                        <div class="cart-footer" id="cartFooter" hidden>
+                            <label class="qty-label" for="deliveryAddress">Delivery address</label>
+                            <input class="cart-address" id="deliveryAddress" maxlength="120">
+                            <div class="cart-total"><span>Estimated total</span><span id="cartTotal">KES 0</span></div>
+                            <button class="button" id="checkoutButton" type="button">Continue to payment</button>
+                            <p class="payment-note">Choose cash or a digital payment method on the next step.</p>
+                        </div>
+                    </aside>
+                </div>
+                <button class="button secondary" id="logoutButton" type="button">Log out</button>
+            </div>
+        </div>
+    </header>
+    <main class="page">
+        <section class="hero">
+            <div>
+                <h1>Good food, closer to home.</h1>
+                <p class="subheading">Discover fresh produce direct from Kitui farmers.</p>
+                <span class="location" id="buyerLocation">📍 Delivery area: Kitui County</span>
+            </div>
+            <form class="search-box" id="searchForm" role="search">
+                <input id="searchInput" type="search" placeholder="Search crops, farmers, or locations..." aria-label="Search produce">
+                <button class="button" type="submit">Search</button>
+            </form>
+        </section>
+
+        <section aria-labelledby="marketTitle">
+            <div class="section-head">
+                <div><h2 id="marketTitle">Explore produce</h2><p id="resultCount">Fresh picks from verified local sellers.</p></div>
+            </div>
+            <div class="filters" role="group" aria-label="Filter by category">
+                <button class="filter-button active" type="button" data-filter="all">All Produce</button>
+                <button class="filter-button" type="button" data-filter="Grains &amp; Pulses">Grains &amp; Pulses</button>
+                <button class="filter-button" type="button" data-filter="Fruits">Fresh Fruits</button>
+                <button class="filter-button" type="button" data-filter="Vegetables">Vegetables</button>
+                <button class="filter-button" type="button" data-filter="Roots &amp; Tubers">Roots &amp; Tubers</button>
+                <button class="filter-button" type="button" data-filter="bulk">Bulk / Wholesale Only</button>
+            </div>
+            <div class="product-grid" id="productGrid"></div>
+            <div class="empty-state" id="productsEmpty" hidden>No produce matches your search. Try another crop or category.</div>
+            <p class="notice" id="marketNotice" role="status" aria-live="polite" hidden></p>
+        </section>
+
+        <section class="panel" aria-labelledby="ordersTitle">
+            <div class="panel-header"><h2 id="ordersTitle">Your orders</h2><p>Follow order progress from local farms to your door.</p></div>
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Order ID</th><th>Ordered at</th><th>Farmer</th><th>Items</th><th>Payment</th><th>Dispatch status</th><th>Estimated delivery</th><th>Total paid</th><th>Action</th></tr></thead>
+                    <tbody id="orderHistory"></tbody>
+                </table>
+                <div class="empty-state" id="ordersEmpty">You haven’t placed an order yet. Your order history will appear here.</div>
+            </div>
+        </section>
+    </main>
+    <script>
+        const buyer = dashboardSession;
+        const sampleListings = [
+            { id: 'demo-ndengu', farmerId: 'demo-farmer-1', sellerName: 'Samuel Mutua', name: 'Green Grams (Ndengu)', category: 'Grains & Pulses', quantity: 420, minimumOrder: 10, price: 180, location: 'Mutomo, Kitui South', image: '', createdAt: new Date().toISOString() },
+            { id: 'demo-mangoes', farmerId: 'demo-farmer-2', sellerName: 'Grace Nduku', name: 'Ripe Mangoes', category: 'Fruits', quantity: 160, minimumOrder: 5, price: 90, location: 'Kitui Central', image: '', createdAt: new Date().toISOString() },
+            { id: 'demo-watermelon', farmerId: 'demo-farmer-3', sellerName: 'Peter Muli', name: 'Watermelon', category: 'Fruits', quantity: 700, minimumOrder: 100, price: 55, location: 'Mwingi', image: '', createdAt: new Date().toISOString() },
+            { id: 'demo-cassava', farmerId: 'demo-farmer-4', sellerName: 'Mary Kilonzo', name: 'Fresh Cassava', category: 'Roots & Tubers', quantity: 250, minimumOrder: 20, price: 75, location: 'Mutomo', image: '', createdAt: new Date().toISOString() },
+            { id: 'demo-tomatoes', farmerId: 'demo-farmer-5', sellerName: 'David Musau', name: 'Garden Tomatoes', category: 'Vegetables', quantity: 85, minimumOrder: 5, price: 110, location: 'Kitui Central', image: '', createdAt: new Date().toISOString() },
+            { id: 'demo-beans', farmerId: 'demo-farmer-6', sellerName: 'Lilian Wambua', name: 'Rose Coco Beans', category: 'Grains & Pulses', quantity: 300, minimumOrder: 100, price: 210, location: 'Mwingi North', image: '', createdAt: new Date().toISOString() }
+        ];
+        let currentFilter = 'all';
+        let query = '';
+        const marketNotice = document.getElementById('marketNotice');
+
+        document.getElementById('buyerName').textContent = buyer.name;
+        document.getElementById('buyerLocation').textContent = `📍 Delivery area: ${buyer.location || 'Kitui County'}`;
+        const savedDraft = (() => {
+            try {
+                return JSON.parse(localStorage.getItem(`kituiFarmCheckoutDraft_${buyer.userId}`) || 'null');
+            } catch {
+                return null;
+            }
+        })();
+        document.getElementById('deliveryAddress').value = savedDraft && savedDraft.buyerId === buyer.userId
+            ? savedDraft.address
+            : buyer.location || 'Kitui County';
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+        }
+        function readArray(key, fallback = []) {
+            const raw = localStorage.getItem(key);
+            if (!raw) return fallback;
+            const value = JSON.parse(raw);
+            if (!Array.isArray(value)) throw new Error(`Saved ${key} data is invalid.`);
+            return value;
+        }
+        function writeArray(key, value) {
+            localStorage.setItem(key, JSON.stringify(value));
+        }
+        async function apiRequest(url, options = {}) {
+            const response = await fetch(url, {
+                ...options,
+                headers: {
+                    ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+                    ...options.headers
+                }
+            });
+            const result = response.status === 204 ? null : await response.json();
+            if (!response.ok) throw new Error(result && result.error || 'The server request failed.');
+            return result;
+        }
+        function initializeListings() {
+            if (!localStorage.getItem('kituiFarmListings')) writeArray('kituiFarmListings', sampleListings);
+        }
+        function getListings() {
+            return readArray('kituiFarmListings').filter(listing => Number(listing.quantity) > 0);
+        }
+        function getCart() {
+            return readArray('kituiFarmCart');
+        }
+        function categoryIcon(category) {
+            return category === 'Fruits' ? '🍉' : category === 'Vegetables' ? '🥬' : category === 'Roots & Tubers' ? '🥔' : '🌾';
+        }
+        function productCard(item) {
+            const image = item.image
+                ? `<img src="${escapeHtml(item.image)}" alt="${escapeHtml(item.name)}">`
+                : categoryIcon(item.category);
+            const isBulk = Number(item.minimumOrder) >= 100;
+            return `<article class="product-card">
+                <div class="product-image">${image}<span class="product-category">${escapeHtml(item.category)}</span></div>
+                <div class="product-content">
+                    <div class="product-title-row"><div><h3 class="product-title">${escapeHtml(item.name)}</h3>
+                        <p class="seller">${escapeHtml(item.sellerName)} <span class="verified">✓ Verified</span></p></div></div>
+                    <div class="price-row"><span class="price">KES ${Number(item.price).toLocaleString('en-KE')}</span><span class="unit">/ kg</span></div>
+                    <div class="product-meta"><span>MOQ: ${Number(item.minimumOrder)} kg${isBulk ? ' · Wholesale' : ''}</span><span>${escapeHtml(item.location)}</span></div>
+                    <label class="qty-label" for="qty-${escapeHtml(item.id)}">Quantity (kg)</label>
+                    <input class="qty-input" id="qty-${escapeHtml(item.id)}" data-quantity="${escapeHtml(item.id)}" type="number" min="${Number(item.minimumOrder)}" max="${Number(item.quantity)}" step="1" value="${Number(item.minimumOrder)}">
+                    <div class="product-actions">
+                        <button class="button secondary" type="button" data-add="${escapeHtml(item.id)}">Add to Cart</button>
+                        <button class="button" type="button" data-buy="${escapeHtml(item.id)}">Buy</button>
+                    </div>
+                    <p class="payment-note">Continue to choose cash or a digital payment option.</p>
+                </div>
+            </article>`;
+        }
+        function renderProducts() {
+            const all = getListings();
+            const visible = all.filter(item => {
+                const matchesFilter = currentFilter === 'all'
+                    || (currentFilter === 'bulk' ? Number(item.minimumOrder) >= 100 : item.category === currentFilter);
+                const haystack = `${item.name} ${item.location} ${item.sellerName} ${item.category}`.toLowerCase();
+                return matchesFilter && haystack.includes(query.toLowerCase());
+            });
+            document.getElementById('productGrid').innerHTML = visible.map(productCard).join('');
+            document.getElementById('productsEmpty').hidden = visible.length > 0;
+            document.getElementById('resultCount').textContent = `${visible.length} fresh listing${visible.length === 1 ? '' : 's'} from verified local sellers.`;
+        }
+        function renderCart() {
+            const listings = readArray('kituiFarmListings');
+            const cart = getCart();
+            const items = cart.map(line => ({ ...line, product: listings.find(item => item.id === line.productId) })).filter(line => line.product);
+            document.getElementById('cartCount').textContent = String(items.reduce((sum, line) => sum + line.quantity, 0));
+            document.getElementById('cartFooter').hidden = items.length === 0;
+            document.getElementById('cartContents').innerHTML = items.length ? items.map(line => `
+                <div class="cart-line"><span><strong>${escapeHtml(line.product.name)} · ${line.quantity} kg</strong><small>KES ${(line.product.price * line.quantity).toLocaleString('en-KE')}</small></span>
+                <button class="button secondary" type="button" data-remove="${escapeHtml(line.productId)}" aria-label="Remove ${escapeHtml(line.product.name)} from cart">Remove</button></div>`).join('')
+                : '<p class="subheading">Your cart is empty. Add produce to get started.</p>';
+            const total = items.reduce((sum, line) => sum + line.product.price * line.quantity, 0);
+            document.getElementById('cartTotal').textContent = `KES ${total.toLocaleString('en-KE')}`;
+        }
+        function renderOrders() {
+            const orders = readArray('kituiFarmOrders').filter(order => order.buyerId === buyer.userId).slice().reverse();
+            document.getElementById('orderHistory').innerHTML = orders.map(order => {
+                const sellers = [...new Set(order.items.map(item => item.sellerName))].join(', ');
+                const products = order.items.map(item => `${escapeHtml(item.name)} × ${item.quantity} kg`).join('<br>');
+                const dispatch = order.status === 'Dispatched' ? `In transit from ${escapeHtml(order.items[0].location)}` : escapeHtml(order.status);
+                const paid = order.paymentStatus === 'Paid' ? `KES ${Number(order.total).toLocaleString('en-KE')}` : '—';
+                const orderedAt = order.createdAt ? new Date(order.createdAt).toLocaleString('en-KE', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+                return `<tr><td>${escapeHtml(order.id)}</td><td>${escapeHtml(orderedAt)}</td><td>${escapeHtml(sellers)}</td><td>${products}</td>
+                    <td>${escapeHtml(order.paymentMethod || 'Not recorded')}${order.paymentStatus ? `<br><small>${escapeHtml(order.paymentStatus)}</small>` : ''}</td><td><span class="status-pill">${dispatch}</span></td>
+                    <td>${escapeHtml(order.estimatedDelivery)}</td><td>${paid}</td>
+                    <td><button class="button secondary" type="button" data-delete-order="${escapeHtml(order.id)}">Delete</button></td></tr>`;
+            }).join('');
+            document.getElementById('ordersEmpty').hidden = orders.length > 0;
+        }
+        function render() {
+            renderProducts();
+            renderCart();
+            renderOrders();
+        }
+        function chosenQuantity(id) {
+            const listing = readArray('kituiFarmListings').find(item => item.id === id);
+            const input = document.querySelector(`[data-quantity="${CSS.escape(id)}"]`);
+            if (!listing || !input) throw new Error('That produce listing is no longer available.');
+            const quantity = Number(input.value);
+            if (!Number.isInteger(quantity) || quantity < listing.minimumOrder || quantity > listing.quantity) {
+                throw new Error(`Choose between ${listing.minimumOrder} kg and ${listing.quantity} kg.`);
+            }
+            return { listing, quantity };
+        }
+        function addToCart(id) {
+            const { listing, quantity } = chosenQuantity(id);
+            const cart = getCart();
+            const line = cart.find(item => item.productId === id);
+            const nextQuantity = (line ? line.quantity : 0) + quantity;
+            if (nextQuantity > listing.quantity) throw new Error(`Only ${listing.quantity} kg of ${listing.name} is available.`);
+            if (nextQuantity < listing.minimumOrder) throw new Error(`Minimum order is ${listing.minimumOrder} kg.`);
+            if (line) line.quantity = nextQuantity;
+            else cart.push({ productId: id, quantity });
+            writeArray('kituiFarmCart', cart);
+            marketNotice.textContent = `${quantity} kg of ${listing.name} added to your cart.`;
+            marketNotice.hidden = false;
+            renderCart();
+        }
+        function beginCheckout(cartLines, source) {
+            const listings = readArray('kituiFarmListings');
+            const lines = cartLines.map(line => {
+                const product = listings.find(item => item.id === line.productId);
+                if (!product || !Number.isInteger(Number(line.quantity))
+                    || line.quantity < product.minimumOrder || line.quantity > product.quantity) {
+                    throw new Error('A cart item is no longer available in the requested quantity. Please review your cart.');
+                }
+                return { productId: product.id, quantity: Number(line.quantity) };
+            });
+            if (!lines.length) throw new Error('Your cart is empty.');
+            const address = document.getElementById('deliveryAddress').value.trim();
+            if (!address) throw new Error('Enter a delivery address before placing your order.');
+            localStorage.setItem(`kituiFarmCheckoutDraft_${buyer.userId}`, JSON.stringify({
+                buyerId: buyer.userId,
+                checkoutId: crypto.randomUUID(),
+                lines,
+                address,
+                source,
+                createdAt: new Date().toISOString()
+            }));
+            window.location.href = 'payment.html';
+        }
+
+        document.querySelector('.filters').addEventListener('click', event => {
+            const button = event.target.closest('[data-filter]');
+            if (!button) return;
+            currentFilter = button.dataset.filter;
+            document.querySelectorAll('.filter-button').forEach(item => item.classList.toggle('active', item === button));
+            renderProducts();
+        });
+        document.getElementById('searchForm').addEventListener('submit', event => {
+            event.preventDefault();
+            query = document.getElementById('searchInput').value.trim();
+            renderProducts();
+        });
+        document.getElementById('searchInput').addEventListener('input', event => {
+            query = event.target.value.trim();
+            renderProducts();
+        });
+        document.getElementById('productGrid').addEventListener('click', event => {
+            const addId = event.target.dataset.add;
+            const buyId = event.target.dataset.buy;
+            if (!addId && !buyId) return;
+            try {
+                const id = addId || buyId;
+                const { listing, quantity } = chosenQuantity(id);
+                if (addId) addToCart(id);
+                else beginCheckout([{ productId: listing.id, quantity }], 'single');
+            } catch (error) {
+                marketNotice.textContent = error.message || 'Could not add that item.';
+                marketNotice.hidden = false;
+            }
+        });
+        const cartMenu = document.getElementById('cartMenu');
+        const cartToggle = document.getElementById('cartToggle');
+        const cartPanel = document.getElementById('cartPanel');
+        const setCartOpen = open => {
+            cartPanel.hidden = !open;
+            cartToggle.setAttribute('aria-expanded', String(open));
+            if (open) renderCart();
+        };
+        document.getElementById('cartClose').addEventListener('click', () => {
+            setCartOpen(false);
+        });
+        cartMenu.addEventListener('focusout', event => {
+            if (!cartMenu.contains(event.relatedTarget)) setCartOpen(false);
+        });
+        cartToggle.addEventListener('click', () => setCartOpen(cartPanel.hidden));
+        cartMenu.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && !cartPanel.hidden) {
+                setCartOpen(false);
+                cartToggle.focus();
+            }
+        });
+        document.addEventListener('click', event => {
+            if (!cartMenu.contains(event.target) && !cartPanel.hidden) setCartOpen(false);
+        });
+        document.getElementById('cartContents').addEventListener('click', event => {
+            const id = event.target.dataset.remove;
+            if (!id) return;
+            try {
+                writeArray('kituiFarmCart', getCart().filter(item => item.productId !== id));
+                renderCart();
+            } catch (error) {
+                marketNotice.textContent = error.message || 'Could not update your cart.';
+                marketNotice.hidden = false;
+            }
+        });
+        document.getElementById('checkoutButton').addEventListener('click', () => {
+            try {
+                beginCheckout(getCart(), 'cart');
+            } catch (error) {
+                marketNotice.textContent = error.message || 'Could not place demo order.';
+                marketNotice.hidden = false;
+            }
+        });
+        document.getElementById('orderHistory').addEventListener('click', async event => {
+            const orderId = event.target.dataset.deleteOrder;
+            if (!orderId || (getBuyerSettings().confirmDeletes && !window.confirm(`Delete order ${orderId} from your order history?`))) return;
+            try {
+                const orders = readArray('kituiFarmOrders');
+                const order = orders.find(item => item.id === orderId && item.buyerId === buyer.userId);
+                if (!order) throw new Error('That order was not found in your account.');
+                const restock = ['Pending', 'Cash on delivery', 'Payment pending (demo)'].includes(order.status);
+                await apiRequest(`/api/orders/${encodeURIComponent(orderId)}`, { method: 'DELETE' });
+                writeArray('kituiFarmOrders', orders.filter(item => item.id !== orderId || item.buyerId !== buyer.userId));
+                const listingResult = await apiRequest('/api/listings');
+                writeArray('kituiFarmListings', listingResult.listings);
+                marketNotice.textContent = restock
+                    ? 'Order deleted. Its unpaid produce quantities have been returned to inventory.'
+                    : 'Order deleted from your history. Completed or dispatched stock was not returned.';
+                marketNotice.hidden = false;
+                render();
+            } catch (error) {
+                marketNotice.textContent = error.message || 'Could not delete the order.';
+                marketNotice.hidden = false;
+            }
+        });
+        function getBuyerSettings() {
+            const settings = JSON.parse(localStorage.getItem(`kituiFarmSettings_${buyer.userId}`) || '{}');
+            return { confirmDeletes: settings.confirmDeletes !== false };
+        }
+        document.getElementById('logoutButton').addEventListener('click', async () => {
+            try {
+                await apiRequest('/api/auth/logout', { method: 'POST' });
+            } catch (error) {
+                marketNotice.textContent = error.message || 'Could not end your server session.';
+                marketNotice.hidden = false;
+                return;
+            }
+            localStorage.removeItem('kituiFarmSession');
+            sessionStorage.removeItem('kituiFarmSession');
+            window.location.replace('login.html');
+        });
+        window.addEventListener('storage', event => {
+            if (event.key === `kituiFarmSettings_${buyer.userId}`) {
+                try {
+                    const preferences = JSON.parse(localStorage.getItem(`kituiFarmSettings_${buyer.userId}`) || '{}');
+                    const theme = preferences.theme || 'system';
+                    document.documentElement.dataset.theme = theme === 'system'
+                        ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+                        : theme;
+                    document.documentElement.dataset.density = preferences.density || 'comfortable';
+                } catch (error) {
+                    marketNotice.textContent = error.message || 'Could not apply updated settings.';
+                    marketNotice.hidden = false;
+                }
+                return;
+            }
+            if (['kituiFarmListings', 'kituiFarmOrders'].includes(event.key)) {
+                try {
+                    render();
+                } catch (error) {
+                    marketNotice.textContent = error.message || 'Could not refresh marketplace data.';
+                    marketNotice.hidden = false;
+                }
+            }
+        });
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', event => {
+            try {
+                const preferences = JSON.parse(localStorage.getItem(`kituiFarmSettings_${buyer.userId}`) || '{}');
+                if (!preferences.theme || preferences.theme === 'system') {
+                    document.documentElement.dataset.theme = event.matches ? 'dark' : 'light';
+                }
+            } catch (error) {
+                marketNotice.textContent = error.message || 'Could not apply system theme.';
+                marketNotice.hidden = false;
+            }
+        });
+
+        try {
+            initializeListings();
+            render();
+        } catch (error) {
+            marketNotice.textContent = error.message || 'Could not load the marketplace.';
+            marketNotice.hidden = false;
+        }
+        (async () => {
+            try {
+                const [listingResult, orderResult] = await Promise.all([
+                    apiRequest('/api/listings'),
+                    apiRequest('/api/orders')
+                ]);
+                writeArray('kituiFarmListings', listingResult.listings);
+                writeArray('kituiFarmOrders', orderResult.orders);
+                render();
+            } catch (error) {
+                marketNotice.textContent = error.message || 'Could not load marketplace data from the server.';
+                marketNotice.hidden = false;
+            }
+        })();
+    </script>
+</body>
+</html>

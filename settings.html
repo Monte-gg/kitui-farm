@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>App Settings - Kitui Farm Enterprise</title>
+    <script>
+        const settingsSession = (() => {
+            try {
+                const session = JSON.parse(localStorage.getItem('kituiFarmSession') || sessionStorage.getItem('kituiFarmSession') || 'null');
+                const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
+                const user = Array.isArray(users) && session ? users.find(account => account.id === session.userId) : null;
+                return user && user.role === session.role ? user : null;
+            } catch {
+                return null;
+            }
+        })();
+        if (!settingsSession) window.location.replace('login.html');
+    </script>
+    <script>
+        try {
+            const preferences = JSON.parse(localStorage.getItem(`kituiFarmSettings_${settingsSession.id}`) || '{}');
+            const theme = preferences.theme || 'system';
+            document.documentElement.dataset.theme = theme === 'system'
+                ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+                : theme;
+            document.documentElement.dataset.density = preferences.density || 'comfortable';
+        } catch {
+            document.documentElement.dataset.theme = 'light';
+            document.documentElement.dataset.density = 'comfortable';
+        }
+    </script>
+    <style>
+        :root {
+            --green: #4a8c3f; --green-dark: #2d5a27; --green-light: #edf5e9;
+            --ink: #263126; --muted: #6d776c; --line: #e4e9e1; --surface: #fff;
+            --bg: #f5f7f2; --danger: #b42318;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        :root[data-theme="dark"] {
+            --green: #83bd76; --green-dark: #b7dcae; --green-light: #263b27;
+            --ink: #e8eee6; --muted: #a6b1a3; --line: #39453a; --surface: #202820;
+            --bg: #151b15; --danger: #ff9a8f;
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); }
+        button, select { font: inherit; }
+        .topbar { background: var(--surface); border-bottom: 1px solid var(--line); }
+        .topbar-inner, main { width: min(900px, calc(100% - 36px)); margin: auto; }
+        .topbar-inner { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+        .brand { display: flex; align-items: center; gap: 11px; }
+        .brand-mark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--green-light); font-size: 22px; }
+        .brand strong { color: var(--green-dark); }
+        .nav { display: flex; gap: 8px; }
+        .button { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 9px 14px; border: 0; border-radius: 8px; background: var(--green); color: white; font-weight: 650; text-decoration: none; cursor: pointer; }
+        .button:hover { filter: brightness(.94); }
+        .button.secondary { border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+        main { padding: 34px 0 60px; }
+        .eyebrow { margin-bottom: 8px; color: var(--green); font-size: 12px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+        h1 { margin: 0 0 8px; color: var(--green-dark); font-size: clamp(26px, 5vw, 34px); }
+        .intro { margin: 0 0 23px; color: var(--muted); line-height: 1.5; }
+        .card { overflow: hidden; margin-bottom: 16px; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); box-shadow: 0 3px 14px rgba(34,54,29,.04); }
+        .card-heading { padding: 20px 22px 0; }
+        .card-heading h2 { margin: 0 0 5px; font-size: 18px; }
+        .card-heading p { margin: 0; color: var(--muted); font-size: 13px; }
+        .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 20px 22px; border-top: 1px solid var(--line); }
+        .card-heading + .setting-row { margin-top: 17px; }
+        .setting-copy strong { display: block; margin-bottom: 4px; font-size: 14px; }
+        .setting-copy small { color: var(--muted); font-size: 12px; line-height: 1.45; }
+        select { min-width: 170px; min-height: 40px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+        .switch { position: relative; flex: 0 0 44px; width: 44px; height: 25px; }
+        .switch input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+        .slider { position: absolute; inset: 0; border-radius: 99px; background: #b9c3b6; cursor: pointer; transition: .2s; }
+        .slider::before { position: absolute; left: 3px; bottom: 3px; width: 19px; height: 19px; border-radius: 50%; background: white; content: ""; transition: .2s; }
+        .switch input:checked + .slider { background: var(--green); }
+        .switch input:checked + .slider::before { transform: translateX(19px); }
+        .switch input:focus-visible + .slider { outline: 3px solid #b9d8ae; outline-offset: 2px; }
+        .form-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 13px; margin-top: 20px; }
+        .message { margin: 0; color: var(--green-dark); font-size: 13px; }
+        @media (max-width: 560px) {
+            .topbar-inner, main { width: calc(100% - 28px); }
+            .topbar-inner { min-height: 68px; }
+            .brand strong { font-size: 13px; }
+            .brand-mark { width: 36px; height: 36px; }
+            .nav .button { min-height: 36px; padding: 7px 9px; font-size: 12px; }
+            main { padding-top: 25px; }
+            .setting-row { align-items: flex-start; padding: 17px; }
+            select { min-width: 132px; }
+            .card-heading { padding: 18px 17px 0; }
+        }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <div class="brand"><span class="brand-mark" aria-hidden="true">🌱</span><strong>Kitui Farm Enterprise</strong></div>
+            <nav class="nav" aria-label="Account navigation">
+                <a class="button secondary" id="dashboardLink" href="farmer-dashboard.html">Dashboard</a>
+                <a class="button secondary" href="profile.html">My Profile</a>
+            </nav>
+        </div>
+    </header>
+    <main>
+        <p class="eyebrow">Preferences</p>
+        <h1>App settings</h1>
+        <p class="intro">Adjust how Kitui Farm Enterprise looks and behaves on this account.</p>
+        <form id="settingsForm">
+            <section class="card">
+                <div class="card-heading"><h2>Appearance</h2><p>Choose the display that works best for you.</p></div>
+                <div class="setting-row">
+                    <div class="setting-copy"><strong>Color theme</strong><small>Use your device theme or choose light or dark mode.</small></div>
+                    <select id="theme" name="theme"><option value="system">System default</option><option value="light">Light</option><option value="dark">Dark</option></select>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-copy"><strong>Compact layout</strong><small>Reduce spacing in dashboard cards and tables.</small></div>
+                    <label class="switch"><input id="compact" type="checkbox"><span class="slider"></span></label>
+                </div>
+            </section>
+            <section class="card">
+                <div class="card-heading"><h2>Actions</h2><p>Manage safety prompts for changes to your account’s data.</p></div>
+                <div class="setting-row">
+                    <div class="setting-copy"><strong>Confirm before deleting</strong><small>Ask before removing your listings or orders. Order deletion may return unpaid stock to inventory.</small></div>
+                    <label class="switch"><input id="confirmDeletes" type="checkbox"><span class="slider"></span></label>
+                </div>
+            </section>
+            <div class="form-actions"><button class="button" type="submit">Save settings</button><button class="button secondary" id="resetSettings" type="button">Reset to defaults</button><p class="message" id="settingsMessage" role="status" aria-live="polite"></p></div>
+        </form>
+    </main>
+    <script>
+        const storageKey = `kituiFarmSettings_${settingsSession.id}`;
+        const form = document.getElementById('settingsForm');
+        const message = document.getElementById('settingsMessage');
+        const dashboardLink = document.getElementById('dashboardLink');
+        dashboardLink.href = settingsSession.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
+
+        function readSettings() {
+            const stored = JSON.parse(localStorage.getItem(storageKey) || '{}');
+            return {
+                theme: ['system', 'light', 'dark'].includes(stored.theme) ? stored.theme : 'system',
+                density: stored.density === 'compact' ? 'compact' : 'comfortable',
+                confirmDeletes: stored.confirmDeletes !== false
+            };
+        }
+        function applyTheme(theme) {
+            const effective = theme === 'system'
+                ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+                : theme;
+            document.documentElement.dataset.theme = effective;
+        }
+        function showSettings(settings) {
+            document.getElementById('theme').value = settings.theme;
+            document.getElementById('compact').checked = settings.density === 'compact';
+            document.getElementById('confirmDeletes').checked = settings.confirmDeletes;
+        }
+
+        const currentSettings = readSettings();
+        showSettings(currentSettings);
+        document.documentElement.dataset.density = currentSettings.density;
+        (async () => {
+            try {
+                const response = await fetch('/api/settings');
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || 'Could not load account settings.');
+                localStorage.setItem(storageKey, JSON.stringify(result.settings));
+                showSettings(result.settings);
+                applyTheme(result.settings.theme);
+                document.documentElement.dataset.density = result.settings.density;
+                message.classList.remove('error');
+            } catch (error) {
+                message.textContent = error.message || 'Could not load account settings.';
+                message.classList.add('error');
+            }
+        })();
+        document.getElementById('theme').addEventListener('change', event => applyTheme(event.target.value));
+        document.getElementById('compact').addEventListener('change', event => {
+            document.documentElement.dataset.density = event.target.checked ? 'compact' : 'comfortable';
+        });
+        form.addEventListener('submit', async event => {
+            event.preventDefault();
+            const settings = {
+                theme: document.getElementById('theme').value,
+                density: document.getElementById('compact').checked ? 'compact' : 'comfortable',
+                confirmDeletes: document.getElementById('confirmDeletes').checked
+            };
+            try {
+                const response = await fetch('/api/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(settings)
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || 'Could not save settings.');
+                localStorage.setItem(storageKey, JSON.stringify(settings));
+                applyTheme(settings.theme);
+                document.documentElement.dataset.density = settings.density;
+                message.textContent = 'Settings saved for this account.';
+                message.classList.remove('error');
+            } catch (error) {
+                message.textContent = error.message || 'Could not save settings.';
+            }
+        });
+        document.getElementById('resetSettings').addEventListener('click', async () => {
+            const defaults = { theme: 'system', density: 'comfortable', confirmDeletes: true };
+            showSettings(defaults);
+            applyTheme(defaults.theme);
+            document.documentElement.dataset.density = defaults.density;
+            try {
+                const response = await fetch('/api/settings', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(defaults)
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || 'Could not reset settings.');
+                localStorage.setItem(storageKey, JSON.stringify(defaults));
+                message.textContent = 'Settings reset to defaults.';
+                message.classList.remove('error');
+            } catch (error) {
+                message.textContent = error.message || 'Could not reset settings.';
+            }
+        });
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+            if (document.getElementById('theme').value === 'system') applyTheme('system');
+        });
+    </script>
+</body>
+</html>

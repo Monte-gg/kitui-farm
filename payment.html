@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment - Kitui Farm Enterprise</title>
+    <script>
+        const paymentSession = (() => {
+            try {
+                const session = JSON.parse(localStorage.getItem('kituiFarmSession') || sessionStorage.getItem('kituiFarmSession') || 'null');
+                const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
+                const user = Array.isArray(users) && session ? users.find(account => account.id === session.userId) : null;
+                return user && user.role === 'buyer' ? user : null;
+            } catch {
+                return null;
+            }
+        })();
+        if (!paymentSession) window.location.replace('login.html');
+        else if (!localStorage.getItem(`kituiFarmCheckoutDraft_${paymentSession.id}`)) window.location.replace('buyer-dashboard.html');
+    </script>
+    <script>
+        try {
+            const preferences = JSON.parse(localStorage.getItem(`kituiFarmSettings_${paymentSession ? paymentSession.id : ''}`) || '{}');
+            const theme = preferences.theme || 'system';
+            document.documentElement.dataset.theme = theme === 'system'
+                ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+                : theme;
+            document.documentElement.dataset.density = preferences.density || 'comfortable';
+        } catch {
+            document.documentElement.dataset.theme = 'light';
+            document.documentElement.dataset.density = 'comfortable';
+        }
+    </script>
+    <style>
+        :root {
+            --green: #4a8c3f; --green-dark: #2d5a27; --green-light: #edf5e9;
+            --ink: #263126; --muted: #6d776c; --line: #e4e9e1; --surface: #fff;
+            --bg: #f5f7f2; --danger: #b42318;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        :root[data-theme="dark"] {
+            --green: #83bd76; --green-dark: #b7dcae; --green-light: #263b27;
+            --ink: #e8eee6; --muted: #a6b1a3; --line: #39453a; --surface: #202820;
+            --bg: #151b15; --danger: #ff9a8f;
+        }
+        * { box-sizing: border-box; }
+        body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); }
+        button, input { font: inherit; }
+        .topbar { background: var(--surface); border-bottom: 1px solid var(--line); }
+        .topbar-inner, main { width: min(940px, calc(100% - 36px)); margin: auto; }
+        .topbar-inner { min-height: 74px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+        .brand { display: flex; align-items: center; gap: 11px; }
+        .brand-mark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--green-light); font-size: 22px; }
+        .brand strong { color: var(--green-dark); }
+        .button { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 10px 15px; border: 0; border-radius: 9px; background: var(--green); color: #fff; font-weight: 650; text-decoration: none; cursor: pointer; }
+        .button:hover { filter: brightness(.94); }
+        .button.secondary { border: 1px solid var(--line); background: var(--surface); color: var(--ink); }
+        main { padding: 32px 0 55px; }
+        h1 { margin: 0 0 8px; color: var(--green-dark); font-size: clamp(26px, 5vw, 34px); }
+        h2 { margin: 0 0 7px; font-size: 18px; }
+        .intro { margin: 0 0 23px; color: var(--muted); line-height: 1.5; }
+        .layout { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 18px; align-items: start; }
+        .card { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 3px 14px rgba(34,54,29,.04); }
+        .card-heading { padding: 19px 20px; border-bottom: 1px solid var(--line); }
+        .card-heading p { margin: 0; color: var(--muted); font-size: 13px; }
+        .card-body { padding: 19px 20px; }
+        .choice { display: flex; align-items: flex-start; gap: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; }
+        .choice + .choice { margin-top: 10px; }
+        .choice:has(input:checked) { border-color: var(--green); background: var(--green-light); }
+        .choice input { margin-top: 3px; accent-color: var(--green); }
+        .choice strong { display: block; margin-bottom: 3px; font-size: 14px; }
+        .choice small { display: block; color: var(--muted); line-height: 1.45; }
+        .providers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin: 13px 0 16px; }
+        .provider { position: relative; }
+        .provider input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+        .provider span { display: grid; place-items: center; min-height: 54px; padding: 8px; border: 1px solid var(--line); border-radius: 9px; color: var(--ink); font-size: 12px; font-weight: 650; text-align: center; cursor: pointer; }
+        .provider input:checked + span { border-color: var(--green); background: var(--green-light); color: var(--green-dark); }
+        .provider input:focus-visible + span { outline: 2px solid var(--green); }
+        .field { margin-top: 14px; }
+        .field label { display: block; margin-bottom: 7px; font-size: 13px; font-weight: 650; }
+        .field input { width: 100%; min-height: 43px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+        .field input:focus { outline: 2px solid #d1e5c7; border-color: var(--green); }
+        .hint { margin: 7px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+        .summary-line { display: flex; justify-content: space-between; gap: 12px; padding: 11px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+        .summary-line:last-child { border-bottom: 0; }
+        .summary-line strong { text-align: right; }
+        .summary-total { margin-top: 8px; padding-top: 15px; border-top: 1px solid var(--line); font-size: 16px; font-weight: 750; }
+        .address-field { margin-top: 17px; }
+        .address-field input { width: 100%; min-height: 43px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+        .form-actions { margin-top: 18px; }
+        .form-actions .button { width: 100%; }
+        .message { margin: 13px 0 0; color: var(--green-dark); font-size: 13px; line-height: 1.5; }
+        .message.error { color: var(--danger); }
+        .demo-note { margin: 13px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+        [hidden] { display: none !important; }
+        :root[data-theme="dark"] .topbar { background: var(--surface); }
+        :root[data-density="compact"] .card-heading, :root[data-density="compact"] .card-body { padding: 15px; }
+        @media (max-width: 720px) { .layout { grid-template-columns: 1fr; } }
+        @media (max-width: 480px) {
+            .topbar-inner, main { width: calc(100% - 28px); }
+            .topbar-inner { min-height: 66px; }
+            .brand strong { font-size: 13px; }
+            .brand-mark { width: 36px; height: 36px; }
+            main { padding-top: 25px; }
+            .card-body, .card-heading { padding: 16px; }
+            .providers { gap: 6px; }
+            .provider span { font-size: 11px; }
+        }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <div class="brand"><span class="brand-mark" aria-hidden="true">🌱</span><strong>Kitui Farm Enterprise</strong></div>
+            <button class="button secondary" id="backButton" type="button">← Back to shop</button>
+        </div>
+    </header>
+    <main>
+        <h1>Choose how to pay</h1>
+        <p class="intro">Review your order and choose cash or a phone/digital payment option.</p>
+        <div class="layout">
+            <section class="card">
+                <div class="card-heading"><h2>Payment method</h2><p>Choose a payment option for this order.</p></div>
+                <div class="card-body">
+                    <form id="paymentForm">
+                        <label class="choice">
+                            <input type="radio" name="paymentMode" value="cash" checked>
+                            <span><strong>Cash</strong><small>Pay cash when your order is delivered.</small></span>
+                        </label>
+                        <label class="choice">
+                            <input type="radio" name="paymentMode" value="phone">
+                            <span><strong>Phone or digital payment</strong><small>Select M-PESA, Airtel Money, or bank transfer.</small></span>
+                        </label>
+                        <div id="digitalOptions" hidden>
+                            <p class="hint">Select your phone or bank payment option:</p>
+                            <div class="providers" role="group" aria-label="Phone or digital payment provider">
+                                <label class="provider"><input type="radio" name="provider" value="M-PESA"><span>M-PESA</span></label>
+                                <label class="provider"><input type="radio" name="provider" value="Airtel Money"><span>Airtel Money</span></label>
+                                <label class="provider"><input type="radio" name="provider" value="Bank transfer"><span>Bank</span></label>
+                            </div>
+                            <div class="field" id="phoneField" hidden>
+                                <label for="paymentPhone">Mobile money phone number</label>
+                                <input id="paymentPhone" type="tel" inputmode="tel" placeholder="+254 712345678">
+                                <p class="hint">Enter the number registered with your M-PESA or Airtel Money wallet.</p>
+                            </div>
+                            <p class="hint" id="bankHint" hidden>Choose your bank in your own banking app. No bank account details or funds are collected here.</p>
+                        </div>
+                        <p class="demo-note">This is a local demo. No mobile money or bank payment is initiated or verified.</p>
+                        <div class="form-actions"><button class="button" type="submit" id="confirmButton">Place cash-on-delivery order</button></div>
+                        <p class="message" id="paymentMessage" role="status" aria-live="polite"></p>
+                    </form>
+                </div>
+            </section>
+            <aside class="card">
+                <div class="card-heading"><h2>Order summary</h2><p id="itemCount"></p></div>
+                <div class="card-body">
+                    <div id="summaryItems"></div>
+                    <div class="summary-line"><span>Delivery address</span><strong id="summaryAddress"></strong></div>
+                    <div class="address-field">
+                        <label for="deliveryAddress">Edit delivery address</label>
+                        <input id="deliveryAddress" maxlength="120" required>
+                    </div>
+                    <div class="summary-line summary-total"><span>Total</span><strong id="summaryTotal">KES 0</strong></div>
+                </div>
+            </aside>
+        </div>
+    </main>
+    <script>
+        const buyer = paymentSession || { id: '' };
+        const draftKey = `kituiFarmCheckoutDraft_${buyer.id}`;
+        const paymentMessage = document.getElementById('paymentMessage');
+        let draft;
+
+        function readArray(key) {
+            const value = JSON.parse(localStorage.getItem(key) || '[]');
+            if (!Array.isArray(value)) throw new Error(`Saved ${key} data is invalid.`);
+            return value;
+        }
+        function writeArray(key, value) {
+            localStorage.setItem(key, JSON.stringify(value));
+        }
+        async function apiRequest(url, options = {}) {
+            const response = await fetch(url, {
+                ...options,
+                headers: {
+                    ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+                    ...options.headers
+                }
+            });
+            const result = response.status === 204 ? null : await response.json();
+            if (!response.ok) throw new Error(result && result.error || 'The server request failed.');
+            return result;
+        }
+        function escapeHtml(value) {
+            return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+        }
+        function getDraftLines() {
+            const listings = readArray('kituiFarmListings');
+            return draft.lines.map(line => {
+                const product = listings.find(item => item.id === line.productId);
+                if (!product || !Number.isInteger(Number(line.quantity))
+                    || Number(line.quantity) < Number(product.minimumOrder)
+                    || Number(line.quantity) > Number(product.quantity)) {
+                    throw new Error('Some produce is no longer available in the requested quantity. Go back to the shop and review your order.');
+                }
+                return { product, quantity: Number(line.quantity) };
+            });
+        }
+        function renderSummary() {
+            const lines = getDraftLines();
+            const total = lines.reduce((sum, line) => sum + line.product.price * line.quantity, 0);
+            document.getElementById('summaryItems').innerHTML = lines.map(line => `
+                <div class="summary-line"><span>${escapeHtml(line.product.name)} · ${line.quantity} kg</span>
+                <strong>KES ${(line.product.price * line.quantity).toLocaleString('en-KE')}</strong></div>`).join('');
+            document.getElementById('itemCount').textContent = `${lines.length} item${lines.length === 1 ? '' : 's'}`;
+            document.getElementById('summaryAddress').textContent = draft.address;
+            document.getElementById('deliveryAddress').value = draft.address;
+            document.getElementById('summaryTotal').textContent = `KES ${total.toLocaleString('en-KE')}`;
+        }
+        function updatePaymentOptions() {
+            const mode = document.querySelector('input[name="paymentMode"]:checked').value;
+            const provider = document.querySelector('input[name="provider"]:checked');
+            document.getElementById('digitalOptions').hidden = mode !== 'phone';
+            document.getElementById('phoneField').hidden = mode !== 'phone' || !provider || provider.value === 'Bank transfer';
+            document.getElementById('bankHint').hidden = mode !== 'phone' || !provider || provider.value !== 'Bank transfer';
+            document.getElementById('confirmButton').textContent = mode === 'cash'
+                ? 'Place cash-on-delivery order'
+                : 'Confirm demo order';
+        }
+        function returnToShop() {
+            if (draft && localStorage.getItem(draftKey)) {
+                draft.address = document.getElementById('deliveryAddress').value.trim() || draft.address;
+                localStorage.setItem(draftKey, JSON.stringify(draft));
+            }
+            window.location.href = 'buyer-dashboard.html';
+        }
+        document.getElementById('backButton').addEventListener('click', returnToShop);
+        document.querySelectorAll('input[name="paymentMode"], input[name="provider"]').forEach(input =>
+            input.addEventListener('change', updatePaymentOptions));
+
+        document.getElementById('paymentForm').addEventListener('submit', async event => {
+            event.preventDefault();
+            paymentMessage.textContent = '';
+            paymentMessage.classList.remove('error');
+            try {
+                const address = document.getElementById('deliveryAddress').value.trim();
+                if (!address) throw new Error('Enter a delivery address.');
+                const lines = getDraftLines();
+                const mode = document.querySelector('input[name="paymentMode"]:checked').value;
+                const providerInput = document.querySelector('input[name="provider"]:checked');
+                let paymentMethod = 'Cash on delivery';
+                if (mode === 'phone') {
+                    if (!providerInput) throw new Error('Choose M-PESA, Airtel Money, or bank transfer.');
+                    paymentMethod = `${providerInput.value} (demo)`;
+                    if (providerInput.value !== 'Bank transfer') {
+                        const rawPhone = document.getElementById('paymentPhone').value.replace(/\D/g, '');
+                        let phoneDigits = rawPhone;
+                        if (phoneDigits.startsWith('254')) phoneDigits = phoneDigits.slice(3);
+                        if (phoneDigits.startsWith('0')) phoneDigits = phoneDigits.slice(1);
+                        if (!/^[17]\d{8}$/.test(phoneDigits)) throw new Error('Enter a valid Kenyan mobile number with 9 digits after +254.');
+                    }
+                }
+                const result = await apiRequest('/api/orders', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        checkoutId: draft.checkoutId,
+                        items: lines.map(line => ({ productId: line.product.id, quantity: line.quantity })),
+                        address,
+                        paymentMethod
+                    })
+                });
+                const createdOrders = result.orders;
+                const confirmedTotal = createdOrders.reduce((sum, order) => sum + Number(order.total), 0);
+                paymentMessage.textContent = `Order ${createdOrders.map(order => order.id).join(', ')} placed for KES ${confirmedTotal.toLocaleString('en-KE')}. ${mode === 'phone' ? 'Payment was not processed; this is a demo order.' : 'Pay cash when the order is delivered.'}`;
+                paymentMessage.classList.remove('error');
+                document.getElementById('confirmButton').disabled = true;
+                document.getElementById('confirmButton').textContent = 'Order placed';
+                document.getElementById('backButton').textContent = 'Return to shop';
+                try {
+                    const orders = readArray('kituiFarmOrders');
+                    for (const order of createdOrders) {
+                        if (!orders.some(saved => saved.id === order.id)) orders.push(order);
+                    }
+                    writeArray('kituiFarmOrders', orders);
+                    if (draft.source === 'cart') writeArray('kituiFarmCart', []);
+                    draft.address = address;
+                    localStorage.removeItem(draftKey);
+                } catch (error) {
+                    paymentMessage.textContent += ` Your order is saved on the server, but this page could not update its local cache: ${error.message}`;
+                }
+                try {
+                    const listingResult = await apiRequest('/api/listings');
+                    writeArray('kituiFarmListings', listingResult.listings);
+                } catch (error) {
+                    paymentMessage.textContent += ` Current stock could not be refreshed: ${error.message}`;
+                }
+            } catch (error) {
+                paymentMessage.textContent = error.message || 'Could not place the order.';
+                paymentMessage.classList.add('error');
+            }
+        });
+
+        (async () => {
+            try {
+                const listingResult = await apiRequest('/api/listings');
+                writeArray('kituiFarmListings', listingResult.listings);
+            } catch (error) {
+                paymentMessage.textContent = error.message || 'Could not load current marketplace data.';
+                paymentMessage.classList.add('error');
+                document.getElementById('confirmButton').disabled = true;
+                return;
+            }
+        try {
+            draft = JSON.parse(localStorage.getItem(draftKey) || 'null');
+            if (!draft || draft.buyerId !== buyer.id || !Array.isArray(draft.lines) || !draft.lines.length) {
+                throw new Error('Your checkout could not be found. Return to the marketplace and try again.');
+            }
+            renderSummary();
+            updatePaymentOptions();
+            document.getElementById('paymentPhone').value = buyer.phone || '';
+        } catch (error) {
+            paymentMessage.textContent = error.message || 'Could not load your order.';
+            paymentMessage.classList.add('error');
+            document.getElementById('confirmButton').disabled = true;
+        }
+        })();
+    </script>
+</body>
+</html>
