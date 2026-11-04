@@ -52,8 +52,10 @@ Tests always use in-memory SQLite, so `npm test` needs no credentials. Both engi
 
 1. Create a project at [supabase.com](https://supabase.com).
 2. In the SQL Editor, open a new query, paste `backend/supabase/schema.sql` and run it. It creates every table and index, seeds the demo listings, and enables row level security.
-3. In Project Settings, Database, Connection string, copy the URI into `backend/.env` as `DATABASE_URL=postgresql://...` (start from `backend/.env.example`).
+3. In Project Settings, Database, Connection string, copy the URI into `backend/.env` as `DATABASE_URL=postgresql://...` (start from `backend/.env.example`). Replace `[YOUR-PASSWORD]` with the database password.
 4. Run `npm.cmd start`. Accounts, listings and orders now live in Supabase.
+
+`npm start` and `npm test` load `backend/.env` automatically through Node's `--env-file-if-exists`, so `DATABASE_URL` takes effect without exporting it in the shell. The publishable (`sb_publishable_...`) key is not used by this backend and must not be substituted for `DATABASE_URL`.
 
 The API uses `pg` rather than `@supabase/supabase-js` on purpose: checkout must reserve stock and create orders atomically, and PostgREST cannot run a multi-statement transaction. Keep `DATABASE_URL` on the server only, because it contains the database password and that connection bypasses row level security; no browser code should ever hold it. The publishable/anon key is not used by this app at all.
 
