@@ -69,7 +69,11 @@
         .intro { margin: 0 0 23px; color: var(--muted); line-height: 1.5; }
         .card { overflow: hidden; border: 1px solid var(--line); border-radius: 15px; background: var(--surface); box-shadow: 0 3px 14px rgba(34,54,29,.04); }
         .identity { display: flex; align-items: center; gap: 15px; padding: 23px; border-bottom: 1px solid var(--line); }
-        .avatar { display: grid; place-items: center; width: 62px; height: 62px; border-radius: 50%; background: var(--green-light); color: var(--green-dark); font-size: 24px; font-weight: 750; }
+        .avatar { display: grid; place-items: center; width: 62px; height: 62px; flex: 0 0 62px; overflow: hidden; border-radius: 50%; background: var(--green-light); color: var(--green-dark); font-size: 24px; font-weight: 750; }
+        .avatar img { width: 100%; height: 100%; object-fit: cover; }
+        .button[hidden] { display: none !important; }
+        .photo-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+        .photo-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; clip-path: inset(50%); }
         .identity h2 { margin: 0 0 4px; font-size: 19px; }
         .identity p { margin: 0; color: var(--muted); font-size: 13px; }
         form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px; padding: 23px; }
@@ -113,7 +117,7 @@
         <section class="card">
             <div class="identity">
                 <div class="avatar" id="avatar" aria-hidden="true"></div>
-                <div><h2 id="profileHeading"></h2><p id="roleLabel"></p></div>
+                <div class="identity-details"><h2 id="profileHeading"></h2><p id="roleLabel"></p><div class="photo-actions"><label class="button secondary" for="profilePhotoInput">Add or change photo</label><input class="photo-input" id="profilePhotoInput" type="file" accept="image/png,image/jpeg,image/webp"><button class="button secondary" id="removeProfilePhoto" type="button" hidden>Remove photo</button></div><p class="hint" id="photoMessage" role="status" aria-live="polite">JPG, PNG, or WebP. Your photo is resized before saving.</p></div>
             </div>
             <form id="profileForm" novalidate>
                 <div class="field"><label for="name">Full name</label><input id="name" maxlength="80" required></div>
@@ -133,9 +137,41 @@
         const message = document.getElementById('profileMessage');
         const roleName = user.role === 'farmer' ? 'Farmer' : 'Buyer';
         const dashboardLink = document.getElementById('dashboardLink');
+        const photoInput = document.getElementById('profilePhotoInput');
+        const photoMessage = document.getElementById('photoMessage');
+        const removePhotoButton = document.getElementById('removeProfilePhoto');
+        const photoKey = `kituiFarmProfilePhoto_${user.id}`;
+        let profilePhoto = '';
+        function initials(name) { return String(name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || '?'; }
+        function paintAvatar(photo) {
+            const avatar = document.getElementById('avatar'); avatar.textContent = '';
+            if (photo) { const image = document.createElement('img'); image.src = photo; image.alt = ''; avatar.appendChild(image); }
+            else avatar.textContent = initials(user.name);
+            removePhotoButton.hidden = !photo;
+        }
+        function loadProfilePhoto() {
+            try { profilePhoto = localStorage.getItem(photoKey) || ''; } catch (error) { profilePhoto = ''; }
+            if (!/^data:image\/(?:jpeg|png|webp);base64,/i.test(profilePhoto)) profilePhoto = '';
+            paintAvatar(profilePhoto);
+        }
+        function resizePhoto(file) {
+            return new Promise((resolve, reject) => {
+                const url = URL.createObjectURL(file); const image = new Image();
+                image.onload = () => {
+                    URL.revokeObjectURL(url);
+                    const side = 320; const canvas = document.createElement('canvas'); canvas.width = side; canvas.height = side;
+                    const context = canvas.getContext('2d'); if (!context) { reject(new Error('Could not prepare this photo.')); return; }
+                    const crop = Math.min(image.naturalWidth, image.naturalHeight);
+                    context.drawImage(image, (image.naturalWidth - crop) / 2, (image.naturalHeight - crop) / 2, crop, crop, 0, 0, side, side);
+                    try { resolve(canvas.toDataURL('image/jpeg', 0.82)); } catch (error) { reject(new Error('Could not prepare this photo.')); }
+                };
+                image.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Choose a valid image file.')); };
+                image.src = url;
+            });
+        }
 
         dashboardLink.href = user.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
-        document.getElementById('avatar').textContent = user.name.split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase();
+        loadProfilePhoto();
         document.getElementById('profileHeading').textContent = user.name;
         document.getElementById('roleLabel').textContent = `${roleName} account`;
         document.getElementById('name').value = user.name;
@@ -153,6 +189,24 @@
         function saveArray(key, value) {
             localStorage.setItem(key, JSON.stringify(value));
         }
+        photoInput.addEventListener('change', async () => {
+            const file = photoInput.files && photoInput.files[0]; if (!file) return;
+            if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 8 * 1024 * 1024) {
+                photoMessage.textContent = 'Choose a JPG, PNG, or WebP photo smaller than 8 MB.';
+                photoMessage.classList.add('error'); photoInput.value = ''; return;
+            }
+            photoMessage.textContent = 'Preparing photo…'; photoMessage.classList.remove('error');
+            try {
+                profilePhoto = await resizePhoto(file); localStorage.setItem(photoKey, profilePhoto); paintAvatar(profilePhoto);
+                photoMessage.textContent = 'Profile photo updated.';
+            } catch (error) {
+                photoMessage.textContent = error.message || 'Could not save this photo.'; photoMessage.classList.add('error');
+            } finally { photoInput.value = ''; }
+        });
+        removePhotoButton.addEventListener('click', () => {
+            try { localStorage.removeItem(photoKey); } catch (error) { /* storage may be disabled */ }
+            profilePhoto = ''; paintAvatar(''); photoMessage.textContent = 'Profile photo removed.'; photoMessage.classList.remove('error');
+        });
         form.addEventListener('submit', async event => {
             event.preventDefault();
             const name = document.getElementById('name').value.trim();
@@ -208,7 +262,7 @@
                 user.name = name;
                 user.phone = account.phone;
                 user.location = location;
-                document.getElementById('avatar').textContent = name.split(/\s+/).map(part => part[0]).slice(0, 2).join('').toUpperCase();
+                paintAvatar(profilePhoto);
                 document.getElementById('profileHeading').textContent = name;
                 message.textContent = 'Your profile has been updated.';
                 message.classList.remove('error');

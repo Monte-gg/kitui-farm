@@ -83,7 +83,11 @@
         .brand strong { display: block; color: var(--green-dark); font-size: 16px; }
         .brand small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
         .user-menu { display: flex; align-items: center; gap: 14px; }
-        .user-name { font-weight: 650; }
+                .profile-chip { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--ink); text-decoration: none; }
+        .profile-chip:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; border-radius: 24px; }
+        .profile-chip-avatar { display: grid; place-items: center; width: 38px; height: 38px; flex: 0 0 38px; overflow: hidden; border: 1px solid var(--line); border-radius: 50%; background: var(--green-light); color: var(--green-dark); font-size: 13px; font-weight: 750; }
+        .profile-chip-avatar img { width: 100%; height: 100%; object-fit: cover; }
+        .profile-chip-name { max-width: 145px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
         .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 9px; padding: 11px 16px; background: var(--green); color: white; font-weight: 650; cursor: pointer; text-decoration: none; transition: background .18s, transform .18s; }
         .button:hover { background: #3a7a2a; transform: translateY(-1px); }
         .button.secondary { background: white; border: 1px solid var(--line); color: var(--ink); }
@@ -148,7 +152,8 @@
         @media (max-width: 760px) {
             .topbar-inner, .page { width: min(100% - 28px, 1180px); }
             .topbar-inner { min-height: 72px; }
-            .user-name { display: none; }
+            .profile-chip-avatar { width: 32px; height: 32px; flex-basis: 32px; }
+            .profile-chip-name { max-width: 100px; font-size: 12px; }
             .welcome { align-items: flex-start; flex-direction: column; }
             .metrics { gap: 10px; }
             .metric { padding: 15px; }
@@ -179,8 +184,7 @@
                 <span><strong>KITUI FARM</strong><small>Farmer workspace</small></span>
             </div>
             <div class="user-menu">
-                <span class="user-name" id="headerName"></span>
-                <a class="button secondary" href="profile.html">My Profile</a>
+                <a class="profile-chip" href="profile.html" aria-label="View your profile"><span class="profile-chip-avatar" id="farmerAvatar"></span><span class="profile-chip-name" id="headerName"></span></a>
                 <a class="button secondary" href="settings.html">Settings</a>
                 <button class="button secondary" id="logoutButton" type="button">Log out</button>
             </div>
@@ -264,6 +268,15 @@
 
     </main>
     <script>
+                function renderProfileChip(node, name, userId) {
+            const initials = String(name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || '?';
+            node.textContent = '';
+            let photo = '';
+            try { photo = localStorage.getItem(`kituiFarmProfilePhoto_${userId}`) || ''; } catch (error) { /* storage may be disabled */ }
+            if (/^data:image\/(?:jpeg|png|webp);base64,/i.test(photo)) {
+                const image = document.createElement('img'); image.src = photo; image.alt = ''; node.appendChild(image);
+            } else node.textContent = initials;
+        }
         const farmer = dashboardSession;
         const listingPanel = document.getElementById('listingPanel');
         const listingForm = document.getElementById('listingForm');
@@ -274,6 +287,7 @@
 
         function updateFarmerHeader() {
             document.getElementById('headerName').textContent = farmer.name;
+            renderProfileChip(document.getElementById('farmerAvatar'), farmer.name, farmer.userId);
             document.getElementById('welcomeTitle').textContent = `Welcome back, ${farmer.name.split(' ')[0]}!`;
         }
         updateFarmerHeader();
