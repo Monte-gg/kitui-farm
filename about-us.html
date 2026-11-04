@@ -38,7 +38,7 @@
     <script src="site-only.js" defer></script>
 </head>
 <body>
-    <header class="topbar"><div class="topbar-inner"><a class="brand" href="login.html">🌱 KITUI FARM</a><nav class="nav" aria-label="Main navigation"><a class="button" href="login.html">Log in</a><a class="button primary" href="signup.html">Join KITUI FARM</a></nav></div></header>
+    <header class="topbar"><div class="topbar-inner"><a class="brand" id="brandLink" href="login.html">🌱 KITUI FARM</a><nav class="nav" id="mainNav" aria-label="Main navigation"><a class="button" href="login.html">Log in</a><a class="button primary" href="signup.html">Join KITUI FARM</a></nav></div></header>
     <main>
         <section class="hero">
             <p class="eyebrow">About us</p>
@@ -53,5 +53,26 @@
         </div>
         <section class="closing"><h2>Explore local produce with KITUI FARM</h2><p>Join as a farmer or sign in to browse the marketplace.</p><a class="button primary" href="signup.html">Create an account</a></section>
     </main>
+    <script>
+        try {
+            const session = JSON.parse(localStorage.getItem('kituiFarmSession') || sessionStorage.getItem('kituiFarmSession') || 'null');
+            const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
+            const account = Array.isArray(users) && session ? users.find(user => user.id === session.userId && user.role === session.role) : null;
+            if (account && ['buyer', 'farmer'].includes(account.role)) {
+                const dashboard = account.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
+                const brand = document.getElementById('brandLink');
+                brand.href = dashboard;
+                const back = document.createElement('a');
+                back.className = 'button primary';
+                back.href = dashboard;
+                back.textContent = '← Back to dashboard';
+                const nav = document.getElementById('mainNav');
+                nav.replaceChildren(back);
+                const closingLink = document.querySelector('.closing a');
+                closingLink.href = dashboard;
+                closingLink.textContent = 'Back to my dashboard';
+            }
+        } catch (error) { /* keep public sign-in links available if saved session data is unavailable */ }
+    </script>
 </body>
 </html>
