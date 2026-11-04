@@ -100,6 +100,8 @@
         .panel { margin-bottom: 20px; overflow: hidden; }
         .panel-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 19px 21px; border-bottom: 1px solid var(--line); }
         .panel-header p { margin: 0; color: var(--muted); font-size: 13px; }
+        .panel-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+        .page-alert { margin: 0 0 18px; padding: 12px 15px; border: 1px solid #f4d0ca; border-radius: 10px; background: #fff2f0; color: var(--danger); font-size: 13px; }
         .panel-body { padding: 20px; }
         .listing-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; }
         .field { min-width: 0; }
@@ -177,6 +179,7 @@
         </div>
     </header>
     <main class="page">
+        <p class="page-alert" id="dashboardAlert" role="alert" hidden></p>
         <section class="welcome">
             <div>
                 <h1 id="welcomeTitle">Welcome back!</h1>
@@ -222,7 +225,10 @@
         <section class="panel">
             <div class="panel-header">
                 <div><h2>My produce inventory</h2><p>Keep your available stock up to date.</p></div>
-                <button class="button" type="button" id="addProduceButton">＋ Add new produce</button>
+                <div class="panel-actions">
+                    <p class="form-message" id="inventoryMessage" role="status" aria-live="polite" hidden></p>
+                    <button class="button" type="button" id="addProduceButton">＋ Add new produce</button>
+                </div>
             </div>
             <div class="table-wrap">
                 <table>
@@ -234,7 +240,10 @@
         </section>
 
         <section class="panel">
-            <div class="panel-header"><div><h2>Recent orders &amp; buyer requests</h2><p>Orders containing one of your listed crops.</p></div></div>
+            <div class="panel-header">
+                <div><h2>Recent orders &amp; buyer requests</h2><p>Orders containing one of your listed crops.</p></div>
+                <p class="form-message" id="ordersMessage" role="status" aria-live="polite" hidden></p>
+            </div>
             <div class="table-wrap">
                 <table>
                     <thead><tr><th>Order</th><th>Ordered at</th><th>Buyer</th><th>Items</th><th>Total cost</th><th>Payment</th><th>Delivery address</th><th>Status</th><th>Update status</th></tr></thead>
@@ -284,9 +293,15 @@
         function escapeHtml(value) {
             return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
         }
+        function setMessage(id, message, isError = false) {
+            const element = document.getElementById(id);
+            if (!element) return;
+            element.textContent = message;
+            element.hidden = !message;
+            element.classList.toggle('error', isError);
+        }
         function showMessage(message, isError = false) {
-            listingMessage.textContent = message;
-            listingMessage.classList.toggle('error', isError);
+            setMessage('listingMessage', message, isError);
         }
         function iconFor(category) {
             return category === 'Fruits' ? '🍉' : category === 'Vegetables' ? '🥬' : category === 'Roots & Tubers' ? '🥔' : '🌾';
@@ -294,14 +309,22 @@
         function myListings() {
             return loadData('kituiFarmListings').filter(item => item.farmerId === farmer.userId);
         }
+        function farmerItems(order) {
+            return Array.isArray(order.items) ? order.items.filter(line => line.farmerId === farmer.userId) : [];
+        }
+        function nextStatuses(current) {
+            if (current === 'Packed') return ['Packed', 'Dispatched'];
+            if (current === 'Dispatched') return ['Dispatched', 'Completed'];
+            if (['Cash on delivery', 'Paid', 'Payment pending (demo)'].includes(current)) return [current, 'Packed'];
+            return [current];
+        }
         function render() {
             const listings = myListings();
             const orders = loadData('kituiFarmOrders');
-            const myOrders = orders.filter(order => order.items.some(line => listings.some(item => item.id === line.productId)));
-            const paidEarnings = myOrders.filter(order => order.status === 'Paid')
-                .reduce((sum, order) => sum + order.items.filter(line => listings.some(item => item.id === line.productId))
-                    .reduce((sub, line) => sub + line.quantity * line.price, 0), 0);
-            document.getElementById('earningsMetric').textContent = `KES ${paidEarnings.toLocaleString('en-KE')}`;
+            const myOrders = orders.filter(order => farmerItems(order).length > 0);
+            const earnings = myOrders.filter(order => ['Paid', 'Completed'].includes(order.status))
+                .reduce((sum, order) => sum + farmerItems(order).reduce((sub, line) => sub + line.quantity * line.price, 0), 0);
+            document.getElementById('earningsMetric').textContent = `KES ${earnings.toLocaleString('en-KE')}`;
             const activeCount = listings.filter(item => item.quantity > 0).length;
             const pendingCount = myOrders.filter(order => !['Dispatched', 'Completed', 'Cancelled'].includes(order.status)).length;
             document.getElementById('listingsMetric').textContent = `${activeCount} ${activeCount === 1 ? 'crop' : 'crops'}`;
@@ -319,20 +342,19 @@
             document.getElementById('inventoryEmpty').hidden = listings.length > 0;
 
             const orderRows = myOrders.slice().reverse().map(order => {
-                const relevant = order.items.filter(line => listings.some(item => item.id === line.productId));
+                const relevant = farmerItems(order);
                 const total = relevant.reduce((sum, line) => sum + line.quantity * line.price, 0);
-                const progression = ['Pending', 'Payment pending (demo)', 'Cash on delivery', 'Packed', 'Dispatched', 'Completed'];
-                const statuses = [...progression, 'Cancelled'];
-                const current = statuses.includes(order.status) ? order.status : progression[0];
+                const current = order.status || 'Cash on delivery';
+                const allowed = nextStatuses(current);
                 const orderedAt = order.createdAt ? new Date(order.createdAt).toLocaleString('en-KE', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
                 return `<tr>
                     <td>${escapeHtml(order.id)}</td><td>${escapeHtml(orderedAt)}</td><td>${escapeHtml(order.buyerName)}</td>
                     <td>${relevant.map(line => `${escapeHtml(line.name)} × ${line.quantity} kg`).join('<br>')}</td>
                     <td>KES ${total.toLocaleString('en-KE')}</td><td>${escapeHtml(order.paymentMethod || 'Not recorded')}</td><td>${escapeHtml(order.address)}</td>
                     <td><span class="status-pill">${escapeHtml(current)}</span></td>
-                    <td><select class="order-status-select" data-order="${escapeHtml(order.id)}" aria-label="Update order ${escapeHtml(order.id)} status">
-                        ${statuses.map(status => `<option ${status === current ? 'selected' : ''}>${status}</option>`).join('')}
-                    </select></td>
+                    <td>${allowed.length > 1 ? `<select class="order-status-select" data-order="${escapeHtml(order.id)}" aria-label="Update order ${escapeHtml(order.id)} status">
+                        ${allowed.map(status => `<option ${status === current ? 'selected' : ''}>${status}</option>`).join('')}
+                    </select>` : '—'}</td>
                 </tr>`;
             }).join('');
             document.getElementById('ordersBody').innerHTML = orderRows;
@@ -485,9 +507,10 @@
                     await apiRequest(`/api/listings/${encodeURIComponent(deleteId)}`, { method: 'DELETE' });
                     saveData('kituiFarmListings', listings.filter(item => item.id !== deleteId || item.farmerId !== farmer.userId));
                     render();
+                    setMessage('inventoryMessage', 'Listing deleted.');
                 }
             } catch (error) {
-                showMessage(error.message || 'Could not update inventory.', true);
+                setMessage('inventoryMessage', error.message || 'Could not update inventory.', true);
             }
         });
 
@@ -496,17 +519,18 @@
             try {
                 const orders = loadData('kituiFarmOrders');
                 const order = orders.find(item => item.id === event.target.dataset.order);
-                if (order) {
-                    const result = await apiRequest(`/api/orders/${encodeURIComponent(order.id)}/status`, {
-                        method: 'PATCH',
-                        body: JSON.stringify({ status: event.target.value })
-                    });
-                    Object.assign(order, result.order);
-                    saveData('kituiFarmOrders', orders);
-                    render();
-                }
+                if (!order) return;
+                const result = await apiRequest(`/api/orders/${encodeURIComponent(order.id)}/status`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ status: event.target.value })
+                });
+                Object.assign(order, result.order);
+                saveData('kituiFarmOrders', orders);
+                render();
+                setMessage('ordersMessage', `Order ${order.id} is now ${result.order.status}.`);
             } catch (error) {
-                showMessage(error.message || 'Could not update order status.', true);
+                render();
+                setMessage('ordersMessage', error.message || 'Could not update order status.', true);
             }
         });
         function getFarmerSettings() {
@@ -567,7 +591,7 @@
                 saveData('kituiFarmOrders', orderResult.orders);
                 render();
             } catch (error) {
-                showMessage(error.message || 'Could not load dashboard data.', true);
+                setMessage('dashboardAlert', error.message || 'Could not load dashboard data.', true);
             }
         })();
     </script>

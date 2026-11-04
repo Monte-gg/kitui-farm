@@ -532,7 +532,16 @@ function createApp(options = {}) {
         const canDispatch = req.user.role === 'farmer' && isFarmerOrder && status === 'Dispatched' && order.status === 'Packed';
         const canComplete = req.user.role === 'farmer' && isFarmerOrder && status === 'Completed' && order.status === 'Dispatched';
         if (!canCancel && !canPack && !canDispatch && !canComplete) return res.status(403).json({ error: 'You cannot make that order status change.' });
-        db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, order.id);
+        transaction(() => {
+            db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, order.id);
+            if (status === 'Cancelled') {
+                const items = db.prepare('SELECT product_id, farmer_id, quantity FROM order_items WHERE order_id = ?').all(order.id);
+                for (const item of items) {
+                    db.prepare('UPDATE listings SET quantity = quantity + ? WHERE id = ? AND farmer_id = ?')
+                        .run(item.quantity, item.product_id, item.farmer_id);
+                }
+            }
+        });
         res.json({ order: publicOrder(db, db.prepare('SELECT * FROM orders WHERE id = ?').get(order.id)) });
     });
 

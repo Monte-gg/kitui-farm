@@ -248,3 +248,49 @@ test('rejects cross-origin state changes and expires sessions on logout', async 
     assert.equal((await request('/api/auth/logout', { method: 'POST', cookie: buyer.cookie })).status, 204);
     assert.equal((await request('/api/auth/me', { cookie: buyer.cookie })).status, 401);
 });
+
+test('returns reserved stock when a buyer cancels through the status endpoint', async () => {
+    const farmer = await signup('farmer', 7);
+    const buyer = await signup('buyer', 7);
+    const listingResponse = await request('/api/listings', {
+        method: 'POST',
+        cookie: farmer.cookie,
+        body: {
+            name: 'Sweet Potatoes',
+            category: 'Roots & Tubers',
+            quantity: 30,
+            minimumOrder: 5,
+            price: 40,
+            location: 'Kitui',
+            image: ''
+        }
+    });
+    assert.equal(listingResponse.status, 201);
+    const listing = listingResponse.data.listing;
+    const checkout = await request('/api/orders', {
+        method: 'POST',
+        cookie: buyer.cookie,
+        body: {
+            checkoutId: crypto.randomUUID(),
+            items: [{ productId: listing.id, quantity: 10 }],
+            address: 'Kitui',
+            paymentMethod: 'Cash on delivery'
+        }
+    });
+    assert.equal(checkout.status, 201);
+    const orderId = checkout.data.orders[0].id;
+    const stock = async () => (await request('/api/listings?scope=mine', { cookie: farmer.cookie })).data.listings[0].quantity;
+    assert.equal(await stock(), 20);
+
+    const cancel = await request(`/api/orders/${orderId}/status`, {
+        method: 'PATCH', cookie: buyer.cookie, body: { status: 'Cancelled' }
+    });
+    assert.equal(cancel.status, 200);
+    assert.equal(cancel.data.order.status, 'Cancelled');
+    assert.equal(await stock(), 30);
+
+    assert.equal((await request(`/api/orders/${orderId}/status`, {
+        method: 'PATCH', cookie: buyer.cookie, body: { status: 'Cancelled' }
+    })).status, 403);
+    assert.equal(await stock(), 30);
+});
