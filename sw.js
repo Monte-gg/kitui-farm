@@ -1,7 +1,7 @@
 // Pages are network-first so a new deployment is picked up immediately; static
 // assets are served from cache and refreshed in the background. The API lives on
 // another origin (Render) and is never intercepted.
-const CACHE = 'kitui-farm-v4';
+const CACHE = 'kitui-farm-v5';
 const SHELL = [
   './',
   './login.html',
@@ -23,7 +23,7 @@ const OFFLINE_PAGE = new URL('./login.html', BASE).href;
 
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE).then(cache => cache.addAll(SHELL)).then(() => self.skipWaiting())
+    caches.open(CACHE).then(cache => cache.addAll(SHELL))
   );
 });
 
