@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script src="api-base.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#4a8c3f">
+    <meta name="description" content="Contact KITUI FARM customer service for help with your account, listings, orders, and payments.">
+    <title>Customer Service - KITUI FARM</title>
+    <style>
+        :root { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; --green:#4a8c3f; --dark:#2d5a27; --ink:#263126; --muted:#657064; --line:#e3e9df; --bg:#f5f7f2; --surface:#fff; }
+        * { box-sizing:border-box; }
+        body { margin:0; background:var(--bg); color:var(--ink); line-height:1.6; }
+        .topbar { background:var(--surface); border-bottom:1px solid var(--line); }
+        .topbar-inner, main { width:min(900px, calc(100% - 36px)); margin:auto; }
+        .topbar-inner { min-height:68px; display:flex; align-items:center; justify-content:space-between; gap:14px; }
+        .brand { color:var(--dark); font-size:17px; font-weight:750; text-decoration:none; }
+        .button { display:inline-flex; align-items:center; justify-content:center; min-height:40px; padding:8px 14px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); font:inherit; font-weight:650; text-decoration:none; cursor:pointer; }
+        .button.primary { border-color:var(--green); background:var(--green); color:white; }
+        main { padding:42px 0 64px; }
+        .hero { padding:clamp(25px,5vw,44px); border-radius:18px; background:linear-gradient(135deg,#e7f2e1,#fff 80%); }
+        .eyebrow { margin:0 0 8px; color:var(--green); font-size:13px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
+        h1 { margin:0; color:var(--dark); font-size:clamp(32px,6vw,46px); line-height:1.15; }
+        .lead { max-width:660px; margin:13px 0 0; color:var(--muted); font-size:17px; }
+        .contact { margin-top:19px; padding:24px; border:1px solid var(--line); border-radius:14px; background:var(--surface); }
+        .contact h2, .faq h2 { margin:0 0 8px; color:var(--dark); font-size:22px; }
+        .contact p { margin:0 0 17px; color:var(--muted); }
+        .contact-actions { display:flex; flex-wrap:wrap; gap:10px; }
+        .faq { margin-top:27px; }
+        details { margin-top:10px; padding:16px 18px; border:1px solid var(--line); border-radius:10px; background:var(--surface); }
+        summary { color:var(--ink); font-weight:680; cursor:pointer; }
+        details p { margin:10px 0 0; color:var(--muted); }
+        @media(max-width:520px) { .topbar-inner { min-height:62px; } .button { min-height:37px; padding:7px 11px; font-size:13px; } main { padding-top:26px; } .contact { padding:20px; } }
+    </style>
+    <script src="site-only.js" defer></script>
+</head>
+<body>
+    <header class="topbar"><div class="topbar-inner"><a class="brand" href="login.html">🌱 KITUI FARM</a><a class="button" href="#" id="backLink">← Back</a></div></header>
+    <main>
+        <section class="hero">
+            <p class="eyebrow">Customer service</p>
+            <h1>How can we help?</h1>
+            <p class="lead">Contact our team for help with your account, produce listings, orders, payments, or using the KITUI FARM website.</p>
+        </section>
+        <section class="contact" aria-labelledby="contactTitle">
+            <h2 id="contactTitle">Talk to customer service</h2>
+            <p>Call or message us on WhatsApp. We’ll be glad to help.</p>
+            <div class="contact-actions">
+                <a class="button primary" href="tel:+254114583373">Call 0114 583 373</a>
+                <a class="button" href="https://wa.me/254114583373?text=Hello%20KITUI%20FARM%20Customer%20Service" target="_blank" rel="noopener noreferrer">Message on WhatsApp</a>
+            </div>
+        </section>
+        <section class="faq" aria-labelledby="faqTitle">
+            <h2 id="faqTitle">Common questions</h2>
+            <details><summary>How do I list produce as a farmer?</summary><p>Sign in to your farmer account, open the farmer dashboard, and use the listing form to add produce details and a photo or video.</p></details>
+            <details><summary>How do I place an order?</summary><p>Sign in as a buyer, browse produce on the marketplace, add what you need to your cart, and continue to checkout.</p></details>
+            <details><summary>Who can help with an order or payment?</summary><p>Contact customer service using the call or WhatsApp buttons above and include the order details you need help with.</p></details>
+            <details><summary>How do I update my account details?</summary><p>Open your profile from the dashboard to change your name, phone number, location, profile photo, or gender.</p></details>
+        </section>
+    </main>
+    <script>
+        document.getElementById('backLink').addEventListener('click', event => {
+            if (history.length > 1) { event.preventDefault(); history.back(); }
+            else location.href = 'login.html';
+        });
+    </script>
+</body>
+</html>
