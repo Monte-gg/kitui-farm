@@ -1,0 +1,112 @@
+-- Kitui Farm Enterprise - Supabase (Postgres) schema
+-- Run this in the Supabase SQL editor (Dashboard -> SQL -> New query) or via `supabase db push`.
+--
+-- This mirrors the tables created by backend/server.js for node:sqlite so the API can keep
+-- the same field names. Types follow PostgREST rules:
+--   * money columns use double precision, not numeric, so the API receives JS numbers
+--     (numeric is serialised as a string over PostgREST and would break totals)
+--   * settings_json stays TEXT because the server stores and parses it as a JSON string
+--   * expires_at stays BIGINT milliseconds to match Date.now() comparisons in the API
+--
+-- Row level security is enabled with no policies. This database is reached only by the API
+-- server using its secret key (which bypasses RLS), so browser clients must never query it.
+
+create table if not exists users (
+    id text primary key,
+    name text not null,
+    email text not null,
+    phone text not null unique,
+    role text not null check (role in ('buyer', 'farmer')),
+    password_salt text not null,
+    password_hash text not null,
+    location text not null default '',
+    created_at text not null
+);
+
+create unique index if not exists idx_users_email_lower on users (lower(email));
+
+create table if not exists sessions (
+    token_hash text primary key,
+    user_id text not null references users (id) on delete cascade,
+    expires_at bigint not null
+);
+
+create index if not exists idx_sessions_expiry on sessions (expires_at);
+
+create table if not exists listings (
+    id text primary key,
+    farmer_id text not null,
+    seller_name text not null,
+    name text not null,
+    category text not null,
+    quantity integer not null check (quantity >= 0),
+    minimum_order integer not null check (minimum_order > 0),
+    price double precision not null check (price > 0),
+    location text not null,
+    image text not null default '',
+    created_at text not null
+);
+
+create index if not exists idx_listings_farmer on listings (farmer_id);
+
+create table if not exists checkout_requests (
+    checkout_key text primary key,
+    buyer_id text not null references users (id),
+    payload_hash text not null,
+    created_at text not null
+);
+
+create table if not exists orders (
+    id text primary key,
+    buyer_id text not null,
+    buyer_name text not null,
+    address text not null,
+    payment_method text not null,
+    status text not null,
+    buyer_hidden boolean not null default false,
+    checkout_key text not null references checkout_requests (checkout_key),
+    total double precision not null,
+    created_at text not null
+);
+
+create index if not exists idx_orders_buyer on orders (buyer_id);
+create index if not exists idx_orders_checkout on orders (checkout_key);
+
+create table if not exists order_items (
+    id bigserial primary key,
+    order_id text not null references orders (id) on delete cascade,
+    product_id text not null,
+    farmer_id text not null,
+    name text not null,
+    seller_name text not null,
+    location text not null,
+    quantity integer not null check (quantity > 0),
+    price double precision not null check (price > 0)
+);
+
+create index if not exists idx_order_items_farmer on order_items (farmer_id);
+create index if not exists idx_order_items_order on order_items (order_id);
+
+create table if not exists user_settings (
+    user_id text primary key references users (id) on delete cascade,
+    settings_json text not null
+);
+
+alter table users enable row level security;
+alter table sessions enable row level security;
+alter table listings enable row level security;
+alter table checkout_requests enable row level security;
+alter table orders enable row level security;
+alter table order_items enable row level security;
+alter table user_settings enable row level security;
+
+-- Demo listings, matching seedListings() in backend/server.js.
+insert into listings (id, farmer_id, seller_name, name, category, quantity, minimum_order, price, location, image, created_at)
+values
+    ('demo-ndengu', 'demo-demo-ndengu', 'Samuel Mutua', 'Green Grams (Ndengu)', 'Grains & Pulses', 420, 10, 180, 'Mutomo, Kitui South', '', now()::text),
+    ('demo-mangoes', 'demo-demo-mangoes', 'Grace Nduku', 'Ripe Mangoes', 'Fruits', 160, 5, 90, 'Kitui Central', '', now()::text),
+    ('demo-watermelon', 'demo-demo-watermelon', 'Peter Muli', 'Watermelon', 'Fruits', 700, 100, 55, 'Mwingi', '', now()::text),
+    ('demo-cassava', 'demo-demo-cassava', 'Mary Kilonzo', 'Fresh Cassava', 'Roots & Tubers', 250, 20, 75, 'Mutomo', '', now()::text),
+    ('demo-tomatoes', 'demo-demo-tomatoes', 'David Musau', 'Garden Tomatoes', 'Vegetables', 85, 5, 110, 'Kitui Central', '', now()::text),
+    ('demo-beans', 'demo-demo-beans', 'Lilian Wambua', 'Rose Coco Beans', 'Grains & Pulses', 300, 100, 210, 'Mwingi North', '', now()::text)
+on conflict (id) do nothing;

@@ -3,6 +3,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { AsyncLocalStorage } = require('node:async_hooks');
 const { DatabaseSync } = require('node:sqlite');
 const express = require('express');
 
@@ -15,63 +16,67 @@ const PAYMENT_METHODS = new Set([
     'Cash on delivery', 'M-PESA (demo)', 'Airtel Money (demo)', 'Bank transfer (demo)'
 ]);
 const PAGES = [
-    'buyer-dashboard.html', 'farmer-dashboard.html', 'forgot-password.html', 'login.html',
+    'buyer-dashboard.html', 'farmer-dashboard.html', 'forgot-password.html', 'index.html', 'login.html',
     'payment.html', 'profile.html', 'settings.html', 'signup.html'
 ];
 
-function createDatabase(dbPath) {
-    if (dbPath !== ':memory:') fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    const db = new DatabaseSync(dbPath);
-    db.exec(`
-        PRAGMA foreign_keys = ON;
-        PRAGMA journal_mode = WAL;
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL COLLATE NOCASE UNIQUE,
-            phone TEXT NOT NULL UNIQUE, role TEXT NOT NULL CHECK (role IN ('buyer', 'farmer')),
-            password_salt TEXT NOT NULL, password_hash TEXT NOT NULL, location TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS sessions (
-            token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            expires_at INTEGER NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS listings (
-            id TEXT PRIMARY KEY, farmer_id TEXT NOT NULL, seller_name TEXT NOT NULL, name TEXT NOT NULL,
-            category TEXT NOT NULL, quantity INTEGER NOT NULL CHECK (quantity >= 0),
-            minimum_order INTEGER NOT NULL CHECK (minimum_order > 0),
-            price REAL NOT NULL CHECK (price > 0), location TEXT NOT NULL, image TEXT NOT NULL DEFAULT '',
-            created_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS checkout_requests (
-            checkout_key TEXT PRIMARY KEY,
-            buyer_id TEXT NOT NULL REFERENCES users(id),
-            payload_hash TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS orders (
-            id TEXT PRIMARY KEY, buyer_id TEXT NOT NULL REFERENCES users(id), buyer_name TEXT NOT NULL,
-            address TEXT NOT NULL, payment_method TEXT NOT NULL, status TEXT NOT NULL,
-            buyer_hidden INTEGER NOT NULL DEFAULT 0,
-            checkout_key TEXT NOT NULL REFERENCES checkout_requests(checkout_key),
-            total REAL NOT NULL, created_at TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS order_items (
-            id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
-            product_id TEXT NOT NULL, farmer_id TEXT NOT NULL, name TEXT NOT NULL,
-                seller_name TEXT NOT NULL, location TEXT NOT NULL,
-            quantity INTEGER NOT NULL CHECK (quantity > 0), price REAL NOT NULL CHECK (price > 0)
-        );
-        CREATE TABLE IF NOT EXISTS user_settings (
-            user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, settings_json TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
-        CREATE INDEX IF NOT EXISTS idx_listings_farmer ON listings(farmer_id);
-        CREATE INDEX IF NOT EXISTS idx_orders_buyer ON orders(buyer_id);
-        CREATE INDEX IF NOT EXISTS idx_order_items_farmer ON order_items(farmer_id);
-    `);
-    seedListings(db);
-    return db;
-}
+// ---------------------------------------------------------------------------
+// Data stores
+//
+// Both stores expose the same async surface (all/get/run/exec/transaction/close)
+// and take `?` placeholders. SQLite (node:sqlite) is used for local development
+// and tests; Supabase Postgres is used when DATABASE_URL is set. All queries go
+// through one connection for SQLite, so work is serialised to keep a request
+// from interleaving inside another request's transaction.
+// ---------------------------------------------------------------------------
+
+const SQLITE_SCHEMA = `
+    PRAGMA foreign_keys = ON;
+    PRAGMA journal_mode = WAL;
+    CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL COLLATE NOCASE UNIQUE,
+        phone TEXT NOT NULL UNIQUE, role TEXT NOT NULL CHECK (role IN ('buyer', 'farmer')),
+        password_salt TEXT NOT NULL, password_hash TEXT NOT NULL, location TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS sessions (
+        token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        expires_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS listings (
+        id TEXT PRIMARY KEY, farmer_id TEXT NOT NULL, seller_name TEXT NOT NULL, name TEXT NOT NULL,
+        category TEXT NOT NULL, quantity INTEGER NOT NULL CHECK (quantity >= 0),
+        minimum_order INTEGER NOT NULL CHECK (minimum_order > 0),
+        price REAL NOT NULL CHECK (price > 0), location TEXT NOT NULL, image TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS checkout_requests (
+        checkout_key TEXT PRIMARY KEY,
+        buyer_id TEXT NOT NULL REFERENCES users(id),
+        payload_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS orders (
+        id TEXT PRIMARY KEY, buyer_id TEXT NOT NULL REFERENCES users(id), buyer_name TEXT NOT NULL,
+        address TEXT NOT NULL, payment_method TEXT NOT NULL, status TEXT NOT NULL,
+        buyer_hidden INTEGER NOT NULL DEFAULT 0,
+        checkout_key TEXT NOT NULL REFERENCES checkout_requests(checkout_key),
+        total REAL NOT NULL, created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS order_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+        product_id TEXT NOT NULL, farmer_id TEXT NOT NULL, name TEXT NOT NULL,
+        seller_name TEXT NOT NULL, location TEXT NOT NULL,
+        quantity INTEGER NOT NULL CHECK (quantity > 0), price REAL NOT NULL CHECK (price > 0)
+    );
+    CREATE TABLE IF NOT EXISTS user_settings (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, settings_json TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_listings_farmer ON listings(farmer_id);
+    CREATE INDEX IF NOT EXISTS idx_orders_buyer ON orders(buyer_id);
+    CREATE INDEX IF NOT EXISTS idx_order_items_farmer ON order_items(farmer_id);
+`;
 
 function seedListings(db) {
     const rows = [
@@ -90,6 +95,138 @@ function seedListings(db) {
     for (const [id, seller, name, category, quantity, minimum, price, location] of rows) {
         insert.run(id, `demo-${id}`, seller, name, category, quantity, minimum, price, location, new Date().toISOString());
     }
+}
+
+function createSqliteStore(dbPath) {
+    if (dbPath !== ':memory:') fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    const db = new DatabaseSync(dbPath);
+    db.exec(SQLITE_SCHEMA);
+    seedListings(db);
+    const inTransaction = new AsyncLocalStorage();
+    let queue = Promise.resolve();
+
+    const enqueue = action => {
+        const result = queue.then(action, action);
+        queue = result.then(() => {}, () => {});
+        return result;
+    };
+    const direct = (sql, params) => db.prepare(sql);
+
+    const store = {
+        engine: 'sqlite',
+        all(sql, params = []) {
+            const read = () => direct(sql, params).all(...params);
+            return inTransaction.getStore() ? Promise.resolve(read()) : enqueue(read);
+        },
+        get(sql, params = []) {
+            const read = () => direct(sql, params).get(...params);
+            return inTransaction.getStore() ? Promise.resolve(read()) : enqueue(read);
+        },
+        run(sql, params = []) {
+            const write = () => ({ changes: Number(direct(sql, params).run(...params).changes) });
+            return inTransaction.getStore() ? Promise.resolve(write()) : enqueue(write);
+        },
+        async exec(sql) {
+            db.exec(sql);
+        },
+        transaction(action) {
+            return enqueue(async () => {
+                db.exec('BEGIN IMMEDIATE');
+                try {
+                    const value = await inTransaction.run(true, action);
+                    db.exec('COMMIT');
+                    return value;
+                } catch (error) {
+                    db.exec('ROLLBACK');
+                    throw error;
+                }
+            });
+        },
+        async close() {
+            db.close();
+        }
+    };
+    return store;
+}
+
+function createPostgresStore(connectionString, options = {}) {
+    let Pool = options.Pool;
+    if (!Pool) {
+        try {
+            ({ Pool } = require('pg'));
+        } catch {
+            throw new Error('The "pg" package is required for DATABASE_URL. Run "npm install" in backend/.');
+        }
+    }
+    const url = new URL(connectionString);
+    const local = ['localhost', '127.0.0.1'].includes(url.hostname);
+    const pool = new Pool({
+        connectionString,
+        max: Number(process.env.PGPOOL_MAX) || 5,
+        ssl: local ? false : { rejectUnauthorized: false }
+    });
+    const session = new AsyncLocalStorage();
+
+    // Postgres reports a unique violation as 23505; the routes branch on the
+    // SQLite errcode, so both engines are normalised to 2067 here.
+    const normalize = error => {
+        if (error && error.code === '23505') error.errcode = 2067;
+        return error;
+    };
+    const toPostgres = sql => {
+        let index = 0;
+        return sql.replace(/\?/g, () => `$${++index}`);
+    };
+    const query = async (sql, params) => {
+        const runner = session.getStore() || pool;
+        try {
+            return await runner.query(toPostgres(sql), params);
+        } catch (error) {
+            throw normalize(error);
+        }
+    };
+
+    return {
+        engine: 'postgres',
+        async all(sql, params = []) {
+            return (await query(sql, params)).rows;
+        },
+        async get(sql, params = []) {
+            return (await query(sql, params)).rows[0];
+        },
+        async run(sql, params = []) {
+            const result = await query(sql, params);
+            return { changes: Number(result.rowCount) || 0 };
+        },
+        async exec(sql) {
+            await pool.query(sql);
+        },
+        async transaction(action) {
+            const client = await pool.connect();
+            try {
+                await client.query('BEGIN');
+                const value = await session.run(client, action);
+                await client.query('COMMIT');
+                return value;
+            } catch (error) {
+                await client.query('ROLLBACK');
+                throw normalize(error);
+            } finally {
+                client.release();
+            }
+        },
+        async close() {
+            await pool.end();
+        }
+    };
+}
+
+function createStore(options = {}) {
+    if (options.db) return options.db;
+    if (options.dbPath) return createSqliteStore(options.dbPath);
+    const connectionString = options.databaseUrl || process.env.DATABASE_URL;
+    if (connectionString) return createPostgresStore(connectionString);
+    return createSqliteStore(process.env.DB_PATH || path.join(__dirname, 'data', 'kitui-farm.sqlite'));
 }
 
 function cookies(header = '') {
@@ -125,12 +262,14 @@ function publicListing(row) {
     };
 }
 
-function publicOrder(db, row) {
-    const items = db.prepare('SELECT product_id, farmer_id, name, seller_name, location, quantity, price FROM order_items WHERE order_id = ?')
-        .all(row.id).map(item => ({
-            productId: item.product_id, farmerId: item.farmer_id, name: item.name,
-            sellerName: item.seller_name, location: item.location, quantity: item.quantity, price: item.price
-        }));
+async function publicOrder(store, row) {
+    const items = (await store.all(
+        'SELECT product_id, farmer_id, name, seller_name, location, quantity, price FROM order_items WHERE order_id = ?',
+        [row.id]
+    )).map(item => ({
+        productId: item.product_id, farmerId: item.farmer_id, name: item.name,
+        sellerName: item.seller_name, location: item.location, quantity: item.quantity, price: item.price
+    }));
     const deliveryDate = new Date(new Date(row.created_at).getTime() + 2 * 24 * 60 * 60 * 1000);
     return {
         id: row.id, buyerId: row.buyer_id, buyerName: row.buyer_name, address: row.address,
@@ -176,12 +315,17 @@ function validateListing(input, partial = false) {
 }
 
 function createApp(options = {}) {
-    const db = options.db || createDatabase(options.dbPath || process.env.DB_PATH || path.join(__dirname, 'data', 'kitui-farm.sqlite'));
+    const store = createStore(options);
     const app = express();
     const attempts = new Map();
     const secureCookie = process.env.NODE_ENV === 'production' ? '; Secure' : '';
 
     app.disable('x-powered-by');
+    if (process.env.NODE_ENV === 'production') {
+        // Behind a host proxy (Render, Railway) the origin check needs the
+        // forwarded protocol, and rate limiting needs the forwarded client IP.
+        app.set('trust proxy', 1);
+    }
     app.use((req, res, next) => {
         res.set({
             'X-Content-Type-Options': 'nosniff',
@@ -201,27 +345,27 @@ function createApp(options = {}) {
     });
     app.use('/api', express.json({ limit: '2mb', strict: true }));
 
-    function createSession(user, res, remember) {
+    async function createSession(user, res, remember) {
         const token = crypto.randomBytes(32).toString('hex');
         const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
         const expiresAt = Date.now() + SESSION_MS;
-        db.prepare('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)')
-            .run(tokenHash, user.id, expiresAt);
+        await store.run('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)',
+            [tokenHash, user.id, expiresAt]);
         const maxAge = remember ? `; Max-Age=${Math.floor(SESSION_MS / 1000)}` : '';
         res.setHeader('Set-Cookie', `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Strict${secureCookie}${maxAge}`);
     }
 
-    function auth(req, res, next) {
+    async function auth(req, res, next) {
         const token = cookies(req.headers.cookie)[COOKIE];
         if (!token || !/^[a-f0-9]{64}$/.test(token)) return res.status(401).json({ error: 'Please log in to continue.' });
         const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
-        const session = db.prepare(`
+        const session = await store.get(`
             SELECT users.*, sessions.token_hash FROM sessions
             JOIN users ON users.id = sessions.user_id
             WHERE sessions.token_hash = ? AND sessions.expires_at > ?
-        `).get(tokenHash, Date.now());
+        `, [tokenHash, Date.now()]);
         if (!session) {
-            db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(tokenHash);
+            await store.run('DELETE FROM sessions WHERE token_hash = ?', [tokenHash]);
             return res.status(401).json({ error: 'Your session has expired. Please log in again.' });
         }
         req.user = session;
@@ -235,21 +379,9 @@ function createApp(options = {}) {
             : res.status(403).json({ error: `A ${required} account is required for this action.` });
     }
 
-    function transaction(action) {
-        db.exec('BEGIN IMMEDIATE');
-        try {
-            const value = action();
-            db.exec('COMMIT');
-            return value;
-        } catch (error) {
-            db.exec('ROLLBACK');
-            throw error;
-        }
-    }
-
     app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
-    app.post('/api/auth/signup', (req, res, next) => {
+    app.post('/api/auth/signup', async (req, res, next) => {
         const name = text(req.body?.name, 100);
         const email = text(req.body?.email, 254).toLowerCase();
         const phone = normalizedPhone(req.body?.phone);
@@ -265,12 +397,12 @@ function createApp(options = {}) {
         const salt = crypto.randomBytes(16);
         const hash = crypto.scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
         try {
-            db.prepare(`
+            await store.run(`
                 INSERT INTO users (id, name, email, phone, role, password_salt, password_hash, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `).run(id, name, email, phone, accountRole, salt.toString('hex'), hash.toString('hex'), new Date().toISOString());
-            const user = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
-            createSession(user, res, Boolean(req.body.remember));
+            `, [id, name, email, phone, accountRole, salt.toString('hex'), hash.toString('hex'), new Date().toISOString()]);
+            const user = await store.get('SELECT * FROM users WHERE id = ?', [id]);
+            await createSession(user, res, Boolean(req.body.remember));
             res.status(201).json({ user: publicUser(user) });
         } catch (error) {
             if (error.errcode === 2067) {
@@ -280,7 +412,7 @@ function createApp(options = {}) {
         }
     });
 
-    app.post('/api/auth/login', (req, res) => {
+    app.post('/api/auth/login', async (req, res, next) => {
         const now = Date.now();
         const attempt = attempts.get(req.ip) || { count: 0, resetAt: now + 15 * 60 * 1000 };
         if (attempt.resetAt <= now) {
@@ -288,36 +420,40 @@ function createApp(options = {}) {
             attempt.resetAt = now + 15 * 60 * 1000;
         }
         if (attempt.count >= 20) return res.status(429).json({ error: 'Too many sign-in attempts. Try again in 15 minutes.' });
-        const identifier = text(req.body?.identifier, 254);
-        const phone = normalizedPhone(identifier);
-        const user = db.prepare('SELECT * FROM users WHERE email = ? OR phone = ?')
-            .get(identifier.toLowerCase(), phone || identifier);
-        let valid = false;
-        if (user && typeof req.body?.password === 'string' && req.body.password.length <= 128) {
-            const actual = crypto.scryptSync(req.body.password, Buffer.from(user.password_salt, 'hex'), 64,
-                { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
-            const expected = Buffer.from(user.password_hash, 'hex');
-            valid = actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+        try {
+            const identifier = text(req.body?.identifier, 254);
+            const phone = normalizedPhone(identifier);
+            const user = await store.get('SELECT * FROM users WHERE email = ? OR phone = ?',
+                [identifier.toLowerCase(), phone || identifier]);
+            let valid = false;
+            if (user && typeof req.body?.password === 'string' && req.body.password.length <= 128) {
+                const actual = crypto.scryptSync(req.body.password, Buffer.from(user.password_salt, 'hex'), 64,
+                    { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+                const expected = Buffer.from(user.password_hash, 'hex');
+                valid = actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+            }
+            if (!valid) {
+                attempt.count++;
+                attempts.set(req.ip, attempt);
+                return res.status(401).json({ error: 'Email/phone or password is incorrect.' });
+            }
+            attempts.delete(req.ip);
+            await createSession(user, res, Boolean(req.body.remember));
+            res.json({ user: publicUser(user) });
+        } catch (error) {
+            next(error);
         }
-        if (!valid) {
-            attempt.count++;
-            attempts.set(req.ip, attempt);
-            return res.status(401).json({ error: 'Email/phone or password is incorrect.' });
-        }
-        attempts.delete(req.ip);
-        createSession(user, res, Boolean(req.body.remember));
-        res.json({ user: publicUser(user) });
     });
 
-    app.post('/api/auth/logout', auth, (req, res) => {
-        db.prepare('DELETE FROM sessions WHERE token_hash = ?').run(req.tokenHash);
+    app.post('/api/auth/logout', auth, async (req, res) => {
+        await store.run('DELETE FROM sessions WHERE token_hash = ?', [req.tokenHash]);
         res.setHeader('Set-Cookie', `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secureCookie}`);
         res.status(204).end();
     });
     app.get('/api/auth/me', auth, (req, res) => res.json({ user: publicUser(req.user) }));
     app.get('/api/profile', auth, (req, res) => res.json({ user: publicUser(req.user) }));
 
-    app.patch('/api/profile', auth, (req, res, next) => {
+    app.patch('/api/profile', auth, async (req, res, next) => {
         const patch = req.body;
         if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return res.status(400).json({ error: 'A profile object is required.' });
         const fields = [];
@@ -342,25 +478,25 @@ function createApp(options = {}) {
         }
         if (!fields.length) return res.status(400).json({ error: 'No supported profile fields were supplied.' });
         try {
-            db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values, req.user.id);
+            await store.run(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, [...values, req.user.id]);
             if (req.user.role === 'farmer' && 'name' in patch) {
-                db.prepare('UPDATE listings SET seller_name = ? WHERE farmer_id = ?').run(text(patch.name, 100), req.user.id);
+                await store.run('UPDATE listings SET seller_name = ? WHERE farmer_id = ?', [text(patch.name, 100), req.user.id]);
             }
             if (req.user.role === 'farmer' && 'location' in patch) {
-                db.prepare('UPDATE listings SET location = ? WHERE farmer_id = ?').run(text(patch.location, 160), req.user.id);
+                await store.run('UPDATE listings SET location = ? WHERE farmer_id = ?', [text(patch.location, 160), req.user.id]);
             }
-            res.json({ user: publicUser(db.prepare('SELECT * FROM users WHERE id = ?').get(req.user.id)) });
+            res.json({ user: publicUser(await store.get('SELECT * FROM users WHERE id = ?', [req.user.id])) });
         } catch (error) {
             if (error.errcode === 2067) return res.status(409).json({ error: 'That email or phone number is already in use.' });
             next(error);
         }
     });
 
-    app.get('/api/settings', auth, (req, res) => {
-        const row = db.prepare('SELECT settings_json FROM user_settings WHERE user_id = ?').get(req.user.id);
+    app.get('/api/settings', auth, async (req, res) => {
+        const row = await store.get('SELECT settings_json FROM user_settings WHERE user_id = ?', [req.user.id]);
         res.json({ settings: row ? JSON.parse(row.settings_json) : DEFAULT_SETTINGS });
     });
-    app.put('/api/settings', auth, (req, res) => {
+    app.put('/api/settings', auth, async (req, res) => {
         const value = req.body;
         if (!value || typeof value !== 'object' || Array.isArray(value)
             || !['system', 'light', 'dark'].includes(value.theme)
@@ -369,62 +505,62 @@ function createApp(options = {}) {
             return res.status(400).json({ error: 'Settings contain an unsupported value.' });
         }
         const settings = { theme: value.theme, density: value.density, confirmDeletes: value.confirmDeletes };
-        db.prepare(`
+        await store.run(`
             INSERT INTO user_settings (user_id, settings_json) VALUES (?, ?)
             ON CONFLICT(user_id) DO UPDATE SET settings_json = excluded.settings_json
-        `).run(req.user.id, JSON.stringify(settings));
+        `, [req.user.id, JSON.stringify(settings)]);
         res.json({ settings });
     });
 
-    app.get('/api/listings', auth, (req, res) => {
+    app.get('/api/listings', auth, async (req, res) => {
         if (req.query.scope === 'mine' && req.user.role !== 'farmer') return res.status(403).json({ error: 'A farmer account is required.' });
         const rows = req.query.scope === 'mine'
-            ? db.prepare('SELECT * FROM listings WHERE farmer_id = ? ORDER BY created_at DESC').all(req.user.id)
-            : db.prepare('SELECT * FROM listings WHERE quantity > 0 ORDER BY created_at DESC').all();
+            ? await store.all('SELECT * FROM listings WHERE farmer_id = ? ORDER BY created_at DESC', [req.user.id])
+            : await store.all('SELECT * FROM listings WHERE quantity > 0 ORDER BY created_at DESC');
         res.json({ listings: rows.map(publicListing) });
     });
-    app.post('/api/listings', auth, role('farmer'), (req, res) => {
+    app.post('/api/listings', auth, role('farmer'), async (req, res) => {
         const listing = validateListing(req.body);
         if (typeof listing === 'string') return res.status(400).json({ error: listing });
         if (listing.quantity < listing.minimumOrder) return res.status(400).json({ error: 'Stock must meet the minimum order quantity.' });
         const id = crypto.randomUUID();
-        db.prepare(`
+        await store.run(`
             INSERT INTO listings (id, farmer_id, seller_name, name, category, quantity, minimum_order, price, location, image, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(id, req.user.id, req.user.name, listing.name, listing.category, listing.quantity,
-            listing.minimumOrder, listing.price, listing.location, listing.image, new Date().toISOString());
-        res.status(201).json({ listing: publicListing(db.prepare('SELECT * FROM listings WHERE id = ?').get(id)) });
+        `, [id, req.user.id, req.user.name, listing.name, listing.category, listing.quantity,
+            listing.minimumOrder, listing.price, listing.location, listing.image, new Date().toISOString()]);
+        res.status(201).json({ listing: publicListing(await store.get('SELECT * FROM listings WHERE id = ?', [id])) });
     });
-    app.patch('/api/listings/:id', auth, role('farmer'), (req, res) => {
-        const current = db.prepare('SELECT * FROM listings WHERE id = ? AND farmer_id = ?').get(req.params.id, req.user.id);
+    app.patch('/api/listings/:id', auth, role('farmer'), async (req, res) => {
+        const current = await store.get('SELECT * FROM listings WHERE id = ? AND farmer_id = ?', [req.params.id, req.user.id]);
         if (!current) return res.status(404).json({ error: 'Listing not found.' });
         const patch = validateListing(req.body, true);
         if (typeof patch === 'string') return res.status(400).json({ error: patch });
         const listing = { ...publicListing(current), ...patch };
         if (listing.quantity > 0 && listing.quantity < listing.minimumOrder) return res.status(400).json({ error: 'Stock must meet the minimum order quantity.' });
-        db.prepare(`
+        await store.run(`
             UPDATE listings SET name = ?, category = ?, quantity = ?, minimum_order = ?, price = ?, location = ?, image = ?
             WHERE id = ? AND farmer_id = ?
-        `).run(listing.name, listing.category, listing.quantity, listing.minimumOrder, listing.price,
-            listing.location, listing.image, req.params.id, req.user.id);
-        res.json({ listing: publicListing(db.prepare('SELECT * FROM listings WHERE id = ?').get(req.params.id)) });
+        `, [listing.name, listing.category, listing.quantity, listing.minimumOrder, listing.price,
+            listing.location, listing.image, req.params.id, req.user.id]);
+        res.json({ listing: publicListing(await store.get('SELECT * FROM listings WHERE id = ?', [req.params.id])) });
     });
-    app.delete('/api/listings/:id', auth, role('farmer'), (req, res) => {
-        const result = db.prepare('DELETE FROM listings WHERE id = ? AND farmer_id = ?').run(req.params.id, req.user.id);
+    app.delete('/api/listings/:id', auth, role('farmer'), async (req, res) => {
+        const result = await store.run('DELETE FROM listings WHERE id = ? AND farmer_id = ?', [req.params.id, req.user.id]);
         if (!result.changes) return res.status(404).json({ error: 'Listing not found.' });
         res.status(204).end();
     });
 
-    app.get('/api/orders', auth, (req, res) => {
+    app.get('/api/orders', auth, async (req, res) => {
         const rows = req.user.role === 'buyer'
-            ? db.prepare('SELECT * FROM orders WHERE buyer_id = ? AND buyer_hidden = 0 ORDER BY created_at DESC').all(req.user.id)
-            : db.prepare(`
+            ? await store.all('SELECT * FROM orders WHERE buyer_id = ? AND buyer_hidden = false ORDER BY created_at DESC', [req.user.id])
+            : await store.all(`
                 SELECT DISTINCT orders.* FROM orders JOIN order_items ON order_items.order_id = orders.id
                 WHERE order_items.farmer_id = ? ORDER BY orders.created_at DESC
-            `).all(req.user.id);
-        res.json({ orders: rows.map(row => publicOrder(db, row)) });
+            `, [req.user.id]);
+        res.json({ orders: await Promise.all(rows.map(row => publicOrder(store, row))) });
     });
-    app.post('/api/orders', auth, role('buyer'), (req, res) => {
+    app.post('/api/orders', auth, role('buyer'), async (req, res, next) => {
         const lines = req.body?.items;
         const address = text(req.body?.address, 300);
         const paymentMethod = req.body?.paymentMethod;
@@ -448,8 +584,8 @@ function createApp(options = {}) {
             .update(JSON.stringify({ items: [...uniqueLines], address, paymentMethod }))
             .digest('hex');
         try {
-            const result = transaction(() => {
-                const previousRequest = db.prepare('SELECT * FROM checkout_requests WHERE checkout_key = ?').get(checkoutKey);
+            const result = await store.transaction(async () => {
+                const previousRequest = await store.get('SELECT * FROM checkout_requests WHERE checkout_key = ?', [checkoutKey]);
                 if (previousRequest) {
                     if (previousRequest.buyer_id !== req.user.id || previousRequest.payload_hash !== payloadHash) {
                         const error = new Error('This checkout ID was already used for a different request.');
@@ -458,24 +594,24 @@ function createApp(options = {}) {
                     }
                     return {
                         replayed: true,
-                        orders: db.prepare('SELECT * FROM orders WHERE checkout_key = ? ORDER BY id').all(checkoutKey)
+                        orders: await store.all('SELECT * FROM orders WHERE checkout_key = ? ORDER BY id', [checkoutKey])
                     };
                 }
-                db.prepare(`
+                await store.run(`
                     INSERT INTO checkout_requests (checkout_key, buyer_id, payload_hash, created_at)
                     VALUES (?, ?, ?, ?)
-                `).run(checkoutKey, req.user.id, payloadHash, new Date().toISOString());
+                `, [checkoutKey, req.user.id, payloadHash, new Date().toISOString()]);
                 const byFarmer = new Map();
                 for (const [productId, quantity] of uniqueLines) {
-                    const listing = db.prepare('SELECT * FROM listings WHERE id = ?').get(productId);
+                    const listing = await store.get('SELECT * FROM listings WHERE id = ?', [productId]);
                     if (!listing || listing.quantity < quantity || quantity < listing.minimum_order) {
                         const error = new Error('A cart item is no longer available in the requested quantity.');
                         error.status = 409;
                         throw error;
                     }
-                    const result = db.prepare('UPDATE listings SET quantity = quantity - ? WHERE id = ? AND quantity >= ?')
-                        .run(quantity, productId, quantity);
-                    if (!result.changes) {
+                    const stockUpdate = await store.run('UPDATE listings SET quantity = quantity - ? WHERE id = ? AND quantity >= ?',
+                        [quantity, productId, quantity]);
+                    if (!stockUpdate.changes) {
                         const error = new Error('A cart item is no longer available in the requested quantity.');
                         error.status = 409;
                         throw error;
@@ -489,78 +625,85 @@ function createApp(options = {}) {
                 }
                 const status = paymentMethod === 'Cash on delivery' ? 'Cash on delivery' : 'Payment pending (demo)';
                 const createdAt = new Date().toISOString();
-                const addItem = db.prepare(`
-                    INSERT INTO order_items (order_id, product_id, farmer_id, name, seller_name, location, quantity, price)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                `);
                 const createdOrders = [];
                 for (const items of byFarmer.values()) {
                     const id = `KF-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
                     const total = items.reduce((sum, item) => sum + item.quantity * item.price, 0);
-                    db.prepare(`
+                    await store.run(`
                         INSERT INTO orders
                             (id, buyer_id, buyer_name, address, payment_method, status, total, checkout_key, created_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    `).run(id, req.user.id, req.user.name, address, paymentMethod, status, total, checkoutKey, createdAt);
+                    `, [id, req.user.id, req.user.name, address, paymentMethod, status, total, checkoutKey, createdAt]);
                     for (const item of items) {
-                        const listing = db.prepare('SELECT seller_name, location FROM listings WHERE id = ?').get(item.productId);
-                        addItem.run(id, item.productId, item.farmerId, item.name, listing.seller_name, listing.location, item.quantity, item.price);
+                        const listing = await store.get('SELECT seller_name, location FROM listings WHERE id = ?', [item.productId]);
+                        await store.run(`
+                            INSERT INTO order_items (order_id, product_id, farmer_id, name, seller_name, location, quantity, price)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        `, [id, item.productId, item.farmerId, item.name, listing.seller_name, listing.location, item.quantity, item.price]);
                     }
-                    createdOrders.push(db.prepare('SELECT * FROM orders WHERE id = ?').get(id));
+                    createdOrders.push(await store.get('SELECT * FROM orders WHERE id = ?', [id]));
                 }
                 return { replayed: false, orders: createdOrders };
             });
             res.status(result.replayed ? 200 : 201)
-                .json({ orders: result.orders.map(row => publicOrder(db, row)) });
+                .json({ orders: await Promise.all(result.orders.map(row => publicOrder(store, row))) });
         } catch (error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
-            throw error;
+            next(error);
         }
     });
-    app.patch('/api/orders/:id/status', auth, (req, res) => {
-        const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(req.params.id);
-        if (!order) return res.status(404).json({ error: 'Order not found.' });
-        const status = req.body?.status;
-        const validStatuses = new Set(['Packed', 'Dispatched', 'Completed', 'Cancelled']);
-        if (!validStatuses.has(status)) return res.status(400).json({ error: 'Choose a valid order status.' });
-        const isFarmerOrder = Boolean(db.prepare('SELECT 1 FROM order_items WHERE order_id = ? AND farmer_id = ?')
-            .get(order.id, req.user.id));
-        const canCancel = req.user.role === 'buyer' && order.buyer_id === req.user.id && status === 'Cancelled'
-            && ['Pending', 'Cash on delivery', 'Payment pending (demo)'].includes(order.status);
-        const canPack = req.user.role === 'farmer' && isFarmerOrder && status === 'Packed'
-            && ['Cash on delivery', 'Paid', 'Payment pending (demo)'].includes(order.status);
-        const canDispatch = req.user.role === 'farmer' && isFarmerOrder && status === 'Dispatched' && order.status === 'Packed';
-        const canComplete = req.user.role === 'farmer' && isFarmerOrder && status === 'Completed' && order.status === 'Dispatched';
-        if (!canCancel && !canPack && !canDispatch && !canComplete) return res.status(403).json({ error: 'You cannot make that order status change.' });
-        transaction(() => {
-            db.prepare('UPDATE orders SET status = ? WHERE id = ?').run(status, order.id);
-            if (status === 'Cancelled') {
-                const items = db.prepare('SELECT product_id, farmer_id, quantity FROM order_items WHERE order_id = ?').all(order.id);
-                for (const item of items) {
-                    db.prepare('UPDATE listings SET quantity = quantity + ? WHERE id = ? AND farmer_id = ?')
-                        .run(item.quantity, item.product_id, item.farmer_id);
+    app.patch('/api/orders/:id/status', auth, async (req, res, next) => {
+        try {
+            const order = await store.get('SELECT * FROM orders WHERE id = ?', [req.params.id]);
+            if (!order) return res.status(404).json({ error: 'Order not found.' });
+            const status = req.body?.status;
+            const validStatuses = new Set(['Packed', 'Dispatched', 'Completed', 'Cancelled']);
+            if (!validStatuses.has(status)) return res.status(400).json({ error: 'Choose a valid order status.' });
+            const isFarmerOrder = Boolean(await store.get('SELECT 1 FROM order_items WHERE order_id = ? AND farmer_id = ?',
+                [order.id, req.user.id]));
+            const canCancel = req.user.role === 'buyer' && order.buyer_id === req.user.id && status === 'Cancelled'
+                && ['Pending', 'Cash on delivery', 'Payment pending (demo)'].includes(order.status);
+            const canPack = req.user.role === 'farmer' && isFarmerOrder && status === 'Packed'
+                && ['Cash on delivery', 'Paid', 'Payment pending (demo)'].includes(order.status);
+            const canDispatch = req.user.role === 'farmer' && isFarmerOrder && status === 'Dispatched' && order.status === 'Packed';
+            const canComplete = req.user.role === 'farmer' && isFarmerOrder && status === 'Completed' && order.status === 'Dispatched';
+            if (!canCancel && !canPack && !canDispatch && !canComplete) return res.status(403).json({ error: 'You cannot make that order status change.' });
+            await store.transaction(async () => {
+                await store.run('UPDATE orders SET status = ? WHERE id = ?', [status, order.id]);
+                if (status === 'Cancelled') {
+                    const items = await store.all('SELECT product_id, farmer_id, quantity FROM order_items WHERE order_id = ?', [order.id]);
+                    for (const item of items) {
+                        await store.run('UPDATE listings SET quantity = quantity + ? WHERE id = ? AND farmer_id = ?',
+                            [item.quantity, item.product_id, item.farmer_id]);
+                    }
                 }
-            }
-        });
-        res.json({ order: publicOrder(db, db.prepare('SELECT * FROM orders WHERE id = ?').get(order.id)) });
+            });
+            res.json({ order: await publicOrder(store, await store.get('SELECT * FROM orders WHERE id = ?', [order.id])) });
+        } catch (error) {
+            next(error);
+        }
     });
 
-    app.delete('/api/orders/:id', auth, role('buyer'), (req, res) => {
-        const order = db.prepare('SELECT * FROM orders WHERE id = ? AND buyer_id = ?').get(req.params.id, req.user.id);
-        if (!order || order.buyer_hidden) return res.status(404).json({ error: 'Order not found.' });
-        transaction(() => {
-            if (['Pending', 'Cash on delivery', 'Payment pending (demo)'].includes(order.status)) {
-                const items = db.prepare('SELECT product_id, farmer_id, quantity FROM order_items WHERE order_id = ?').all(order.id);
-                for (const item of items) {
-                    db.prepare('UPDATE listings SET quantity = quantity + ? WHERE id = ? AND farmer_id = ?')
-                        .run(item.quantity, item.product_id, item.farmer_id);
+    app.delete('/api/orders/:id', auth, role('buyer'), async (req, res, next) => {
+        try {
+            const order = await store.get('SELECT * FROM orders WHERE id = ? AND buyer_id = ?', [req.params.id, req.user.id]);
+            if (!order || order.buyer_hidden === true || order.buyer_hidden === 1) return res.status(404).json({ error: 'Order not found.' });
+            await store.transaction(async () => {
+                if (['Pending', 'Cash on delivery', 'Payment pending (demo)'].includes(order.status)) {
+                    const items = await store.all('SELECT product_id, farmer_id, quantity FROM order_items WHERE order_id = ?', [order.id]);
+                    for (const item of items) {
+                        await store.run('UPDATE listings SET quantity = quantity + ? WHERE id = ? AND farmer_id = ?',
+                            [item.quantity, item.product_id, item.farmer_id]);
+                    }
+                    await store.run('UPDATE orders SET status = ?, buyer_hidden = true WHERE id = ?', ['Cancelled', order.id]);
+                } else {
+                    await store.run('UPDATE orders SET buyer_hidden = true WHERE id = ?', [order.id]);
                 }
-                db.prepare('UPDATE orders SET status = ?, buyer_hidden = 1 WHERE id = ?').run('Cancelled', order.id);
-            } else {
-                db.prepare('UPDATE orders SET buyer_hidden = 1 WHERE id = ?').run(order.id);
-            }
-        });
-        res.status(204).end();
+            });
+            res.status(204).end();
+        } catch (error) {
+            next(error);
+        }
     });
 
     app.post('/api/auth/password-reset', (req, res) => {
@@ -579,13 +722,14 @@ function createApp(options = {}) {
         console.error(error);
         res.status(500).json({ error: 'An unexpected server error occurred.' });
     });
-    return { app, db };
+    return { app, db: store, store };
 }
 
 if (require.main === module) {
     const { app } = createApp();
     const port = Number(process.env.PORT) || 3000;
-    app.listen(port, '127.0.0.1', () => console.log(`Kitui Farm API running at http://127.0.0.1:${port}`));
+    const host = process.env.HOST || '127.0.0.1';
+    app.listen(port, host, () => console.log(`Kitui Farm API running at http://${host}:${port}`));
 }
 
-module.exports = { createApp };
+module.exports = { createApp, createPostgresStore };

@@ -1,0 +1,19 @@
+# Render blueprint for the Kitui Farm API + static pages.
+# Connect the GitHub repo in Render and it reads this file.
+services:
+  - type: web
+    name: kitui-farm
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      # Supabase -> Project Settings -> Database -> Connection string (URI)
+      - key: DATABASE_URL
+        sync: false

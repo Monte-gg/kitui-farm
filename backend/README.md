@@ -38,3 +38,35 @@ Mobile money and bank choices are explicitly demo-only. Orders are stored and st
 Accounts previously stored only in browser local storage are not imported automatically. Create a new account through the server-backed sign-up page; passwords and legacy browser hashes are not transferred.
 
 Run API tests with `npm.cmd test`.
+
+## Database: SQLite locally, Supabase in production
+
+The API picks its engine at startup:
+
+- `DATABASE_URL` set: Supabase Postgres, through the `pg` driver
+- otherwise: the local SQLite file (`DB_PATH`, default `backend/data/kitui-farm.sqlite`)
+
+Tests always use in-memory SQLite, so `npm test` needs no credentials. Both engines run the same queries through one async store, and `?` placeholders are converted to `$1..$n` for Postgres.
+
+### Set up Supabase
+
+1. Create a project at [supabase.com](https://supabase.com).
+2. In the SQL Editor, open a new query, paste `backend/supabase/schema.sql` and run it. It creates every table and index, seeds the demo listings, and enables row level security.
+3. In Project Settings, Database, Connection string, copy the URI into `backend/.env` as `DATABASE_URL=postgresql://...` (start from `backend/.env.example`).
+4. Run `npm.cmd start`. Accounts, listings and orders now live in Supabase.
+
+The API uses `pg` rather than `@supabase/supabase-js` on purpose: checkout must reserve stock and create orders atomically, and PostgREST cannot run a multi-statement transaction. Keep `DATABASE_URL` on the server only, because it contains the database password and that connection bypasses row level security; no browser code should ever hold it. The publishable/anon key is not used by this app at all.
+
+Free Supabase projects pause after a week without activity, which takes the shop offline until the project is resumed.
+
+## Deploy to Render
+
+`render.yaml` in the repo root defines the service: root directory `backend`, build `npm install`, start `npm start`, health check `/api/health`.
+
+1. In Render choose New, then Blueprint, then this GitHub repo.
+2. When prompted for `DATABASE_URL`, paste the Supabase URI.
+3. Deploy. `https://<service>.onrender.com` then serves both the pages and the API from one origin, so the existing relative `/api/...` calls work unchanged.
+
+The blueprint sets `HOST=0.0.0.0` and `NODE_ENV=production`; with one proxy hop trusted, the same-origin check and `Secure` cookies keep working behind HTTPS. Locally the server still binds to `127.0.0.1`.
+
+The GitHub Pages copy stays a static preview only: it has no API, so sign-in shows the preview notice.
