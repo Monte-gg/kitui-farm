@@ -135,6 +135,12 @@
             identifierInput.value = rememberedLogin;
         }
 
+        fetch('/api/health')
+            .then(response => { if (!response.ok) throw new Error('API unavailable'); })
+            .catch(() => {
+                formStatus.textContent = 'Preview mode: the Kitui Farm API server is not running, so signing in is unavailable on this hosted copy.';
+            });
+
         function setError(id, message) {
             const element = document.getElementById(id);
             element.textContent = message;
@@ -190,6 +196,9 @@
                         remember: rememberCheckbox.checked
                     })
                 });
+                if (!(response.headers.get('content-type') || '').includes('application/json')) {
+                    throw new Error('Sign-in needs the Kitui Farm API server, which is not running on this hosted copy.');
+                }
                 const result = await response.json();
                 if (!response.ok) {
                     setError('passwordError', result.error || 'Email/phone or password is incorrect.');

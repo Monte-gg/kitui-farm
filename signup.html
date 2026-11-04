@@ -384,6 +384,9 @@
                         remember: document.getElementById('remember').checked
                     })
                 });
+                if (!(response.headers.get('content-type') || '').includes('application/json')) {
+                    throw new Error('Sign-up needs the Kitui Farm API server, which is not running on this hosted copy.');
+                }
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.error || 'Account creation failed. Please try again.');
                 const user = result.user;
