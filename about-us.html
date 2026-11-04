@@ -38,7 +38,7 @@
     <script src="site-only.js" defer></script>
 </head>
 <body>
-    <header class="topbar"><div class="topbar-inner"><a class="brand" id="brandLink" href="login.html">🌱 KITUI FARM</a><nav class="nav" id="mainNav" aria-label="Main navigation"><a class="button" href="login.html">Log in</a><a class="button primary" href="signup.html">Join KITUI FARM</a></nav></div></header>
+    <header class="topbar"><div class="topbar-inner"><a class="brand" id="brandLink" href="login.html">🌱 KITUI FARM</a><nav class="nav" id="mainNav" aria-label="Main navigation"><a class="button" id="backLink" href="#">← Back</a><a class="button" id="loginLink" href="login.html">Log in</a><a class="button primary" id="joinLink" href="signup.html">Join KITUI FARM</a></nav></div></header>
     <main>
         <section class="hero">
             <p class="eyebrow">About us</p>
@@ -54,25 +54,42 @@
         <section class="closing"><h2>Explore local produce with KITUI FARM</h2><p>Join as a farmer or sign in to browse the marketplace.</p><a class="button primary" href="signup.html">Create an account</a></section>
     </main>
     <script>
+        const backLink = document.getElementById('backLink');
+        backLink.addEventListener('click', event => {
+            if (backLink.getAttribute('href') === '#') {
+                event.preventDefault();
+                if (history.length > 1) history.back();
+                else location.href = 'login.html';
+            }
+        });
+
+        function showDashboardBack(role) {
+            if (!['buyer', 'farmer'].includes(role)) return;
+            const dashboard = role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
+            document.getElementById('brandLink').href = dashboard;
+            backLink.href = dashboard;
+            backLink.textContent = '← Back to dashboard';
+            backLink.classList.add('primary');
+            document.getElementById('loginLink').hidden = true;
+            document.getElementById('joinLink').hidden = true;
+            const closingLink = document.querySelector('.closing a');
+            closingLink.href = dashboard;
+            closingLink.textContent = 'Back to my dashboard';
+        }
+
         try {
             const session = JSON.parse(localStorage.getItem('kituiFarmSession') || sessionStorage.getItem('kituiFarmSession') || 'null');
             const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
             const account = Array.isArray(users) && session ? users.find(user => user.id === session.userId && user.role === session.role) : null;
-            if (account && ['buyer', 'farmer'].includes(account.role)) {
-                const dashboard = account.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
-                const brand = document.getElementById('brandLink');
-                brand.href = dashboard;
-                const back = document.createElement('a');
-                back.className = 'button primary';
-                back.href = dashboard;
-                back.textContent = '← Back to dashboard';
-                const nav = document.getElementById('mainNav');
-                nav.replaceChildren(back);
-                const closingLink = document.querySelector('.closing a');
-                closingLink.href = dashboard;
-                closingLink.textContent = 'Back to my dashboard';
-            }
-        } catch (error) { /* keep public sign-in links available if saved session data is unavailable */ }
+            if (account) showDashboardBack(account.role);
+            else if (session && session.userId) showDashboardBack(session.role);
+        } catch (error) { /* the visible Back link remains available */ }
+
+        if (backLink.textContent === '← Back') {
+            fetch('/api/auth/me').then(response => response.ok ? response.json() : null).then(result => {
+                if (result && result.user) showDashboardBack(result.user.role);
+            }).catch(() => { /* public Back and sign-in links remain available offline */ });
+        }
     </script>
 </body>
 </html>
