@@ -1,7 +1,7 @@
 // Pages are network-first so a new deployment is picked up immediately; static
 // assets are served from cache and refreshed in the background. The API lives on
 // another origin (Render) and is never intercepted.
-const CACHE = 'kitui-farm-v5';
+const CACHE = 'kitui-farm-v6';
 const SHELL = [
   './',
   './login.html',
