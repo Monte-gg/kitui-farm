@@ -3,7 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Payment - Kitui Farm Enterprise</title>
+    <meta name="theme-color" content="#4a8c3f">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="icon" href="/icons/icon-192x192.png" type="image/png" sizes="192x192">
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png">
+    <link rel="mask-icon" href="/icons/icon.svg" color="#4a8c3f">
+    <script src="/install.js" defer></script>
+    <title>Payment - KITUI FARM</title>
     <script>
         const paymentSession = (() => {
             try {
@@ -111,7 +119,7 @@
 <body>
     <header class="topbar">
         <div class="topbar-inner">
-            <div class="brand"><span class="brand-mark" aria-hidden="true">🌱</span><strong>Kitui Farm Enterprise</strong></div>
+            <div class="brand"><span class="brand-mark" aria-hidden="true">🌱</span><strong>KITUI FARM</strong></div>
             <button class="button secondary" id="backButton" type="button">← Back to shop</button>
         </div>
     </header>
@@ -325,5 +333,22 @@
         }
         })();
     </script>
+    <div class="install-card" id="kitui-install-card" hidden>
+      <div class="install-card-inner">
+        <div class="install-card-icon" aria-hidden="true"><img src="/icons/icon-192x192.png" alt="" width="36" height="36"></div>
+        <div class="install-card-text">
+          <p class="install-card-title">Install KITUI FARM</p>
+          <p class="install-card-desc">Get the app on your phone — works like a download, no store needed.</p>
+        </div>
+        <button class="install-card-btn" id="installAppBtn" type="button">Download app</button>
+        <button class="install-card-close" id="installCardClose" type="button" aria-label="Close">×</button>
+      </div>
+      <ol class="install-card-steps" id="installCardSteps" hidden>
+        <li>Open KITUI FARM in your phone's browser (Chrome on Android, Safari on iPhone).</li>
+        <li>Tap the Share or menu button.</li>
+        <li>Choose <strong>"Add to Home Screen"</strong>.</li>
+        <li>Open it from your home screen — it runs full-screen like an app.</li>
+      </ol>
+    </div>
 </body>
 </html>

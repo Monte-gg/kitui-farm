@@ -714,6 +714,14 @@ function createApp(options = {}) {
 
     app.get('/', (req, res) => res.sendFile(path.join(ROOT, 'login.html')));
     for (const page of PAGES) app.get(`/${page}`, (req, res) => res.sendFile(path.join(ROOT, page)));
+    // PWA assets served at the site root so the manifest, service worker,
+    // install script and icons resolve on both Render and GitHub Pages.
+    const PWA_ROOT = ROOT;
+    app.get('/manifest.json', (req, res) => res.sendFile(path.join(PWA_ROOT, 'manifest.json')));
+    app.get('/sw.js', (req, res) => res.sendFile(path.join(PWA_ROOT, 'sw.js')));
+    app.get('/install.js', (req, res) => res.sendFile(path.join(PWA_ROOT, 'install.js')));
+    app.use('/icons', express.static(path.join(PWA_ROOT, 'icons')));
+
     app.use('/api', (req, res) => res.status(404).json({ error: 'API endpoint not found.' }));
     app.use((error, req, res, next) => {
         if (res.headersSent) return next(error);
