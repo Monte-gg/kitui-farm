@@ -31,6 +31,30 @@
     <script>
         window.location.replace('login.html');
     </script>
+<style id="kitui-get-app-style">
+.get-app{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin:22px 0 0;padding:16px 18px;border:1px solid #cfe3c6;border-radius:12px;background:#f2f9ee;}
+.get-app-icon{flex:0 0 auto;width:46px;height:46px;border-radius:12px;background:#e3f0dc;display:grid;place-items:center;overflow:hidden;}
+.get-app-icon img{width:38px;height:38px;display:block;}
+.get-app-body{flex:1 1 220px;min-width:0;}
+.get-app-title{margin:0 0 3px;color:#2d5a27;font-size:15px;font-weight:700;}
+.get-app-desc{margin:0;color:#5c6a58;font-size:12px;line-height:1.45;}
+.get-app-steps{margin:7px 0 0;color:#5c6a58;font-size:11.5px;line-height:1.55;}
+.get-app-steps strong{color:#2d5a27;}
+.get-app-actions{display:flex;flex:0 0 auto;align-self:center;align-items:center;gap:8px;flex-wrap:wrap;}
+.get-app-open-btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:9px;background:#4a8c3f;color:#fff;font-weight:650;font-size:13px;padding:10px 16px;text-decoration:none;white-space:nowrap;}
+.get-app-open-btn:hover{background:#3a7a2a;}
+.get-app-btn{border:1px solid #4a8c3f;border-radius:9px;background:transparent;color:#2d5a27;font-weight:650;font-size:13px;padding:9px 15px;cursor:pointer;white-space:nowrap;}
+.get-app-btn:hover{background:#e3f0dc;}
+:root[data-theme="dark"] .get-app-btn{color:#d8e6cf;border-color:#6a9d60;}
+:root[data-theme="dark"] .get-app-btn:hover{background:#2f4a2f;}
+.get-app-btn:disabled{opacity:.65;cursor:default;}
+.get-app-status{flex-basis:100%;margin:0;color:#2d5a27;font-size:12px;}
+:root[data-theme="dark"] .get-app{background:#263b27;border-color:#3d5a3b;}
+:root[data-theme="dark"] .get-app-icon{background:#2f4a2f;}
+:root[data-theme="dark"] .get-app-title{color:#d8e6cf;}
+:root[data-theme="dark"] .get-app-desc,:root[data-theme="dark"] .get-app-steps{color:#a6b1a3;}
+:root[data-theme="dark"] .get-app-steps strong,:root[data-theme="dark"] .get-app-status{color:#d8e6cf;}
+</style>
 </head>
 <body>
     <p>Continue to <a href="login.html">the Kitui Farm sign-in page</a>.</p>
@@ -41,7 +65,7 @@
     <p class="get-app-desc">Add it to your phone’s home screen — it opens full-screen like an app. No app store needed.</p>
     <p class="get-app-steps"><strong>Android (Chrome):</strong> tap ⋮ → <strong>Add to Home screen</strong>. <strong>iPhone (Safari):</strong> tap Share → <strong>Add to Home Screen</strong>.</p>
   </div>
-  <div class="get-app-actions"><button class="get-app-btn" id="getAppBtn" type="button">Get app</button></div>
+  <div class="get-app-actions"><a class="get-app-open-btn" href="login.html" aria-label="Open KITUI FARM app">Open app</a><button class="get-app-btn" id="getAppBtn" type="button">Install app</button></div>
   <p class="get-app-status" id="getAppStatus" hidden></p>
 </section>
 <script>
@@ -66,6 +90,5 @@
   }
 })();
 </script>
-
 </body>
 </html>
