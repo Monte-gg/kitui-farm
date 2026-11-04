@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script src="api-base.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#4a8c3f">
+    <meta name="description" content="Learn about KITUI FARM, a marketplace connecting Kitui farmers with people looking for fresh local produce.">
+    <title>About Us - KITUI FARM</title>
+    <style>
+        :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; --green:#4a8c3f; --dark:#2d5a27; --ink:#263126; --muted:#657064; --line:#e3e9df; --bg:#f5f7f2; --surface:#fff; }
+        * { box-sizing:border-box; }
+        body { margin:0; background:var(--bg); color:var(--ink); line-height:1.65; }
+        .topbar { background:var(--surface); border-bottom:1px solid var(--line); }
+        .topbar-inner, main { width:min(940px, calc(100% - 36px)); margin:auto; }
+        .topbar-inner { min-height:72px; display:flex; align-items:center; justify-content:space-between; gap:16px; }
+        .brand { color:var(--dark); font-size:18px; font-weight:750; text-decoration:none; }
+        .nav { display:flex; gap:9px; flex-wrap:wrap; }
+        .button { display:inline-flex; align-items:center; justify-content:center; min-height:40px; padding:8px 14px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); font:inherit; font-weight:650; text-decoration:none; }
+        .button.primary { border-color:var(--green); background:var(--green); color:#fff; }
+        main { padding:56px 0 72px; }
+        .hero { padding:clamp(26px, 6vw, 58px); border-radius:20px; background:linear-gradient(135deg,#e7f2e1,#fff 78%); }
+        .eyebrow { margin:0 0 9px; color:var(--green); font-size:13px; font-weight:750; letter-spacing:.09em; text-transform:uppercase; }
+        h1 { max-width:700px; margin:0; color:var(--dark); font-size:clamp(34px, 7vw, 54px); line-height:1.12; }
+        .lead { max-width:690px; margin:20px 0 0; color:#4f5c4c; font-size:clamp(17px, 3vw, 20px); }
+        .sections { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; margin-top:22px; }
+        .card { padding:24px; border:1px solid var(--line); border-radius:14px; background:var(--surface); }
+        .card h2 { margin:0 0 8px; color:var(--dark); font-size:21px; }
+        .card p { margin:0; color:var(--muted); }
+        .steps { display:grid; gap:12px; margin:14px 0 0; padding:0; list-style:none; }
+        .steps li { display:flex; align-items:flex-start; gap:11px; color:var(--muted); }
+        .step { display:grid; place-items:center; width:27px; height:27px; flex:0 0 27px; border-radius:50%; background:#edf5e9; color:var(--dark); font-size:13px; font-weight:750; }
+        .closing { margin-top:22px; padding:24px; border-radius:14px; background:var(--dark); color:#fff; }
+        .closing h2 { margin:0 0 5px; font-size:21px; }
+        .closing p { margin:0 0 16px; color:#e3eddf; }
+        @media(max-width:600px) { .topbar-inner { min-height:64px; } .brand { font-size:15px; } .button { min-height:36px; padding:7px 10px; font-size:13px; } main { padding-top:30px; } .sections { grid-template-columns:1fr; } .card { padding:20px; } }
+    </style>
+    <script src="site-only.js" defer></script>
+</head>
+<body>
+    <header class="topbar"><div class="topbar-inner"><a class="brand" href="login.html">🌱 KITUI FARM</a><nav class="nav" aria-label="Main navigation"><a class="button" href="login.html">Log in</a><a class="button primary" href="signup.html">Join KITUI FARM</a></nav></div></header>
+    <main>
+        <section class="hero">
+            <p class="eyebrow">About us</p>
+            <h1>Bringing Kitui farmers and local buyers closer.</h1>
+            <p class="lead">KITUI FARM is an online marketplace where farmers can share the produce they have available and customers can discover food offered by local farms.</p>
+        </section>
+        <div class="sections">
+            <section class="card"><h2>What we do</h2><p>We provide a place for farmers to create produce listings with details such as price, quantity, location, photos, and videos. Buyers can browse those listings and place orders through the marketplace.</p></section>
+            <section class="card"><h2>Why KITUI FARM</h2><p>We want it to be easier for people to find local produce and for farmers to show what is ready on their farms. Clear listing details help buyers and farmers understand what is available.</p></section>
+            <section class="card"><h2>For farmers</h2><p>Create an account, add your produce, and keep your listings up to date so customers can see what you have to offer.</p></section>
+            <section class="card"><h2>For buyers</h2><p>Explore available produce, compare listing details, and choose items that suit your needs.</p></section>
+        </div>
+        <section class="closing"><h2>Explore local produce with KITUI FARM</h2><p>Join as a farmer or sign in to browse the marketplace.</p><a class="button primary" href="signup.html">Create an account</a></section>
+    </main>
+</body>
+</html>
