@@ -46,7 +46,7 @@
         }
         * { box-sizing: border-box; }
         body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); }
-        button, input { font: inherit; }
+        button, input, select { font: inherit; }
         .topbar { background: var(--surface); border-bottom: 1px solid var(--line); }
         .topbar-inner, main { width: min(900px, calc(100% - 36px)); margin: auto; }
         .topbar-inner { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
@@ -74,8 +74,8 @@
         .field { min-width: 0; }
         .field.full { grid-column: 1 / -1; }
         label { display: block; margin-bottom: 7px; color: var(--ink); font-size: 13px; font-weight: 650; }
-        input { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
-        input:focus { outline: 2px solid #d1e5c7; border-color: var(--green); }
+        input, select { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+        input:focus, select:focus { outline: 2px solid #d1e5c7; border-color: var(--green); }
         input[readonly] { background: var(--bg); color: var(--muted); }
         .hint { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
         .actions { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
@@ -119,6 +119,7 @@
                 <div class="field"><label for="email">Gmail address</label><input id="email" type="email" readonly><p class="hint">Email address is your login ID and can’t be changed here.</p></div>
                 <div class="field"><label for="phone">Kenyan phone number</label><input id="phone" type="tel" inputmode="tel" placeholder="+254 712345678" required></div>
                 <div class="field"><label for="role">Account type</label><input id="role" readonly></div>
+                <div class="field"><label for="gender">Gender <span class="hint">(optional)</span></label><select id="gender"><option value="">Prefer not to say</option><option value="female">Female</option><option value="male">Male</option><option value="non-binary">Non-binary</option><option value="other">Other</option></select></div>
                 <div class="field full"><label for="location" id="locationLabel">Location</label><input id="location" maxlength="120" required></div>
                 <div class="actions"><button class="button" type="submit">Save changes</button><p class="message" id="profileMessage" role="status" aria-live="polite"></p></div>
             </form>
@@ -163,7 +164,14 @@
             try {
                 const response = await fetch('/api/profile');
                 const result = await response.json();
-                if (response.ok && result.user) cacheProfilePhoto(result.user.profilePhoto || '');
+                if (response.ok && result.user) {
+                    cacheProfilePhoto(result.user.profilePhoto || '');
+                    user.gender = result.user.gender || '';
+                    document.getElementById('gender').value = user.gender;
+                    const users = readArray('kituiFarmUsers');
+                    const account = users.find(item => item.id === user.id);
+                    if (account) { account.gender = user.gender; saveArray('kituiFarmUsers', users); }
+                }
             } catch (error) { /* use the saved browser copy while offline */ }
         }
         function resizePhoto(file) {
@@ -190,6 +198,7 @@
         document.getElementById('email').value = user.email;
         document.getElementById('phone').value = user.phone || '';
         document.getElementById('role').value = roleName;
+        document.getElementById('gender').value = user.gender || '';
         document.getElementById('location').value = user.location || '';
         document.getElementById('locationLabel').textContent = user.role === 'farmer' ? 'Farm location' : 'Default delivery location';
 
@@ -237,6 +246,7 @@
             let phone = rawPhone;
             if (phone.startsWith('254')) phone = phone.slice(3);
             if (phone.startsWith('0')) phone = phone.slice(1);
+            const gender = document.getElementById('gender').value;
             const location = document.getElementById('location').value.trim();
             if (!name || !/^[17]\d{8}$/.test(phone) || !location) {
                 message.textContent = 'Enter a name, a valid 9-digit Kenyan phone number, and location.';
@@ -247,7 +257,7 @@
                 const response = await fetch('/api/profile', {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, phone: '+254' + phone, location })
+                    body: JSON.stringify({ name, phone: '+254' + phone, gender, location })
                 });
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.error || 'Could not save your profile.');
@@ -265,6 +275,7 @@
                     if (session.userId === user.id) {
                         session.name = name;
                         session.phone = account.phone;
+                        session.gender = gender;
                         session.location = location;
                         storage.setItem('kituiFarmSession', JSON.stringify(session));
                     }
@@ -284,6 +295,7 @@
 
                 user.name = name;
                 user.phone = account.phone;
+                user.gender = gender;
                 user.location = location;
                 paintAvatar(profilePhoto);
                 document.getElementById('profileHeading').textContent = name;

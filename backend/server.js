@@ -40,7 +40,7 @@ const SQLITE_SCHEMA = `
         id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL COLLATE NOCASE UNIQUE,
         phone TEXT NOT NULL UNIQUE, role TEXT NOT NULL CHECK (role IN ('buyer', 'farmer')),
         password_salt TEXT NOT NULL, password_hash TEXT NOT NULL, location TEXT NOT NULL DEFAULT '',
-        profile_photo TEXT NOT NULL DEFAULT '',
+        profile_photo TEXT NOT NULL DEFAULT '', gender TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS sessions (
@@ -109,6 +109,9 @@ function createSqliteStore(dbPath) {
     if (!userColumns.some(column => column.name === 'profile_photo')) {
         db.exec("ALTER TABLE users ADD COLUMN profile_photo TEXT NOT NULL DEFAULT ''");
     }
+    if (!userColumns.some(column => column.name === 'gender')) {
+        db.exec("ALTER TABLE users ADD COLUMN gender TEXT NOT NULL DEFAULT ''");
+    }
     seedListings(db);
     const inTransaction = new AsyncLocalStorage();
     let queue = Promise.resolve();
@@ -174,7 +177,10 @@ function createPostgresStore(connectionString, options = {}) {
         ssl: local ? false : { rejectUnauthorized: false }
     });
     const ready = options.autoMigrate
-        ? pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_photo TEXT NOT NULL DEFAULT ''")
+        ? Promise.all([
+            pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_photo TEXT NOT NULL DEFAULT ''"),
+            pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS gender TEXT NOT NULL DEFAULT ''")
+        ])
         : Promise.resolve();
     const session = new AsyncLocalStorage();
 
@@ -265,7 +271,7 @@ function normalizedPhone(value) {
 }
 
 function publicUser(user) {
-    return { id: user.id, name: user.name, email: user.email, phone: user.phone, role: user.role, location: user.location, profilePhoto: user.profile_photo || '' };
+    return { id: user.id, name: user.name, email: user.email, phone: user.phone, role: user.role, location: user.location, gender: user.gender || '', profilePhoto: user.profile_photo || '' };
 }
 
 function publicListing(row) {
@@ -511,6 +517,13 @@ function createApp(options = {}) {
         }
         if ('location' in patch) {
             fields.push('location = ?'); values.push(text(patch.location, 160));
+        }
+        if ('gender' in patch) {
+            const gender = text(patch.gender, 24).toLowerCase();
+            if (!['', 'female', 'male', 'non-binary', 'other'].includes(gender)) {
+                return res.status(400).json({ error: 'Choose a valid gender option.' });
+            }
+            fields.push('gender = ?'); values.push(gender);
         }
         if ('profilePhoto' in patch) {
             const photo = patch.profilePhoto;
