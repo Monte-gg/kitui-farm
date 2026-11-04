@@ -1,6 +1,9 @@
 (function () {
   'use strict';
 
+  var legacyInstallCard = document.getElementById('getAppBlock');
+  if (legacyInstallCard) legacyInstallCard.remove();
+
   var installedKey = 'kituiFarmAppInstalled';
   var dismissedKey = 'kituiFarmInstallDismissedUntil';
   var installPrompt = null;
