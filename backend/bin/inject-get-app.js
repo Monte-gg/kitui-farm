@@ -26,9 +26,13 @@ const CSS_RULES = [
   '.get-app-desc{margin:0;color:#5c6a58;font-size:12px;line-height:1.45;}',
   '.get-app-steps{margin:7px 0 0;color:#5c6a58;font-size:11.5px;line-height:1.55;}',
   '.get-app-steps strong{color:#2d5a27;}',
-  '.get-app-actions{flex:0 0 auto;align-self:center;}',
-  '.get-app-btn{border:0;border-radius:9px;background:#4a8c3f;color:#fff;font-weight:650;font-size:13px;padding:10px 16px;cursor:pointer;white-space:nowrap;}',
-  '.get-app-btn:hover{background:#3a7a2a;}',
+  '.get-app-actions{display:flex;flex:0 0 auto;align-self:center;align-items:center;gap:8px;flex-wrap:wrap;}',
+  '.get-app-open-btn{display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:9px;background:#4a8c3f;color:#fff;font-weight:650;font-size:13px;padding:10px 16px;text-decoration:none;white-space:nowrap;}',
+  '.get-app-open-btn:hover{background:#3a7a2a;}',
+  '.get-app-btn{border:1px solid #4a8c3f;border-radius:9px;background:transparent;color:#2d5a27;font-weight:650;font-size:13px;padding:9px 15px;cursor:pointer;white-space:nowrap;}',
+  '.get-app-btn:hover{background:#e3f0dc;}',
+  ':root[data-theme="dark"] .get-app-btn{color:#d8e6cf;border-color:#6a9d60;}',
+  ':root[data-theme="dark"] .get-app-btn:hover{background:#2f4a2f;}',
   '.get-app-btn:disabled{opacity:.65;cursor:default;}',
   '.get-app-status{flex-basis:100%;margin:0;color:#2d5a27;font-size:12px;}',
   ':root[data-theme="dark"] .get-app{background:#263b27;border-color:#3d5a3b;}',
@@ -46,7 +50,7 @@ const BLOCK = [
   '    <p class="get-app-desc">Add it to your phone\u2019s home screen \u2014 it opens full-screen like an app. No app store needed.</p>',
   '    <p class="get-app-steps"><strong>Android (Chrome):</strong> tap \u22ee \u2192 <strong>Add to Home screen</strong>. <strong>iPhone (Safari):</strong> tap Share \u2192 <strong>Add to Home Screen</strong>.</p>',
   '  </div>',
-  '  <div class="get-app-actions"><button class="get-app-btn" id="getAppBtn" type="button">Get app</button></div>',
+  '  <div class="get-app-actions"><a class="get-app-open-btn" href="login.html" aria-label="Open KITUI FARM app">Open app</a><button class="get-app-btn" id="getAppBtn" type="button">Install app</button></div>',
   '  <p class="get-app-status" id="getAppStatus" hidden></p>',
   '</section>',
   '<script>',
@@ -74,8 +78,12 @@ const BLOCK = [
 ].join('\n');
 
 function stripBlock(text) {
-  // Remove the old hidden install card: from its opening div up to the outer
-  // closing div that is immediately followed by </body>.
+  // Remove any previously injected Get app block and script together so the
+  // generator can safely run again without inserting duplicate controls.
+  text = text.replace(/<section class="get-app" id="getAppBlock"[\s\S]*?<\/section>\s*<script>[\s\S]*?<\/script>/g, '');
+  text = text.replace(/\s*<style id="kitui-get-app-style">[\s\S]*?<\/style>/g, '');
+
+  // Remove the old hidden install card and its deferred install script.
   const lines = text.split(/\r?\n/);
   const out = [];
   let i = 0;
@@ -110,19 +118,20 @@ for (const name of PAGES) {
   const eol = text.includes('\r\n') ? '\r\n' : '\n';
 
   text = stripBlock(text);
+  const css = CSS_RULES.split('\n').join(eol);
+  const style = '<style id="kitui-get-app-style">' + eol + css + eol + '</style>';
 
   const block = BLOCK.split('\n').join(eol);
   if (text.indexOf('</main>') !== -1) {
-    text = text.replace(/(\s*)<\/main>/, eol + block + eol + '$1</main>');
+    text = text.replace(/\s*<\/main>/, eol + block + eol + '</main>');
   } else {
-    text = text.replace(/(\s*)<\/body>/, eol + block + eol + '$1</body>');
+    text = text.replace(/\s*<\/body>/, eol + block + eol + '</body>');
   }
 
-  const css = CSS_RULES.split('\n').join(eol);
-  if (/(<\/style>)/.test(text)) {
-    text = text.replace(/(<\/style>)/, css + eol + '$1');
+  if (text.indexOf('</head>') !== -1) {
+    text = text.replace('</head>', style + eol + '</head>');
   } else {
-    console.log('WARN: no </style> in ' + name);
+    console.log('WARN: no </head> in ' + name);
   }
 
   // Normalise back to the file's own line endings.
