@@ -983,7 +983,7 @@ function createApp(options = {}) {
             buyerId: row.buyer_id,
             farmerId: row.farmer_id,
             listingId: row.listing_id,
-            listingName: row.listing_name || 'Product order',
+            listingName: row.listing_name || (row.listing_id?.startsWith('direct:') ? 'Direct message' : 'Product order'),
             buyerName: row.buyer_name,
             farmerName: row.farmer_name,
             peerName,
@@ -999,14 +999,71 @@ function createApp(options = {}) {
         res.json({ conversations: rows.map(row => publicConversation(row, req.user)) });
     });
 
+    app.get('/api/chat/people', auth, async (req, res) => {
+        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
+            return res.status(403).json({ error: 'User directory is available to farmer and customer accounts.' });
+        }
+        const requestedRole = text(req.query.role, 20);
+        if (requestedRole && !['buyer', 'farmer'].includes(requestedRole)) {
+            return res.status(400).json({ error: 'Choose Farmers or Customers.' });
+        }
+        const roleClause = requestedRole ? 'AND users.role = ?' : '';
+        const params = requestedRole ? [req.user.id, requestedRole] : [req.user.id];
+        const rows = await store.all(`
+            SELECT users.id, users.name, users.role, users.location, users.profile_photo,
+                users.created_at,
+                (SELECT COUNT(*) FROM listings WHERE listings.farmer_id = users.id AND listings.quantity > 0) AS product_count
+            FROM users
+            WHERE users.id <> ? ${roleClause}
+                AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)
+            ORDER BY users.role ASC, users.name COLLATE NOCASE ASC LIMIT 500
+        `, params);
+        res.json({ people: rows.map(row => ({
+            id: row.id, name: row.name, role: row.role, location: row.location,
+            profilePhoto: row.profile_photo || '', productCount: Number(row.product_count), joinedAt: row.created_at
+        })) });
+    });
+
+    app.get('/api/chat/people/:id', auth, async (req, res) => {
+        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
+            return res.status(403).json({ error: 'User profiles are available to farmer and customer accounts.' });
+        }
+        const person = await store.get(`
+            SELECT users.id, users.name, users.role, users.location, users.profile_photo, users.created_at
+            FROM users WHERE users.id = ?
+                AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)
+        `, [req.params.id]);
+        if (!person) return res.status(404).json({ error: 'This profile is not available.' });
+        const listings = person.role === 'farmer'
+            ? await store.all('SELECT * FROM listings WHERE farmer_id = ? AND quantity > 0 ORDER BY created_at DESC LIMIT 100', [person.id])
+            : [];
+        res.json({ person: {
+            id: person.id, name: person.name, role: person.role, location: person.location,
+            profilePhoto: person.profile_photo || '', joinedAt: person.created_at,
+            listings: listings.map(publicListing)
+        } });
+    });
+
     app.post('/api/chat/conversations', auth, async (req, res, next) => {
         if (!['buyer', 'farmer'].includes(req.user.role)) return res.status(403).json({ error: 'Buyer or farmer account required.' });
-        const listingId = text(req.body?.listingId, 100);
-        if (!listingId) return res.status(400).json({ error: 'Choose a product before starting a chat.' });
+        let listingId = text(req.body?.listingId, 100);
+        const personId = text(req.body?.personId, 100);
+        if (!listingId && !personId) return res.status(400).json({ error: 'Choose a person or product before starting a chat.' });
         try {
             let buyerId;
             let farmerId;
-            if (req.user.role === 'buyer') {
+            if (personId) {
+                if (await chatIsAdmin(req.user.id)) return res.status(403).json({ error: 'Admin accounts cannot start user conversations here.' });
+                const person = await store.get(`
+                    SELECT users.id, users.role FROM users WHERE users.id = ?
+                        AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)
+                `, [personId]);
+                if (!person) return res.status(404).json({ error: 'This account is not available for chat.' });
+                if (person.role === req.user.role) return res.status(400).json({ error: 'You can start a chat with an account of the other type.' });
+                buyerId = req.user.role === 'buyer' ? req.user.id : person.id;
+                farmerId = req.user.role === 'farmer' ? req.user.id : person.id;
+                listingId = `direct:${buyerId}:${farmerId}`;
+            } else if (req.user.role === 'buyer') {
                 const listing = await store.get("SELECT id, farmer_id FROM listings WHERE id = ? AND quantity > 0", [listingId]);
                 if (!listing) return res.status(404).json({ error: 'This product is no longer available.' });
                 const farmer = await store.get("SELECT id FROM users WHERE id = ? AND role = 'farmer'", [listing.farmer_id]);

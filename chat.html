@@ -28,6 +28,37 @@
         .pane-head h2 { margin:0; font-size:18px; }
         .pane-head p { margin:4px 0 0; color:var(--muted); font-size:12px; }
         .conversation-list { flex:1; overflow:auto; }
+        .pane-tabs { display:grid; grid-template-columns:1fr 1fr; gap:6px; padding:10px; border-bottom:1px solid var(--line); }
+        .pane-tab,.directory-filter { min-height:36px; border:1px solid var(--line); border-radius:8px; background:white; color:var(--ink); font:inherit; font-size:13px; font-weight:650; cursor:pointer; }
+        .pane-tab.active,.directory-filter.active { border-color:var(--green); background:var(--pale); color:var(--deep); }
+        .directory-filters { display:flex; gap:6px; padding:10px; }
+        .directory-filter { flex:1; }
+        #peopleView:not([hidden]) { display:flex; flex:1; min-height:0; flex-direction:column; }
+        .people-list { flex:1; overflow:auto; }
+        .person-item { display:flex; align-items:center; gap:10px; padding:12px; border-bottom:1px solid #edf0eb; }
+        .person-avatar,.profile-avatar { display:grid; place-items:center; flex:0 0 40px; width:40px; height:40px; overflow:hidden; border-radius:50%; background:var(--pale); color:var(--deep); font-weight:750; }
+        .person-avatar img,.profile-avatar img { width:100%; height:100%; object-fit:cover; }
+        .person-info { flex:1; min-width:0; }
+        .person-info strong,.person-info small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .person-info small { margin-top:3px; color:var(--muted); font-size:11px; }
+        .person-actions { display:flex; flex-direction:column; gap:5px; }
+        .person-actions .button { min-height:30px; padding:5px 8px; font-size:11px; }
+        .person-actions .button:disabled { opacity:.6; cursor:wait; }
+        .person-empty { padding:16px 12px; color:var(--muted); font-size:13px; }
+        dialog.profile-dialog { width:min(550px,calc(100% - 28px)); max-height:min(82vh,760px); padding:0; overflow:auto; border:1px solid var(--line); border-radius:16px; background:white; color:var(--ink); box-shadow:0 18px 55px rgba(20,35,18,.25); }
+        dialog.profile-dialog::backdrop { background:rgba(20,30,20,.55); }
+        .profile-dialog-head { position:sticky; top:0; display:flex; justify-content:flex-end; padding:10px; background:white; }
+        .profile-content { padding:0 22px 22px; }
+        .profile-identity { display:flex; align-items:center; gap:14px; padding:7px 0 16px; }
+        .profile-avatar { width:72px; height:72px; flex-basis:72px; font-size:24px; }
+        .profile-identity h2 { margin:0; color:var(--deep); }
+        .profile-identity p,.profile-meta { margin:5px 0 0; color:var(--muted); }
+        .profile-products { display:grid; gap:8px; margin-top:12px; }
+        .profile-product { padding:11px; border:1px solid var(--line); border-radius:10px; }
+        .profile-product strong { display:block; color:var(--deep); }
+        .profile-product small { color:var(--muted); }
+        .profile-actions { display:flex; gap:8px; margin-top:16px; }
+        .profile-actions .button { flex:1; }
         .conversation-item { display:block; width:100%; padding:14px 16px; border:0; border-bottom:1px solid #edf0eb; background:white; color:var(--ink); text-align:left; cursor:pointer; }
         .conversation-item:hover,.conversation-item.active { background:#f0f6ed; }
         .conversation-item strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -56,6 +87,7 @@
             .chat-layout { grid-template-columns:minmax(0,1fr); min-height:calc(100vh - 170px); }
             .conversation-pane { max-height:230px; border-right:0; border-bottom:1px solid var(--line); }
             .conversation-list { max-height:155px; }
+            .people-list { max-height:240px; }
             .message-pane { min-height:400px; }
             .messages { min-height:240px; }
         }
@@ -70,7 +102,18 @@
         <section class="chat-layout" aria-label="Messages">
             <aside class="conversation-pane">
                 <div class="pane-head"><h2 id="listTitle">Your conversations</h2><p id="listSubtitle">Choose a chat to read and reply.</p></div>
-                <div class="conversation-list" id="conversationList" aria-live="polite"></div>
+                <div class="pane-tabs" id="paneTabs" role="tablist" aria-label="Messages and people">
+                    <button class="pane-tab active" id="chatsTab" type="button" role="tab" aria-selected="true" aria-controls="conversationList">Chats</button>
+                    <button class="pane-tab" id="peopleTab" type="button" role="tab" aria-selected="false" aria-controls="peopleView">Farmers &amp; Customers</button>
+                </div>
+                <div class="conversation-list" id="conversationList" role="tabpanel" aria-labelledby="chatsTab" aria-live="polite"></div>
+                <div id="peopleView" hidden role="tabpanel" aria-labelledby="peopleTab">
+                    <div class="directory-filters" role="group" aria-label="Filter people by account type">
+                        <button class="directory-filter active" type="button" data-people-role="farmer">Farmers</button>
+                        <button class="directory-filter" type="button" data-people-role="buyer">Customers</button>
+                    </div>
+                    <div class="people-list" id="peopleList" aria-live="polite"><p class="person-empty">Loading people…</p></div>
+                </div>
             </aside>
             <section class="message-pane" aria-label="Chat thread">
                 <div class="thread-head"><strong id="threadTitle">Select a conversation</strong><small id="threadSubtitle">Your messages stay between the participants and authorized KITUI FARM administrators.</small></div>
@@ -80,6 +123,10 @@
             </section>
         </section>
     </main>
+    <dialog class="profile-dialog" id="personProfileDialog" aria-labelledby="personProfileName">
+        <div class="profile-dialog-head"><button class="button" id="closeProfileButton" type="button">Close</button></div>
+        <div class="profile-content" id="personProfileContent"></div>
+    </dialog>
     <script>
         const adminMode = location.pathname.endsWith('/admin-chat.html') || location.search.includes('admin=1');
         const token = localStorage.getItem('kituiFarmToken') || '';
@@ -92,6 +139,8 @@
         const messageNode = document.getElementById('messages');
         const noticeNode = document.getElementById('notice');
         let conversations = [];
+        let people = [];
+        let peopleRole = 'farmer';
         let activeConversationId = '';
         let loadingMessages = false;
         const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char]);
@@ -150,6 +199,71 @@
             renderConversations();
             if (activeConversationId && conversations.some(item => item.id === activeConversationId)) await loadMessages();
         }
+        function initials(name) {
+            return String(name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join('').toUpperCase() || '?';
+        }
+        function avatarMarkup(person, className = 'person-avatar') {
+            const photo = /^data:image\/(?:jpeg|png|webp);base64,/i.test(person.profilePhoto || '') ? person.profilePhoto : '';
+            return `<span class="${className}">${photo ? `<img src="${escapeHtml(photo)}" alt="">` : escapeHtml(initials(person.name))}</span>`;
+        }
+        function renderPeople() {
+            const visiblePeople = people.filter(person => person.role === peopleRole);
+            const list = document.getElementById('peopleList');
+            if (!visiblePeople.length) {
+                list.innerHTML = `<p class="person-empty">No ${peopleRole === 'farmer' ? 'farmers' : 'customers'} are available yet.</p>`;
+                return;
+            }
+            list.innerHTML = visiblePeople.map(person => `<article class="person-item">
+                ${avatarMarkup(person)}
+                <span class="person-info"><strong>${escapeHtml(person.name)}</strong><small>${peopleRole === 'farmer' ? 'Farmer' : 'Customer'} · ${escapeHtml(person.location || 'Location not added')}${person.role === 'farmer' ? ` · ${person.productCount} product${person.productCount === 1 ? '' : 's'}` : ''}</small></span>
+                <span class="person-actions"><button class="button" type="button" data-view-person="${escapeHtml(person.id)}">View profile</button>${person.role !== userSession?.role ? `<button class="button primary" type="button" data-message-person="${escapeHtml(person.id)}">Message</button>` : ''}</span>
+            </article>`).join('');
+        }
+        async function loadPeople() {
+            const list = document.getElementById('peopleList');
+            list.innerHTML = '<p class="person-empty">Loading people…</p>';
+            const result = await apiRequest('/api/chat/people');
+            people = result.people || [];
+            renderPeople();
+        }
+        function activatePane(name) {
+            const showPeople = name === 'people';
+            document.getElementById('conversationList').hidden = showPeople;
+            document.getElementById('peopleView').hidden = !showPeople;
+            document.getElementById('chatsTab').classList.toggle('active', !showPeople);
+            document.getElementById('peopleTab').classList.toggle('active', showPeople);
+            document.getElementById('chatsTab').setAttribute('aria-selected', String(!showPeople));
+            document.getElementById('peopleTab').setAttribute('aria-selected', String(showPeople));
+            document.getElementById('listTitle').textContent = showPeople ? 'Farmers & customers' : (adminMode ? 'All conversations' : 'Your conversations');
+            document.getElementById('listSubtitle').textContent = showPeople ? 'Browse people on KITUI FARM and view their profiles.' : (adminMode ? 'Admin access to user chats.' : 'Choose a chat to read and reply.');
+        }
+        async function viewPersonProfile(personId) {
+            try {
+                const result = await apiRequest(`/api/chat/people/${encodeURIComponent(personId)}`);
+                const person = result.person;
+                const listings = person.listings || [];
+                const listingSection = person.role === 'farmer'
+                    ? `<h3>Available products</h3>${listings.length ? `<div class="profile-products">${listings.map(item => `<article class="profile-product"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.location)} · ${Number(item.quantity).toLocaleString('en-KE')} kg available · KES ${Number(item.price).toLocaleString('en-KE')} / kg</small></article>`).join('')}</div>` : '<p class="profile-meta">No available products listed right now.</p>'}`
+                    : '<p class="profile-meta">Customer account on KITUI FARM.</p>';
+                const canMessage = person.role !== userSession?.role;
+                document.getElementById('personProfileContent').innerHTML = `<div class="profile-identity">${avatarMarkup(person, 'profile-avatar')}<div><h2 id="personProfileName">${escapeHtml(person.name)}</h2><p>${person.role === 'farmer' ? 'Farmer' : 'Customer'} · ${escapeHtml(person.location || 'Location not added')}</p></div></div>
+                    ${listingSection}<div class="profile-actions">${canMessage ? `<button class="button primary" type="button" data-message-person="${escapeHtml(person.id)}">Message ${person.role === 'farmer' ? 'farmer' : 'customer'}</button>` : ''}<button class="button" type="button" id="profileDoneButton">Close profile</button></div>`;
+                document.getElementById('personProfileDialog').showModal();
+            } catch (error) { showNotice(error.message || 'Could not load this profile.'); }
+        }
+        async function messagePerson(personId, button) {
+            if (button) { button.disabled = true; button.textContent = 'Opening…'; }
+            try {
+                const result = await apiRequest('/api/chat/conversations', { method:'POST', body:JSON.stringify({ personId }) });
+                document.getElementById('personProfileDialog').close();
+                activatePane('chats');
+                await loadConversations();
+                if (result.conversation?.id) await selectConversation(result.conversation.id);
+            } catch (error) {
+                showNotice(error.message || 'Could not start this conversation.');
+                if (button) { button.disabled = false; button.textContent = 'Message'; }
+            }
+        }
         async function startFromLink() {
             const params = new URLSearchParams(location.search);
             const listingId = params.get('listingId');
@@ -176,7 +290,36 @@
             } catch (error) { document.getElementById('sendStatus').textContent = error.message || 'Could not send your message.'; }
             finally { button.disabled = false; textarea.focus(); }
         });
+        document.getElementById('chatsTab').addEventListener('click', () => activatePane('chats'));
+        document.getElementById('peopleTab').addEventListener('click', async () => {
+            activatePane('people');
+            if (!people.length) {
+                try { await loadPeople(); }
+                catch (error) { document.getElementById('peopleList').innerHTML = `<p class="person-empty">${escapeHtml(error.message || 'Could not load people.')}</p>`; }
+            }
+        });
+        document.querySelector('.directory-filters').addEventListener('click', event => {
+            const button = event.target.closest('[data-people-role]');
+            if (!button) return;
+            peopleRole = button.dataset.peopleRole;
+            document.querySelectorAll('[data-people-role]').forEach(filter => filter.classList.toggle('active', filter === button));
+            renderPeople();
+        });
+        document.getElementById('peopleList').addEventListener('click', async event => {
+            const viewButton = event.target.closest('[data-view-person]');
+            if (viewButton) { await viewPersonProfile(viewButton.dataset.viewPerson); return; }
+            const messageButton = event.target.closest('[data-message-person]');
+            if (messageButton) await messagePerson(messageButton.dataset.messagePerson, messageButton);
+        });
+        document.getElementById('personProfileContent').addEventListener('click', async event => {
+            if (event.target.closest('#profileDoneButton')) { document.getElementById('personProfileDialog').close(); return; }
+            const button = event.target.closest('[data-message-person]');
+            if (button) await messagePerson(button.dataset.messagePerson, button);
+        });
+        document.getElementById('closeProfileButton').addEventListener('click', () => document.getElementById('personProfileDialog').close());
         if (adminMode) {
+            document.getElementById('paneTabs').hidden = true;
+            document.getElementById('peopleView').hidden = true;
             document.getElementById('adminLabel').hidden = false;
             document.getElementById('backButton').href = 'admin.html';
             document.getElementById('pageTitle').textContent = 'User messages';
