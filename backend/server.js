@@ -1212,6 +1212,11 @@ function createApp(options = {}) {
         res.setHeader('X-Robots-Tag', 'noindex, nofollow');
         res.sendFile(path.join(ROOT, 'admin.html'));
     });
+    app.get('/admin-profile.html', adminPageAuth, (req, res) => {
+        res.setHeader('Cache-Control', 'no-store, private');
+        res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+        res.sendFile(path.join(ROOT, 'admin-profile.html'));
+    });
     app.get('/wallet-admin.html', adminPageAuth, (req, res) => res.redirect('/admin.html#topup-approvals'));
     for (const page of PAGES) app.get(`/${page}`, (req, res) => res.sendFile(path.join(ROOT, page)));
     app.get('/site-only.js', (req, res) => res.sendFile(path.join(ROOT, 'site-only.js')));
