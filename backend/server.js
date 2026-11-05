@@ -411,7 +411,7 @@ function appBaseUrl(req) {
     return (process.env.PUBLIC_APP_URL || defaultBase).trim().replace(/\/$/, '');
 }
 
-async function sendSignupVerification({ email, name, token, baseUrl }) {
+async function sendGmailMessage({ email, subject, body }) {
     const gmailUser = (process.env.GMAIL_USER || '').trim().toLowerCase();
     const oauthClientId = (process.env.GMAIL_OAUTH_CLIENT_ID || '').trim();
     const oauthClientSecret = (process.env.GMAIL_OAUTH_CLIENT_SECRET || '').trim();
@@ -421,15 +421,6 @@ async function sendSignupVerification({ email, name, token, baseUrl }) {
         error.status = 503;
         throw error;
     }
-    const configuredUrl = (process.env.PUBLIC_APP_URL || baseUrl).trim().replace(/\/$/, '');
-    if (!/^https:\/\//i.test(configuredUrl) && process.env.NODE_ENV === 'production') {
-        const error = new Error('Email verification needs an HTTPS PUBLIC_APP_URL in Render.');
-        error.status = 503;
-        throw error;
-    }
-    const verifyUrl = `${configuredUrl}/email-verify.html?token=${encodeURIComponent(token)}`;
-    const subject = 'Verify your KITUI FARM email';
-    const body = `Hello ${name},\n\nConfirm this Gmail address to finish creating your KITUI FARM account. This link expires in 24 hours.\n\n${verifyUrl}\n\nIf you did not request this account, you can ignore this email.`;
     const rawMessage = [
         `From: KITUI FARM <${gmailUser}>`,
         `To: ${email}`,
@@ -492,6 +483,33 @@ async function sendSignupVerification({ email, name, token, baseUrl }) {
         error.status = 502;
         throw error;
     }
+}
+
+async function sendSignupVerification({ email, name, token, baseUrl }) {
+    const configuredUrl = (process.env.PUBLIC_APP_URL || baseUrl).trim().replace(/\/$/, '');
+    if (!/^https:\/\//i.test(configuredUrl) && process.env.NODE_ENV === 'production') {
+        const error = new Error('Email verification needs an HTTPS PUBLIC_APP_URL in Render.');
+        error.status = 503;
+        throw error;
+    }
+    const verifyUrl = `${configuredUrl}/email-verify.html?token=${encodeURIComponent(token)}`;
+    await sendGmailMessage({
+        email,
+        subject: 'Verify your KITUI FARM email',
+        body: `Hello ${name},\n\nConfirm this Gmail address to finish creating your KITUI FARM account. This link expires in 24 hours.\n\n${verifyUrl}\n\nIf you did not request this account, you can ignore this email.`
+    });
+}
+
+async function sendWelcomeEmail({ email, name, role, baseUrl }) {
+    const configuredUrl = (process.env.PUBLIC_APP_URL || baseUrl).trim().replace(/\/$/, '');
+    const roleMessage = role === 'farmer'
+        ? 'You can now add and manage your farm products, share photos or videos, and connect with customers.'
+        : 'You can now explore local produce, save products to your wishlist, and connect with farmers.';
+    await sendGmailMessage({
+        email,
+        subject: 'Welcome to KITUI FARM',
+        body: `Hello ${name},\n\nWelcome to KITUI FARM! Your email is verified and your account is ready.\n\n${roleMessage}\n\nSign in to KITUI FARM: ${configuredUrl}/login.html\n\nWe’re glad you’re here.\n\nKITUI FARM`
+    });
 }
 
 function normalizedPhone(value) {
@@ -814,6 +832,18 @@ function createApp(options = {}) {
             });
             const user = await store.get('SELECT * FROM users WHERE id = ?', [id]);
             const sessionToken = await createSession(user, res, Boolean(pending.remember));
+            try {
+                await sendWelcomeEmail({
+                    email: pending.email,
+                    name: pending.name,
+                    role: pending.role,
+                    baseUrl: appBaseUrl(req)
+                });
+            } catch (emailError) {
+                console.error('[welcome-email] Delivery failed after account creation', {
+                    status: Number.isInteger(emailError.status) ? emailError.status : 502
+                });
+            }
             res.status(201).json({ user: publicUser(user), token: sessionToken, remember: Boolean(pending.remember) });
         } catch (error) {
             if (error.errcode === 2067) return res.status(409).json({ error: 'An account already exists with this email or phone number. Please sign in.' });
