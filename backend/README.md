@@ -26,6 +26,10 @@ All protected routes use the HTTP-only `kitui_farm_session` cookie created by si
 | `POST` | `/api/auth/password-reset` | Reports that email delivery is not configured |
 | `GET`, `PATCH` | `/api/profile` | Read/update profile |
 | `GET`, `PUT` | `/api/settings` | Read/save appearance and delete settings |
+| `GET` | `/api/wallet` | Read wallet balance, transactions, and top-up requests |
+| `POST` | `/api/wallet/topups` | Submit a manual top-up for administrator verification |
+| `GET` | `/api/wallet/admin/topups` | List pending top-ups for an authorized wallet administrator |
+| `POST` | `/api/wallet/admin/topups/:id/review` | Approve or reject a top-up request |
 | `GET` | `/api/listings` | Browse available listings |
 | `GET` | `/api/listings?scope=mine` | Read a farmer's listings |
 | `POST`, `PATCH`, `DELETE` | `/api/listings[/:id]` | Farmer-owned listing management |
@@ -33,7 +37,7 @@ All protected routes use the HTTP-only `kitui_farm_session` cookie created by si
 | `PATCH` | `/api/orders/:id/status` | Buyer cancellation and farmer fulfillment updates |
 | `DELETE` | `/api/orders/:id` | Hide an order and restock eligible cancellations |
 
-Mobile money and bank choices are explicitly demo-only. Orders are stored and stock is reserved, but no payment is initiated or verified. Password reset is unavailable until an email provider is configured.
+M-PESA, Airtel Money, and bank choices at checkout remain demo-only. Wallet payments debit a KES balance saved in the database. Customers request manual top-ups with their M-PESA receipt; an authorized administrator must verify the receipt before crediting the wallet. No mobile-money payment is initiated by the website. Password reset is unavailable until an email provider is configured.
 
 Accounts previously stored only in browser local storage are not imported automatically. Create a new account through the server-backed sign-up page; passwords and legacy browser hashes are not transferred.
 
@@ -53,7 +57,17 @@ Tests always use in-memory SQLite, so `npm test` needs no credentials. Both engi
 1. Create a project at [supabase.com](https://supabase.com).
 2. In the SQL Editor, open a new query, paste `backend/supabase/schema.sql` and run it. It creates every table and index, seeds the demo listings, and enables row level security.
 3. In Project Settings, Database, Connection string, copy the URI into `backend/.env` as `DATABASE_URL=postgresql://...` (start from `backend/.env.example`). Replace `[YOUR-PASSWORD]` with the database password.
-4. Run `npm.cmd start`. Accounts, listings and orders now live in Supabase. Profile photos are saved in `users.profile_photo`; the backend adds this column automatically when it starts with `DATABASE_URL`.
+4. Run `npm.cmd start`. Accounts, listings, orders, and wallet balances now live in Supabase. The backend creates the wallet tables and adds profile columns automatically when it starts with `DATABASE_URL`.
+
+To designate an administrator for manual wallet top-ups, insert the already-registered account into `wallet_admins` in the SQL Editor:
+
+```sql
+insert into public.wallet_admins (user_id, created_at)
+select id, now()::text from public.users where lower(email) = lower('ADMIN_GMAIL_ADDRESS')
+on conflict (user_id) do nothing;
+```
+
+Only administrators in this table can approve credits. Confirm each payment outside the website before approving it in `wallet-admin.html`.
 
 `npm start` and `npm test` load `backend/.env` automatically through Node's `--env-file-if-exists`, so `DATABASE_URL` takes effect without exporting it in the shell. The publishable (`sb_publishable_...`) key is not used by this backend and must not be substituted for `DATABASE_URL`.
 

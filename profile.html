@@ -101,6 +101,7 @@
             <div class="brand"><span class="brand-mark" aria-hidden="true">🌱</span><strong>KITUI FARM</strong></div>
             <nav class="nav" aria-label="Account navigation">
                 <a class="button secondary" id="dashboardLink" href="farmer-dashboard.html">Dashboard</a>
+                <a class="button secondary" id="walletLink" href="wallet.html" hidden>Wallet</a>
                 <a class="button secondary" href="settings.html">Settings</a>
                 <a class="button secondary" href="about-us.html">About</a>
                 <a class="button secondary" href="customer-service.html">Customer service</a>
@@ -193,6 +194,7 @@
         }
 
         dashboardLink.href = user.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
+        document.getElementById('walletLink').hidden = user.role !== 'buyer';
         loadProfilePhoto();
         document.getElementById('profileHeading').textContent = user.name;
         document.getElementById('roleLabel').textContent = `${roleName} account`;

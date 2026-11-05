@@ -100,6 +100,7 @@
             <div class="brand"><span class="brand-mark" aria-hidden="true">🌱</span><strong>KITUI FARM</strong></div>
             <nav class="nav" aria-label="Account navigation">
                 <a class="button secondary" id="dashboardLink" href="farmer-dashboard.html">Dashboard</a>
+                <a class="button secondary" id="walletLink" href="wallet.html" hidden>Wallet</a>
                 <a class="button secondary" href="profile.html">My Profile</a>
                 <a class="button secondary" href="about-us.html">About</a>
                 <a class="button secondary" href="customer-service.html">Customer service</a>
@@ -140,6 +141,7 @@
         const message = document.getElementById('settingsMessage');
         const dashboardLink = document.getElementById('dashboardLink');
         dashboardLink.href = settingsSession.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
+        document.getElementById('walletLink').hidden = settingsSession.role !== 'buyer';
 
         function readSettings() {
             const stored = JSON.parse(localStorage.getItem(storageKey) || '{}');

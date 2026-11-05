@@ -16,11 +16,12 @@ const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_SETTINGS = { theme: 'system', density: 'comfortable', confirmDeletes: true };
 const CATEGORIES = new Set(['Fruits', 'Vegetables', 'Grains & Pulses', 'Roots & Tubers']);
 const PAYMENT_METHODS = new Set([
-    'Cash on delivery', 'M-PESA (demo)', 'Airtel Money (demo)', 'Bank transfer (demo)'
+    'Cash on delivery', 'M-PESA (demo)', 'Airtel Money (demo)', 'Bank transfer (demo)', 'KITUI FARM Wallet'
 ]);
 const PAGES = [
-    'buyer-dashboard.html', 'farmer-dashboard.html', 'forgot-password.html', 'index.html', 'login.html',
-    'payment.html', 'profile.html', 'settings.html', 'signup.html'
+    'about-us.html', 'buyer-dashboard.html', 'customer-service.html', 'farmer-dashboard.html',
+    'forgot-password.html', 'index.html', 'login.html', 'payment.html', 'profile.html',
+    'settings.html', 'signup.html', 'wallet.html', 'wallet-admin.html'
 ];
 
 // ---------------------------------------------------------------------------
@@ -76,10 +77,35 @@ const SQLITE_SCHEMA = `
     CREATE TABLE IF NOT EXISTS user_settings (
         user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, settings_json TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS wallet_accounts (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        balance_cents INTEGER NOT NULL DEFAULT 0 CHECK (balance_cents >= 0),
+        updated_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS wallet_transactions (
+        id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('credit', 'debit')),
+        amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+        reference_key TEXT NOT NULL UNIQUE, payment_reference TEXT,
+        description TEXT NOT NULL, created_by TEXT REFERENCES users(id), created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS wallet_topup_requests (
+        id TEXT PRIMARY KEY, buyer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
+        payment_reference TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected')),
+        reviewed_by TEXT REFERENCES users(id), reviewed_at TEXT, created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS wallet_admins (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_listings_farmer ON listings(farmer_id);
     CREATE INDEX IF NOT EXISTS idx_orders_buyer ON orders(buyer_id);
     CREATE INDEX IF NOT EXISTS idx_order_items_farmer ON order_items(farmer_id);
+    CREATE INDEX IF NOT EXISTS idx_wallet_transactions_user ON wallet_transactions(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_wallet_topup_requests_status ON wallet_topup_requests(status, created_at);
 `;
 
 function seedListings(db) {
@@ -177,10 +203,42 @@ function createPostgresStore(connectionString, options = {}) {
         ssl: local ? false : { rejectUnauthorized: false }
     });
     const ready = options.autoMigrate
-        ? Promise.all([
-            pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_photo TEXT NOT NULL DEFAULT ''"),
-            pool.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS gender TEXT NOT NULL DEFAULT ''")
-        ])
+        ? (async () => {
+            const statements = [
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_photo TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS gender TEXT NOT NULL DEFAULT ''",
+                `CREATE TABLE IF NOT EXISTS wallet_accounts (
+                user_id text primary key references users(id) on delete cascade,
+                balance_cents integer not null default 0 check (balance_cents >= 0),
+                updated_at text not null
+            )`,
+                `CREATE TABLE IF NOT EXISTS wallet_transactions (
+                id text primary key, user_id text not null references users(id) on delete cascade,
+                kind text not null check (kind in ('credit', 'debit')),
+                amount_cents integer not null check (amount_cents > 0),
+                reference_key text not null unique, payment_reference text,
+                description text not null, created_by text references users(id), created_at text not null
+            )`,
+                `CREATE TABLE IF NOT EXISTS wallet_topup_requests (
+                id text primary key, buyer_id text not null references users(id) on delete cascade,
+                amount_cents integer not null check (amount_cents > 0),
+                payment_reference text not null unique,
+                status text not null check (status in ('pending', 'approved', 'rejected')),
+                reviewed_by text references users(id), reviewed_at text, created_at text not null
+            )`,
+                `CREATE TABLE IF NOT EXISTS wallet_admins (
+                user_id text primary key references users(id) on delete cascade,
+                created_at text not null
+            )`,
+                'CREATE INDEX IF NOT EXISTS idx_wallet_transactions_user ON wallet_transactions(user_id, created_at)',
+                'CREATE INDEX IF NOT EXISTS idx_wallet_topup_requests_status ON wallet_topup_requests(status, created_at)',
+                'ALTER TABLE wallet_accounts ENABLE ROW LEVEL SECURITY',
+                'ALTER TABLE wallet_transactions ENABLE ROW LEVEL SECURITY',
+                'ALTER TABLE wallet_topup_requests ENABLE ROW LEVEL SECURITY',
+                'ALTER TABLE wallet_admins ENABLE ROW LEVEL SECURITY'
+            ];
+            for (const statement of statements) await pool.query(statement);
+        })()
         : Promise.resolve();
     const session = new AsyncLocalStorage();
 
@@ -268,6 +326,13 @@ function normalizedPhone(value) {
     const digits = String(value || '').replace(/\D/g, '');
     const local = digits.startsWith('254') ? digits.slice(3) : digits.startsWith('0') ? digits.slice(1) : digits;
     return /^[17]\d{8}$/.test(local) ? `+254${local}` : '';
+}
+
+function amountCents(value) {
+    const amount = typeof value === 'number' ? String(value) : text(value, 16);
+    if (!/^\d{1,7}(?:\.\d{1,2})?$/.test(amount)) return 0;
+    const cents = Math.round(Number(amount) * 100);
+    return Number.isSafeInteger(cents) && cents > 0 && cents <= 100000000 ? cents : 0;
 }
 
 function publicUser(user) {
@@ -421,6 +486,29 @@ function createApp(options = {}) {
             : res.status(403).json({ error: `A ${required} account is required for this action.` });
     }
 
+    async function walletAdmin(req, res, next) {
+        try {
+            const admin = await store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [req.user.id]);
+            if (!admin) return res.status(403).json({ error: 'A wallet administrator account is required.' });
+            next();
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async function ensureWallet(userId) {
+        await store.run(`
+            INSERT INTO wallet_accounts (user_id, balance_cents, updated_at) VALUES (?, 0, ?)
+            ON CONFLICT (user_id) DO NOTHING
+        `, [userId, new Date().toISOString()]);
+    }
+
+    function walletError(message, status) {
+        const error = new Error(message);
+        error.status = status;
+        return error;
+    }
+
     app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
     app.post('/api/auth/signup', async (req, res, next) => {
@@ -568,6 +656,108 @@ function createApp(options = {}) {
         res.json({ settings });
     });
 
+    app.get('/api/wallet', auth, role('buyer'), async (req, res, next) => {
+        try {
+            await ensureWallet(req.user.id);
+            const [account, transactions, topups, admin] = await Promise.all([
+                store.get('SELECT balance_cents FROM wallet_accounts WHERE user_id = ?', [req.user.id]),
+                store.all('SELECT id, kind, amount_cents, description, created_at FROM wallet_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 50', [req.user.id]),
+                store.all('SELECT id, amount_cents, payment_reference, status, created_at FROM wallet_topup_requests WHERE buyer_id = ? ORDER BY created_at DESC LIMIT 20', [req.user.id]),
+                store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [req.user.id])
+            ]);
+            res.json({
+                balance: Number(account?.balance_cents || 0) / 100,
+                transactions: transactions.map(row => ({
+                    id: row.id, kind: row.kind, amount: Number(row.amount_cents) / 100,
+                    description: row.description, createdAt: row.created_at
+                })),
+                topupRequests: topups.map(row => ({
+                    id: row.id, amount: Number(row.amount_cents) / 100,
+                    paymentReference: row.payment_reference, status: row.status, createdAt: row.created_at
+                })),
+                isAdmin: Boolean(admin)
+            });
+        } catch (error) { next(error); }
+    });
+
+    app.post('/api/wallet/topups', auth, role('buyer'), async (req, res, next) => {
+        const cents = amountCents(req.body?.amount);
+        if (!cents) return res.status(400).json({ error: 'Enter an amount from KES 0.01 to KES 1,000,000.00.' });
+        const paymentReference = text(req.body?.paymentReference, 32).toUpperCase();
+        if (!/^[A-Z0-9-]{5,32}$/.test(paymentReference)) {
+            return res.status(400).json({ error: 'Enter a valid M-PESA receipt or payment reference.' });
+        }
+        try {
+            const id = crypto.randomUUID();
+            const createdAt = new Date().toISOString();
+            await store.run(`
+                INSERT INTO wallet_topup_requests
+                    (id, buyer_id, amount_cents, payment_reference, status, created_at)
+                VALUES (?, ?, ?, ?, 'pending', ?)
+            `, [id, req.user.id, cents, paymentReference, createdAt]);
+            res.status(201).json({ request: { id, amount: cents / 100, paymentReference, status: 'pending', createdAt } });
+        } catch (error) {
+            if (error.errcode === 2067) return res.status(409).json({ error: 'That payment reference has already been submitted.' });
+            next(error);
+        }
+    });
+
+    app.get('/api/wallet/admin/topups', auth, walletAdmin, async (req, res, next) => {
+        try {
+            const rows = await store.all(`
+                SELECT wallet_topup_requests.id, wallet_topup_requests.amount_cents,
+                    wallet_topup_requests.payment_reference, wallet_topup_requests.created_at,
+                    users.name, users.email, users.phone
+                FROM wallet_topup_requests JOIN users ON users.id = wallet_topup_requests.buyer_id
+                WHERE wallet_topup_requests.status = 'pending'
+                ORDER BY wallet_topup_requests.created_at ASC LIMIT 100
+            `);
+            res.json({ requests: rows.map(row => ({
+                id: row.id, amount: Number(row.amount_cents) / 100,
+                paymentReference: row.payment_reference, createdAt: row.created_at,
+                name: row.name, email: row.email, phone: row.phone
+            })) });
+        } catch (error) { next(error); }
+    });
+
+    app.post('/api/wallet/admin/topups/:id/review', auth, walletAdmin, async (req, res, next) => {
+        const decision = req.body?.decision;
+        if (!['approve', 'reject'].includes(decision)) return res.status(400).json({ error: 'Choose approve or reject.' });
+        try {
+            const result = await store.transaction(async () => {
+                const request = await store.get('SELECT * FROM wallet_topup_requests WHERE id = ?', [req.params.id]);
+                if (!request) throw walletError('Top-up request not found.', 404);
+                if (request.status !== 'pending') throw walletError('This top-up request has already been reviewed.', 409);
+                const reviewedAt = new Date().toISOString();
+                const status = decision === 'approve' ? 'approved' : 'rejected';
+                const updated = await store.run(`
+                    UPDATE wallet_topup_requests SET status = ?, reviewed_by = ?, reviewed_at = ?
+                    WHERE id = ? AND status = 'pending'
+                `, [status, req.user.id, reviewedAt, request.id]);
+                if (!updated.changes) throw walletError('This top-up request has already been reviewed.', 409);
+                if (decision === 'approve') {
+                    await ensureWallet(request.buyer_id);
+                    const credited = await store.run(`
+                        UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
+                        WHERE user_id = ? AND balance_cents <= ?
+                    `, [request.amount_cents, reviewedAt, request.buyer_id, 2147483647 - request.amount_cents]);
+                    if (!credited.changes) throw walletError('This wallet has reached its maximum balance.', 409);
+                    await store.run(`
+                        INSERT INTO wallet_transactions
+                            (id, user_id, kind, amount_cents, reference_key, payment_reference, description, created_by, created_at)
+                        VALUES (?, ?, 'credit', ?, ?, ?, ?, ?, ?)
+                    `, [crypto.randomUUID(), request.buyer_id, request.amount_cents, `topup:${request.id}`,
+                        request.payment_reference, 'Manually verified top-up', req.user.id, reviewedAt]);
+                }
+                return { id: request.id, status, reviewedAt };
+            });
+            res.json({ request: result });
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
     app.get('/api/listings/:id/video', auth, async (req, res, next) => {
         try {
             const row = await store.get('SELECT farmer_id, quantity, image FROM listings WHERE id = ?', [req.params.id]);
@@ -696,12 +886,30 @@ function createApp(options = {}) {
                     farmerItems.push(item);
                     byFarmer.set(listing.farmer_id, farmerItems);
                 }
-                const status = paymentMethod === 'Cash on delivery' ? 'Cash on delivery' : 'Payment pending (demo)';
                 const createdAt = new Date().toISOString();
+                if (paymentMethod === 'KITUI FARM Wallet') {
+                    const totalCents = [...byFarmer.values()].flat().reduce((sum, item) => sum + Math.round(item.quantity * item.price * 100), 0);
+                    if (!Number.isSafeInteger(totalCents) || totalCents <= 0) throw walletError('Could not calculate the order total.', 400);
+                    await ensureWallet(req.user.id);
+                    const debited = await store.run(`
+                        UPDATE wallet_accounts SET balance_cents = balance_cents - ?, updated_at = ?
+                        WHERE user_id = ? AND balance_cents >= ?
+                    `, [totalCents, createdAt, req.user.id, totalCents]);
+                    if (!debited.changes) throw walletError('Your wallet balance is too low. Add funds, then try again.', 402);
+                    await store.run(`
+                        INSERT INTO wallet_transactions
+                            (id, user_id, kind, amount_cents, reference_key, description, created_at)
+                        VALUES (?, ?, 'debit', ?, ?, ?, ?)
+                    `, [crypto.randomUUID(), req.user.id, totalCents, `checkout:${checkoutKey}`, 'Marketplace order payment', createdAt]);
+                }
+                const status = paymentMethod === 'Cash on delivery' ? 'Cash on delivery'
+                    : paymentMethod === 'KITUI FARM Wallet' ? 'Paid with wallet' : 'Payment pending (demo)';
                 const createdOrders = [];
                 for (const items of byFarmer.values()) {
                     const id = `KF-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-                    const total = items.reduce((sum, item) => sum + item.quantity * item.price, 0);
+                    const total = paymentMethod === 'KITUI FARM Wallet'
+                        ? items.reduce((sum, item) => sum + Math.round(item.quantity * item.price * 100), 0) / 100
+                        : items.reduce((sum, item) => sum + item.quantity * item.price, 0);
                     await store.run(`
                         INSERT INTO orders
                             (id, buyer_id, buyer_name, address, payment_method, status, total, checkout_key, created_at)
@@ -735,24 +943,40 @@ function createApp(options = {}) {
             const isFarmerOrder = Boolean(await store.get('SELECT 1 FROM order_items WHERE order_id = ? AND farmer_id = ?',
                 [order.id, req.user.id]));
             const canCancel = req.user.role === 'buyer' && order.buyer_id === req.user.id && status === 'Cancelled'
-                && ['Pending', 'Cash on delivery', 'Payment pending (demo)'].includes(order.status);
+                && ['Pending', 'Cash on delivery', 'Payment pending (demo)', 'Paid with wallet'].includes(order.status);
             const canPack = req.user.role === 'farmer' && isFarmerOrder && status === 'Packed'
-                && ['Cash on delivery', 'Paid', 'Payment pending (demo)'].includes(order.status);
+                && ['Cash on delivery', 'Paid', 'Paid with wallet', 'Payment pending (demo)'].includes(order.status);
             const canDispatch = req.user.role === 'farmer' && isFarmerOrder && status === 'Dispatched' && order.status === 'Packed';
             const canComplete = req.user.role === 'farmer' && isFarmerOrder && status === 'Completed' && order.status === 'Dispatched';
             if (!canCancel && !canPack && !canDispatch && !canComplete) return res.status(403).json({ error: 'You cannot make that order status change.' });
             await store.transaction(async () => {
-                await store.run('UPDATE orders SET status = ? WHERE id = ?', [status, order.id]);
+                const changed = await store.run('UPDATE orders SET status = ? WHERE id = ? AND status = ?', [status, order.id, order.status]);
+                if (!changed.changes) throw walletError('This order has already changed. Refresh and try again.', 409);
                 if (status === 'Cancelled') {
                     const items = await store.all('SELECT product_id, farmer_id, quantity FROM order_items WHERE order_id = ?', [order.id]);
                     for (const item of items) {
                         await store.run('UPDATE listings SET quantity = quantity + ? WHERE id = ? AND farmer_id = ?',
                             [item.quantity, item.product_id, item.farmer_id]);
                     }
+                    if (order.payment_method === 'KITUI FARM Wallet') {
+                        await ensureWallet(order.buyer_id);
+                        const cents = Math.round(Number(order.total) * 100);
+                        const refunded = await store.run(`
+                            UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
+                            WHERE user_id = ? AND balance_cents <= ?
+                        `, [cents, new Date().toISOString(), order.buyer_id, 2147483647 - cents]);
+                        if (!refunded.changes) throw walletError('The wallet cannot accept this refund right now.', 409);
+                        await store.run(`
+                            INSERT INTO wallet_transactions
+                                (id, user_id, kind, amount_cents, reference_key, description, created_by, created_at)
+                            VALUES (?, ?, 'credit', ?, ?, ?, ?, ?)
+                        `, [crypto.randomUUID(), order.buyer_id, cents, `refund:${order.id}`, `Refund for cancelled order ${order.id}`, req.user.id, new Date().toISOString()]);
+                    }
                 }
             });
             res.json({ order: await publicOrder(store, await store.get('SELECT * FROM orders WHERE id = ?', [order.id])) });
         } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
             next(error);
         }
     });
@@ -762,19 +986,36 @@ function createApp(options = {}) {
             const order = await store.get('SELECT * FROM orders WHERE id = ? AND buyer_id = ?', [req.params.id, req.user.id]);
             if (!order || order.buyer_hidden === true || order.buyer_hidden === 1) return res.status(404).json({ error: 'Order not found.' });
             await store.transaction(async () => {
-                if (['Pending', 'Cash on delivery', 'Payment pending (demo)'].includes(order.status)) {
+                if (['Pending', 'Cash on delivery', 'Payment pending (demo)', 'Paid with wallet'].includes(order.status)) {
+                    const changed = await store.run('UPDATE orders SET status = ?, buyer_hidden = true WHERE id = ? AND status = ?',
+                        ['Cancelled', order.id, order.status]);
+                    if (!changed.changes) throw walletError('This order has already changed. Refresh and try again.', 409);
                     const items = await store.all('SELECT product_id, farmer_id, quantity FROM order_items WHERE order_id = ?', [order.id]);
                     for (const item of items) {
                         await store.run('UPDATE listings SET quantity = quantity + ? WHERE id = ? AND farmer_id = ?',
                             [item.quantity, item.product_id, item.farmer_id]);
                     }
-                    await store.run('UPDATE orders SET status = ?, buyer_hidden = true WHERE id = ?', ['Cancelled', order.id]);
                 } else {
                     await store.run('UPDATE orders SET buyer_hidden = true WHERE id = ?', [order.id]);
+                }
+                if (order.payment_method === 'KITUI FARM Wallet' && ['Pending', 'Cash on delivery', 'Payment pending (demo)', 'Paid with wallet'].includes(order.status)) {
+                    await ensureWallet(order.buyer_id);
+                    const cents = Math.round(Number(order.total) * 100);
+                    const refunded = await store.run(`
+                        UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
+                        WHERE user_id = ? AND balance_cents <= ?
+                    `, [cents, new Date().toISOString(), order.buyer_id, 2147483647 - cents]);
+                    if (!refunded.changes) throw walletError('The wallet cannot accept this refund right now.', 409);
+                    await store.run(`
+                        INSERT INTO wallet_transactions
+                            (id, user_id, kind, amount_cents, reference_key, description, created_by, created_at)
+                        VALUES (?, ?, 'credit', ?, ?, ?, ?, ?)
+                    `, [crypto.randomUUID(), order.buyer_id, cents, `refund:${order.id}`, `Refund for cancelled order ${order.id}`, req.user.id, new Date().toISOString()]);
                 }
             });
             res.status(204).end();
         } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
             next(error);
         }
     });

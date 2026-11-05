@@ -97,6 +97,44 @@ create table if not exists user_settings (
     settings_json text not null
 );
 
+create table if not exists wallet_accounts (
+    user_id text primary key references users (id) on delete cascade,
+    balance_cents integer not null default 0 check (balance_cents >= 0),
+    updated_at text not null
+);
+
+create table if not exists wallet_transactions (
+    id text primary key,
+    user_id text not null references users (id) on delete cascade,
+    kind text not null check (kind in ('credit', 'debit')),
+    amount_cents integer not null check (amount_cents > 0),
+    reference_key text not null unique,
+    payment_reference text,
+    description text not null,
+    created_by text references users (id),
+    created_at text not null
+);
+
+create index if not exists idx_wallet_transactions_user on wallet_transactions (user_id, created_at);
+
+create table if not exists wallet_topup_requests (
+    id text primary key,
+    buyer_id text not null references users (id) on delete cascade,
+    amount_cents integer not null check (amount_cents > 0),
+    payment_reference text not null unique,
+    status text not null check (status in ('pending', 'approved', 'rejected')),
+    reviewed_by text references users (id),
+    reviewed_at text,
+    created_at text not null
+);
+
+create index if not exists idx_wallet_topup_requests_status on wallet_topup_requests (status, created_at);
+
+create table if not exists wallet_admins (
+    user_id text primary key references users (id) on delete cascade,
+    created_at text not null
+);
+
 alter table users enable row level security;
 alter table sessions enable row level security;
 alter table listings enable row level security;
@@ -104,6 +142,10 @@ alter table checkout_requests enable row level security;
 alter table orders enable row level security;
 alter table order_items enable row level security;
 alter table user_settings enable row level security;
+alter table wallet_accounts enable row level security;
+alter table wallet_transactions enable row level security;
+alter table wallet_topup_requests enable row level security;
+alter table wallet_admins enable row level security;
 
 -- Demo listings, matching seedListings() in backend/server.js.
 insert into listings (id, farmer_id, seller_name, name, category, quantity, minimum_order, price, location, image, created_at)
