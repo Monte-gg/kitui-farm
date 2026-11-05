@@ -1246,29 +1246,33 @@ function createApp(options = {}) {
         res.json({ conversations: rows.map(row => publicConversation(row, req.user)) });
     });
 
-    app.get('/api/chat/people', auth, async (req, res) => {
-        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
-            return res.status(403).json({ error: 'User directory is available to farmer and customer accounts.' });
+    app.get('/api/chat/people', auth, async (req, res, next) => {
+        try {
+            if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
+                return res.status(403).json({ error: 'User directory is available to farmer and customer accounts.' });
+            }
+            const requestedRole = text(req.query.role, 20);
+            if (requestedRole && !['buyer', 'farmer'].includes(requestedRole)) {
+                return res.status(400).json({ error: 'Choose Farmers or Customers.' });
+            }
+            const roleClause = requestedRole ? 'AND users.role = ?' : '';
+            const params = requestedRole ? [req.user.id, requestedRole] : [req.user.id];
+            const rows = await store.all(`
+                SELECT users.id, users.name, users.role, users.location, users.profile_photo,
+                    users.created_at,
+                    (SELECT COUNT(*) FROM listings WHERE listings.farmer_id = users.id AND listings.quantity > 0) AS product_count
+                FROM users
+                WHERE users.id <> ? ${roleClause}
+                    AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)
+                ORDER BY users.role ASC, lower(users.name) ASC LIMIT 500
+            `, params);
+            res.json({ people: rows.map(row => ({
+                id: row.id, name: row.name, role: row.role, location: row.location,
+                profilePhoto: row.profile_photo || '', productCount: Number(row.product_count), joinedAt: row.created_at
+            })) });
+        } catch (error) {
+            next(error);
         }
-        const requestedRole = text(req.query.role, 20);
-        if (requestedRole && !['buyer', 'farmer'].includes(requestedRole)) {
-            return res.status(400).json({ error: 'Choose Farmers or Customers.' });
-        }
-        const roleClause = requestedRole ? 'AND users.role = ?' : '';
-        const params = requestedRole ? [req.user.id, requestedRole] : [req.user.id];
-        const rows = await store.all(`
-            SELECT users.id, users.name, users.role, users.location, users.profile_photo,
-                users.created_at,
-                (SELECT COUNT(*) FROM listings WHERE listings.farmer_id = users.id AND listings.quantity > 0) AS product_count
-            FROM users
-            WHERE users.id <> ? ${roleClause}
-                AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)
-            ORDER BY users.role ASC, users.name COLLATE NOCASE ASC LIMIT 500
-        `, params);
-        res.json({ people: rows.map(row => ({
-            id: row.id, name: row.name, role: row.role, location: row.location,
-            profilePhoto: row.profile_photo || '', productCount: Number(row.product_count), joinedAt: row.created_at
-        })) });
     });
 
     app.get('/api/chat/people/:id', auth, async (req, res) => {
