@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <script src="api-base.js"></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f5f7f2">
+    <title>Farmer store - KITUI FARM</title>
+    <style>
+        :root { color-scheme: light; --green:#4a8c3f; --deep:#2d5a27; --line:#e1e8dd; --muted:#697468; --bg:#f5f7f2; --surface:#fff; font-family:system-ui,-apple-system,"Segoe UI",sans-serif; }
+        * { box-sizing:border-box; }
+        body { margin:0; background:var(--bg); color:#253125; }
+        header { background:var(--surface); border-bottom:1px solid var(--line); }
+        .bar, main { width:min(1100px,calc(100% - 32px)); margin:auto; }
+        .bar { min-height:70px; display:flex; align-items:center; justify-content:space-between; gap:14px; }
+        .brand { color:var(--deep); font-size:19px; font-weight:800; text-decoration:none; }
+        .button { display:inline-flex; justify-content:center; align-items:center; min-height:42px; border:0; border-radius:9px; padding:9px 14px; background:var(--green); color:white; font:inherit; font-weight:700; text-decoration:none; cursor:pointer; }
+        .button.secondary { border:1px solid var(--line); background:white; color:#253125; }
+        main { padding:30px 0 56px; }
+        .notice { margin:14px 0; color:#9b2e24; }
+        .profile { display:flex; align-items:center; gap:18px; margin-bottom:28px; padding:26px; border:1px solid #dce9d6; border-radius:18px; background:linear-gradient(120deg,#eaf4e5,#fff); }
+        .avatar { display:grid; place-items:center; flex:0 0 76px; width:76px; height:76px; overflow:hidden; border-radius:50%; background:#dcebd5; color:var(--deep); font-size:27px; font-weight:800; }
+        .avatar img { width:100%; height:100%; object-fit:cover; }
+        h1 { margin:0 0 7px; color:var(--deep); font-size:clamp(24px,4vw,34px); }
+        .location { margin:0; color:var(--muted); }
+        h2 { margin:0 0 16px; font-size:22px; }
+        .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:16px; }
+        .card { overflow:hidden; border:1px solid var(--line); border-radius:14px; background:var(--surface); }
+        .picture { display:grid; place-items:center; height:165px; background:linear-gradient(140deg,#f1f7e9,#dfecd8); color:#66875c; font-size:58px; }
+        .picture img { width:100%; height:100%; object-fit:cover; }
+        .details { padding:15px; }
+        .details h3 { margin:0 0 6px; }
+        .category, .stock { margin:0 0 8px; color:var(--muted); font-size:13px; }
+        .price { margin:0; color:var(--deep); font-size:19px; font-weight:800; }
+        .empty { padding:26px; border:1px dashed #cbd9c5; border-radius:13px; color:var(--muted); text-align:center; }
+        [hidden] { display:none !important; }
+        @media(max-width:520px) { .profile { align-items:flex-start; padding:19px; } .avatar { flex-basis:58px; width:58px; height:58px; } }
+    </style>
+</head>
+<body>
+    <header><div class="bar"><a class="brand" href="buyer-dashboard.html">🌱 KITUI FARM</a><a class="button secondary" id="backLink" href="buyer-dashboard.html">← Back</a></div></header>
+    <main>
+        <p class="notice" id="storeMessage" role="status" aria-live="polite" hidden></p>
+        <section class="profile" aria-labelledby="farmerName">
+            <div class="avatar" id="farmerAvatar" aria-hidden="true">🌱</div>
+            <div><h1 id="farmerName">Farmer store</h1><p class="location" id="farmerLocation">Loading farm details…</p></div>
+        </section>
+        <section aria-labelledby="productsHeading">
+            <h2 id="productsHeading">Available products</h2>
+            <div class="grid" id="productsGrid"></div>
+            <p class="empty" id="emptyState" hidden>This farmer has no products available right now.</p>
+        </section>
+    </main>
+    <script>
+        const farmerId = new URLSearchParams(location.search).get('farmerId');
+        const token = localStorage.getItem('kituiFarmToken') || '';
+        const message = document.getElementById('storeMessage');
+        const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char]);
+        const showError = text => { message.textContent = text; message.hidden = false; };
+        document.getElementById('backLink').href = document.referrer.includes('farmer-dashboard.html') ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
+        async function loadStore() {
+            if (!farmerId) { showError('This farmer store link is missing its farmer ID.'); return; }
+            try {
+                const response = await fetch(`/api/farmers/${encodeURIComponent(farmerId)}/store`, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {}
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || 'Could not load this farmer store.');
+                const farmer = result.farmer;
+                document.title = `${farmer.name} - KITUI FARM`;
+                document.getElementById('farmerName').textContent = farmer.name;
+                document.getElementById('farmerLocation').textContent = farmer.location ? `📍 ${farmer.location}` : 'Local farmer on KITUI FARM';
+                if (farmer.profilePhoto) document.getElementById('farmerAvatar').innerHTML = `<img src="${esc(farmer.profilePhoto)}" alt="${esc(farmer.name)}">`;
+                const products = result.listings || [];
+                document.getElementById('emptyState').hidden = products.length > 0;
+                document.getElementById('productsGrid').innerHTML = products.map(item => {
+                    const picture = item.image ? `<img src="${esc(item.image)}" alt="${esc(item.name)}">` : '🌾';
+                    return `<article class="card"><div class="picture">${picture}</div><div class="details"><h3>${esc(item.name)}</h3><p class="category">${esc(item.category)}</p><p class="stock">${Number(item.quantity).toLocaleString('en-KE')} kg available</p><p class="price">KES ${Number(item.price).toLocaleString('en-KE')} / kg</p></div></article>`;
+                }).join('');
+            } catch (error) {
+                showError(error.message || 'Could not load this farmer store. Please log in and try again.');
+            }
+        }
+        loadStore();
+    </script>
+</body>
+</html>

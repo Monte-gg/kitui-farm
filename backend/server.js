@@ -19,7 +19,7 @@ const PAYMENT_METHODS = new Set([
     'Cash on delivery', 'M-PESA (demo)', 'Airtel Money (demo)', 'Bank transfer (demo)', 'KITUI FARM Wallet'
 ]);
 const PAGES = [
-    'about-us.html', 'buyer-dashboard.html', 'customer-service.html', 'farmer-dashboard.html',
+    'about-us.html', 'buyer-dashboard.html', 'customer-service.html', 'farmer-dashboard.html', 'farmer-store.html',
     'forgot-password.html', 'index.html', 'login.html', 'payment.html', 'profile.html',
     'settings.html', 'signup.html', 'wallet.html'
 ];
@@ -845,6 +845,31 @@ function createApp(options = {}) {
         } catch (error) {
             next(error);
         }
+    });
+
+    app.get('/api/farmers/:id/store', auth, async (req, res) => {
+        if (req.user.role !== 'buyer' && !(req.user.role === 'farmer' && req.user.id === req.params.id)) {
+            return res.status(403).json({ error: 'A buyer account is required to view farmer stores.' });
+        }
+        const listings = await store.all(
+            'SELECT * FROM listings WHERE farmer_id = ? AND quantity > 0 ORDER BY created_at DESC',
+            [req.params.id]
+        );
+        const farmer = await store.get(
+            "SELECT id, name, location, profile_photo FROM users WHERE id = ? AND role = 'farmer'",
+            [req.params.id]
+        );
+        if (!farmer && listings.length === 0) return res.status(404).json({ error: 'Farmer or available products not found.' });
+        const firstListing = listings[0];
+        res.json({
+            farmer: {
+                id: req.params.id,
+                name: farmer?.name || firstListing?.seller_name || 'KITUI FARM farmer',
+                location: farmer?.location || firstListing?.location || '',
+                profilePhoto: farmer?.profile_photo || ''
+            },
+            listings: listings.map(publicListing)
+        });
     });
 
     app.get('/api/listings', auth, async (req, res) => {

@@ -97,6 +97,7 @@
         h2 { margin-bottom: 4px; font-size: 19px; }
         .subheading { margin: 0; color: var(--muted); }
         .badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 7px 11px; background: var(--green-light); color: var(--green-dark); font-size: 12px; font-weight: 650; white-space: nowrap; }
+        .welcome-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
         .metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
         .metric, .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 2px 8px rgba(34, 54, 29, .035); }
         .metric { padding: 20px; }
@@ -194,7 +195,11 @@
                 <h1 id="welcomeTitle">Welcome back!</h1>
                 <p class="subheading">Manage your produce, inventory, and buyer orders.</p>
             </div>
-            <span class="badge">✓ Verified Farmer · Kitui County</span>
+            <div class="welcome-actions">
+                <a class="button secondary" id="viewMyStoreButton" href="farmer-store.html">View my store</a>
+                <button class="button" type="button" id="quickAddProduceButton">＋ Add available product</button>
+                <span class="badge">✓ Verified Farmer · Kitui County</span>
+            </div>
         </section>
 
         <section class="metrics" aria-label="Farm overview">
@@ -289,6 +294,7 @@
             document.getElementById('headerName').textContent = farmer.name;
             renderProfileChip(document.getElementById('farmerAvatar'), farmer.name, farmer.userId);
             document.getElementById('welcomeTitle').textContent = `Welcome back, ${farmer.name.split(' ')[0]}!`;
+            document.getElementById('viewMyStoreButton').href = `farmer-store.html?farmerId=${encodeURIComponent(farmer.userId)}`;
         }
         updateFarmerHeader();
 
@@ -494,6 +500,10 @@
         });
 
         document.getElementById('addProduceButton').addEventListener('click', () => {
+            resetForm();
+            openForm();
+        });
+        document.getElementById('quickAddProduceButton').addEventListener('click', () => {
             resetForm();
             openForm();
         });

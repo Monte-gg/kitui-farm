@@ -134,6 +134,8 @@
         .product-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
         .product-title { margin: 0 0 5px; font-size: 17px; }
         .seller { margin: 0; color: var(--muted); font-size: 12px; }
+        .seller-link { color: inherit; font-weight: 650; text-decoration: none; }
+        .seller-link:hover, .seller-link:focus-visible { color: var(--green-dark); text-decoration: underline; }
         .listing-video-button { margin-top: 10px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 11px; background: var(--surface); color: var(--green-dark); font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
         .listing-video-button:disabled { opacity: .65; cursor: wait; }
         .listing-video { display: block; width: 100%; max-height: 250px; margin-top: 9px; border-radius: 9px; background: #111; }
@@ -376,7 +378,7 @@
                 <div class="product-image">${image}<span class="product-category">${escapeHtml(item.category)}</span></div>
                 <div class="product-content">
                     <div class="product-title-row"><div><h3 class="product-title">${escapeHtml(item.name)}</h3>
-                        <p class="seller">${escapeHtml(item.sellerName)} <span class="verified">✓ Verified</span></p></div></div>
+                        <p class="seller"><a class="seller-link" href="farmer-store.html?farmerId=${encodeURIComponent(item.farmerId)}">${escapeHtml(item.sellerName)}</a> <span class="verified">✓ Verified</span></p></div></div>
                     ${videoControl}
                     <div class="price-row"><span class="price">KES ${Number(item.price).toLocaleString('en-KE')}</span><span class="unit">/ kg</span></div>
                     <div class="product-meta"><span>MOQ: ${Number(item.minimumOrder)} kg${isBulk ? ' · Wholesale' : ''}</span><span>${escapeHtml(item.location)}</span></div>
