@@ -26,12 +26,13 @@
         h2 { margin:0 0 16px; font-size:22px; }
         .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:16px; }
         .card { overflow:hidden; border:1px solid var(--line); border-radius:14px; background:var(--surface); }
-        .picture { display:grid; place-items:center; height:165px; background:linear-gradient(140deg,#f1f7e9,#dfecd8); color:#66875c; font-size:58px; }
-        .picture img { width:100%; height:100%; object-fit:cover; }
-        .details { padding:15px; }
+        .picture { position:relative; display:grid; place-items:center; height:190px; min-height:190px; overflow:hidden; background:linear-gradient(140deg,#f1f7e9,#dfecd8); color:#66875c; font-size:58px; }
+        .picture img { display:block; width:100%; height:100%; object-fit:cover; }
+        .details { position:relative; z-index:1; padding:17px; background:#fff; color:#253125; }
         .details h3 { margin:0 0 6px; }
-        .category, .stock { margin:0 0 8px; color:var(--muted); font-size:13px; }
-        .price { margin:0; color:var(--deep); font-size:19px; font-weight:800; }
+        .category { display:inline-flex; margin:0 0 12px; padding:4px 9px; border-radius:99px; background:#eaf3e6; color:#24552b; font-size:12px; font-weight:700; }
+        .stock { margin:0 0 7px; color:#475448; font-size:14px; }
+        .price { margin:0; color:var(--deep); font-size:18px; font-weight:800; }
         .empty { padding:26px; border:1px dashed #cbd9c5; border-radius:13px; color:var(--muted); text-align:center; }
         [hidden] { display:none !important; }
         @media(max-width:520px) { .profile { align-items:flex-start; padding:19px; } .avatar { flex-basis:58px; width:58px; height:58px; } }
@@ -75,7 +76,7 @@
                 document.getElementById('emptyState').hidden = products.length > 0;
                 document.getElementById('productsGrid').innerHTML = products.map(item => {
                     const picture = item.image ? `<img src="${esc(item.image)}" alt="${esc(item.name)}">` : '🌾';
-                    return `<article class="card"><div class="picture">${picture}</div><div class="details"><h3>${esc(item.name)}</h3><p class="category">${esc(item.category)}</p><p class="stock">${Number(item.quantity).toLocaleString('en-KE')} kg available</p><p class="price">KES ${Number(item.price).toLocaleString('en-KE')} / kg</p></div></article>`;
+                    return `<article class="card"><div class="picture">${picture}</div><div class="details"><h3>${esc(item.name)}</h3><p class="category">${esc(item.category)}</p><p class="stock"><strong>Available quantity:</strong> ${Number(item.quantity).toLocaleString('en-KE')} kg</p><p class="price">Price: KES ${Number(item.price).toLocaleString('en-KE')} per kilogram</p></div></article>`;
                 }).join('');
             } catch (error) {
                 showError(error.message || 'Could not load this farmer store. Please log in and try again.');
