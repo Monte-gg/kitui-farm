@@ -140,10 +140,12 @@
         .listing-video-button:disabled { opacity: .65; cursor: wait; }
         .listing-video { display: block; width: 100%; max-height: 250px; margin-top: 9px; border-radius: 9px; background: #111; }
         .verified { color: var(--green); font-weight: 700; white-space: nowrap; }
-        .price-row { display: flex; align-items: baseline; gap: 4px; margin: 15px 0 5px; }
+        .price-row { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px; margin: 15px 0 5px; }
+        .price-label { width: 100%; color: var(--muted); font-size: 11px; font-weight: 650; }
         .price { color: var(--green-dark); font-size: 21px; font-weight: 750; }
         .unit { color: var(--muted); font-size: 12px; }
-        .product-meta { display: flex; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 12px; }
+        .product-meta { display: grid; gap: 5px; color: var(--muted); font-size: 12px; }
+        .product-meta strong { color: var(--ink); }
         .qty-label { display: block; margin-top: 13px; color: #4d594a; font-size: 11px; font-weight: 650; }
         .qty-input { width: 105px; height: 35px; margin-top: 5px; padding: 5px 8px; border: 1px solid var(--line); border-radius: 7px; }
         :root[data-theme="dark"] .qty-input, :root[data-theme="dark"] .cart-address { background: #202820; color: var(--ink); }
@@ -380,9 +382,9 @@
                     <div class="product-title-row"><div><h3 class="product-title">${escapeHtml(item.name)}</h3>
                         <p class="seller"><a class="seller-link" href="farmer-store.html?farmerId=${encodeURIComponent(item.farmerId)}">${escapeHtml(item.sellerName)}</a> <span class="verified">✓ Verified</span></p></div></div>
                     ${videoControl}
-                    <div class="price-row"><span class="price">KES ${Number(item.price).toLocaleString('en-KE')}</span><span class="unit">/ kg</span></div>
-                    <div class="product-meta"><span>MOQ: ${Number(item.minimumOrder)} kg${isBulk ? ' · Wholesale' : ''}</span><span>${escapeHtml(item.location)}</span></div>
-                    <label class="qty-label" for="qty-${escapeHtml(item.id)}">Quantity (kg)</label>
+                    <div class="price-row"><span class="price-label">Price per kilogram</span><span class="price">KES ${Number(item.price).toLocaleString('en-KE')}</span></div>
+                    <div class="product-meta"><span><strong>Available:</strong> ${Number(item.quantity).toLocaleString('en-KE')} kg</span><span><strong>Minimum order:</strong> ${Number(item.minimumOrder).toLocaleString('en-KE')} kg${isBulk ? ' (wholesale)' : ''}</span><span><strong>Pickup location:</strong> ${escapeHtml(item.location)}</span></div>
+                    <label class="qty-label" for="qty-${escapeHtml(item.id)}">Enter order quantity (kg)</label>
                     <input class="qty-input" id="qty-${escapeHtml(item.id)}" data-quantity="${escapeHtml(item.id)}" type="number" min="${Number(item.minimumOrder)}" max="${Number(item.quantity)}" step="1" value="${Number(item.minimumOrder)}">
                     <div class="product-actions">
                         <button class="button secondary" type="button" data-add="${escapeHtml(item.id)}">Add to Cart</button>
