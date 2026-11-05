@@ -21,7 +21,7 @@ const PAYMENT_METHODS = new Set([
 const PAGES = [
     'about-us.html', 'buyer-dashboard.html', 'customer-service.html', 'farmer-dashboard.html',
     'forgot-password.html', 'index.html', 'login.html', 'payment.html', 'profile.html',
-    'settings.html', 'signup.html', 'wallet.html', 'wallet-admin.html', 'admin.html'
+    'settings.html', 'signup.html', 'wallet.html'
 ];
 
 // ---------------------------------------------------------------------------
@@ -490,6 +490,31 @@ function createApp(options = {}) {
         try {
             const admin = await store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [req.user.id]);
             if (!admin) return res.status(403).json({ error: 'A wallet administrator account is required.' });
+            next();
+        } catch (error) {
+            next(error);
+        }
+    }
+
+    async function adminPageAuth(req, res, next) {
+        const header = req.headers.authorization || '';
+        const bearer = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+        const token = bearer || cookies(req.headers.cookie)[COOKIE];
+        if (!token || !/^[a-f0-9]{64}$/.test(token)) {
+            return res.redirect('/login.html?next=admin.html');
+        }
+        try {
+            const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+            const session = await store.get(`
+                SELECT users.*, sessions.token_hash FROM sessions
+                JOIN users ON users.id = sessions.user_id
+                WHERE sessions.token_hash = ? AND sessions.expires_at > ?
+            `, [tokenHash, Date.now()]);
+            if (!session) return res.redirect('/login.html?next=admin.html');
+            const admin = await store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [session.id]);
+            if (!admin) return res.status(404).type('text/plain').send('Not found.');
+            req.user = session;
+            req.tokenHash = tokenHash;
             next();
         } catch (error) {
             next(error);
@@ -1031,6 +1056,12 @@ function createApp(options = {}) {
         res.setHeader('Cache-Control', 'no-store');
         res.sendFile(path.join(ROOT, 'wallet.html'));
     });
+    app.get('/admin.html', adminPageAuth, (req, res) => {
+        res.setHeader('Cache-Control', 'no-store, private');
+        res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+        res.sendFile(path.join(ROOT, 'admin.html'));
+    });
+    app.get('/wallet-admin.html', adminPageAuth, (req, res) => res.redirect('/admin.html#topup-approvals'));
     for (const page of PAGES) app.get(`/${page}`, (req, res) => res.sendFile(path.join(ROOT, page)));
     app.get('/site-only.js', (req, res) => res.sendFile(path.join(ROOT, 'site-only.js')));
     app.get('/api-base.js', (req, res) => res.sendFile(path.join(ROOT, 'api-base.js')));
