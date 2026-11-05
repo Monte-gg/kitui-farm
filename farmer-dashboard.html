@@ -207,6 +207,7 @@
                     <button class="more-toggle" id="moreToggle" type="button" aria-label="Open more options" aria-haspopup="menu" aria-expanded="false" aria-controls="morePanel">⋮</button>
                     <nav class="more-panel" id="morePanel" aria-label="More options" role="menu" hidden>
                         <a class="menu-profile" href="profile.html" role="menuitem"><span class="profile-chip-avatar" id="farmerAvatar"></span><span class="menu-profile-copy"><strong id="headerName"></strong><small>My profile</small></span></a>
+                        <a href="chat.html" role="menuitem">Messages</a>
                         <a href="wallet.html" role="menuitem">Wallet</a>
                         <a href="settings.html" role="menuitem">Settings</a>
                         <a href="about-us.html" role="menuitem">About KITUI FARM</a>
@@ -291,7 +292,7 @@
             </div>
             <div class="table-wrap">
                 <table>
-                    <thead><tr><th>Order</th><th>Ordered at</th><th>Buyer</th><th>Items</th><th>Total cost</th><th>Payment</th><th>Delivery address</th><th>Status</th><th>Update status</th></tr></thead>
+                    <thead><tr><th>Order</th><th>Ordered at</th><th>Buyer</th><th>Items</th><th>Total cost</th><th>Payment</th><th>Delivery address</th><th>Status</th><th>Update status</th><th>Contact buyer</th></tr></thead>
                     <tbody id="ordersBody"></tbody>
                 </table>
                 <div class="empty-state" id="ordersEmpty" hidden>No buyer orders yet. Orders will appear here when buyers check out.</div>
@@ -461,6 +462,7 @@
                     <td>${allowed.length > 1 ? `<select class="order-status-select" data-order="${escapeHtml(order.id)}" aria-label="Update order ${escapeHtml(order.id)} status">
                         ${allowed.map(status => `<option ${status === current ? 'selected' : ''}>${status}</option>`).join('')}
                     </select>` : '—'}</td>
+                    <td>${relevant[0]?.productId ? `<button class="button secondary small" type="button" data-chat-buyer="${escapeHtml(order.buyerId)}" data-chat-order="${escapeHtml(order.id)}" data-chat-listing="${escapeHtml(relevant[0].productId)}">Message buyer</button>` : '—'}</td>
                 </tr>`;
             }).join('');
             document.getElementById('ordersBody').innerHTML = orderRows;
@@ -678,6 +680,12 @@
             }
         });
 
+        document.getElementById('ordersBody').addEventListener('click', event => {
+            const button = event.target.closest('[data-chat-buyer]');
+            if (!button) return;
+            const params = new URLSearchParams({ buyerId:button.dataset.chatBuyer, orderId:button.dataset.chatOrder, listingId:button.dataset.chatListing });
+            window.location.assign(`chat.html?${params}`);
+        });
         document.getElementById('ordersBody').addEventListener('change', async event => {
             if (!event.target.dataset.order) return;
             try {

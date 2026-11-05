@@ -19,7 +19,7 @@ const PAYMENT_METHODS = new Set([
     'Cash on delivery', 'M-PESA (demo)', 'Airtel Money (demo)', 'Bank transfer (demo)', 'KITUI FARM Wallet'
 ]);
 const PAGES = [
-    'about-us.html', 'admin-signin.html', 'buyer-dashboard.html', 'customer-service.html', 'farmer-dashboard.html', 'farmer-store.html',
+    'about-us.html', 'admin-signin.html', 'buyer-dashboard.html', 'chat.html', 'customer-service.html', 'farmer-dashboard.html', 'farmer-store.html',
     'forgot-password.html', 'index.html', 'login.html', 'payment.html', 'profile.html',
     'settings.html', 'signup.html', 'wallet.html'
 ];
@@ -100,12 +100,31 @@ const SQLITE_SCHEMA = `
         user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS chat_conversations (
+        id TEXT PRIMARY KEY,
+        buyer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        farmer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        listing_id TEXT,
+        created_at TEXT NOT NULL,
+        last_message_at TEXT NOT NULL,
+        UNIQUE (buyer_id, farmer_id, listing_id)
+    );
+    CREATE TABLE IF NOT EXISTS chat_messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+        sender_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        body TEXT NOT NULL,
+        created_at TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_listings_farmer ON listings(farmer_id);
     CREATE INDEX IF NOT EXISTS idx_orders_buyer ON orders(buyer_id);
     CREATE INDEX IF NOT EXISTS idx_order_items_farmer ON order_items(farmer_id);
     CREATE INDEX IF NOT EXISTS idx_wallet_transactions_user ON wallet_transactions(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_wallet_topup_requests_status ON wallet_topup_requests(status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_chat_conversations_buyer ON chat_conversations(buyer_id, last_message_at);
+    CREATE INDEX IF NOT EXISTS idx_chat_conversations_farmer ON chat_conversations(farmer_id, last_message_at);
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, created_at);
 `;
 
 function seedListings(db) {
@@ -230,12 +249,33 @@ function createPostgresStore(connectionString, options = {}) {
                 user_id text primary key references users(id) on delete cascade,
                 created_at text not null
             )`,
+                `CREATE TABLE IF NOT EXISTS chat_conversations (
+                id text primary key,
+                buyer_id text not null references users(id) on delete cascade,
+                farmer_id text not null references users(id) on delete cascade,
+                listing_id text,
+                created_at text not null,
+                last_message_at text not null,
+                unique (buyer_id, farmer_id, listing_id)
+            )`,
+                `CREATE TABLE IF NOT EXISTS chat_messages (
+                id text primary key,
+                conversation_id text not null references chat_conversations(id) on delete cascade,
+                sender_id text not null references users(id) on delete cascade,
+                body text not null,
+                created_at text not null
+            )`,
                 'CREATE INDEX IF NOT EXISTS idx_wallet_transactions_user ON wallet_transactions(user_id, created_at)',
                 'CREATE INDEX IF NOT EXISTS idx_wallet_topup_requests_status ON wallet_topup_requests(status, created_at)',
+                'CREATE INDEX IF NOT EXISTS idx_chat_conversations_buyer ON chat_conversations(buyer_id, last_message_at)',
+                'CREATE INDEX IF NOT EXISTS idx_chat_conversations_farmer ON chat_conversations(farmer_id, last_message_at)',
+                'CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, created_at)',
                 'ALTER TABLE wallet_accounts ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE wallet_transactions ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE wallet_topup_requests ENABLE ROW LEVEL SECURITY',
-                'ALTER TABLE wallet_admins ENABLE ROW LEVEL SECURITY'
+                'ALTER TABLE wallet_admins ENABLE ROW LEVEL SECURITY',
+                'ALTER TABLE chat_conversations ENABLE ROW LEVEL SECURITY',
+                'ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY'
             ];
             for (const statement of statements) await pool.query(statement);
         })()
@@ -871,6 +911,166 @@ function createApp(options = {}) {
         } catch (error) { next(error); }
     });
 
+    async function chatIsAdmin(userId) {
+        return Boolean(await store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [userId]));
+    }
+
+    async function canReadConversation(user, conversation) {
+        if (!conversation) return false;
+        if (conversation.buyer_id === user.id || conversation.farmer_id === user.id) return true;
+        return chatIsAdmin(user.id);
+    }
+
+    async function chatConversationRows(scope, userId) {
+        const where = scope === 'admin' ? ''
+            : scope === 'farmer' ? 'WHERE chat_conversations.farmer_id = ?'
+                : 'WHERE chat_conversations.buyer_id = ?';
+        const params = scope === 'admin' ? [] : [userId];
+        return store.all(`
+            SELECT chat_conversations.id, chat_conversations.buyer_id, chat_conversations.farmer_id,
+                chat_conversations.listing_id, chat_conversations.created_at, chat_conversations.last_message_at,
+                buyers.name AS buyer_name, farmers.name AS farmer_name, listings.name AS listing_name,
+                (SELECT body FROM chat_messages WHERE conversation_id = chat_conversations.id
+                    ORDER BY created_at DESC LIMIT 1) AS last_message
+            FROM chat_conversations
+            JOIN users AS buyers ON buyers.id = chat_conversations.buyer_id
+            JOIN users AS farmers ON farmers.id = chat_conversations.farmer_id
+            LEFT JOIN listings ON listings.id = chat_conversations.listing_id
+            ${where}
+            ORDER BY chat_conversations.last_message_at DESC LIMIT 200
+        `, params);
+    }
+
+    function publicConversation(row, user) {
+        const isAdmin = row.buyer_id !== user.id && row.farmer_id !== user.id;
+        const peerName = isAdmin ? `${row.buyer_name} · ${row.farmer_name}`
+            : row.buyer_id === user.id ? row.farmer_name : row.buyer_name;
+        return {
+            id: row.id,
+            buyerId: row.buyer_id,
+            farmerId: row.farmer_id,
+            listingId: row.listing_id,
+            listingName: row.listing_name || 'Product order',
+            buyerName: row.buyer_name,
+            farmerName: row.farmer_name,
+            peerName,
+            lastMessage: row.last_message || '',
+            updatedAt: row.last_message_at,
+            createdAt: row.created_at
+        };
+    }
+
+    app.get('/api/chat/conversations', auth, async (req, res) => {
+        if (!['buyer', 'farmer'].includes(req.user.role)) return res.status(403).json({ error: 'Buyer or farmer account required.' });
+        const rows = await chatConversationRows(req.user.role, req.user.id);
+        res.json({ conversations: rows.map(row => publicConversation(row, req.user)) });
+    });
+
+    app.post('/api/chat/conversations', auth, async (req, res, next) => {
+        if (!['buyer', 'farmer'].includes(req.user.role)) return res.status(403).json({ error: 'Buyer or farmer account required.' });
+        const listingId = text(req.body?.listingId, 100);
+        if (!listingId) return res.status(400).json({ error: 'Choose a product before starting a chat.' });
+        try {
+            let buyerId;
+            let farmerId;
+            if (req.user.role === 'buyer') {
+                const listing = await store.get("SELECT id, farmer_id FROM listings WHERE id = ? AND quantity > 0", [listingId]);
+                if (!listing) return res.status(404).json({ error: 'This product is no longer available.' });
+                const farmer = await store.get("SELECT id FROM users WHERE id = ? AND role = 'farmer'", [listing.farmer_id]);
+                if (!farmer) return res.status(404).json({ error: 'This farmer is not available for chat.' });
+                buyerId = req.user.id;
+                farmerId = farmer.id;
+            } else {
+                const buyerIdInput = text(req.body?.buyerId, 100);
+                const orderId = text(req.body?.orderId, 100);
+                const orderItem = await store.get(`
+                    SELECT orders.buyer_id, order_items.farmer_id
+                    FROM orders JOIN order_items ON order_items.order_id = orders.id
+                    WHERE orders.id = ? AND orders.buyer_id = ? AND order_items.product_id = ?
+                `, [orderId, buyerIdInput, listingId]);
+                if (!orderItem || orderItem.farmer_id !== req.user.id) {
+                    return res.status(403).json({ error: 'You can start a chat with a buyer from one of your orders.' });
+                }
+                buyerId = orderItem.buyer_id;
+                farmerId = req.user.id;
+            }
+            let conversation = await store.get(`
+                SELECT id FROM chat_conversations WHERE buyer_id = ? AND farmer_id = ? AND listing_id = ?
+            `, [buyerId, farmerId, listingId]);
+            if (!conversation) {
+                const id = crypto.randomUUID();
+                const createdAt = new Date().toISOString();
+                try {
+                    await store.run(`
+                        INSERT INTO chat_conversations (id, buyer_id, farmer_id, listing_id, created_at, last_message_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    `, [id, buyerId, farmerId, listingId, createdAt, createdAt]);
+                    conversation = { id };
+                } catch (error) {
+                    if (error.errcode !== 2067) throw error;
+                    conversation = await store.get(`
+                        SELECT id FROM chat_conversations WHERE buyer_id = ? AND farmer_id = ? AND listing_id = ?
+                    `, [buyerId, farmerId, listingId]);
+                }
+            }
+            const row = (await chatConversationRows(req.user.role, req.user.id))
+                .find(item => item.id === conversation.id);
+            res.status(201).json({ conversation: row ? publicConversation(row, req.user) : { id: conversation.id } });
+        } catch (error) { next(error); }
+    });
+
+    app.get('/api/admin/chat/conversations', auth, walletAdmin, async (req, res) => {
+        const rows = await chatConversationRows('admin', req.user.id);
+        res.json({ conversations: rows.map(row => publicConversation(row, req.user)) });
+    });
+
+    app.get('/api/chat/conversations/:id/messages', auth, async (req, res) => {
+        const conversation = await store.get('SELECT * FROM chat_conversations WHERE id = ?', [req.params.id]);
+        if (!await canReadConversation(req.user, conversation)) return res.status(404).json({ error: 'Conversation not found.' });
+        const rows = await store.all(`
+            SELECT recent.id, recent.sender_id, recent.body, recent.created_at,
+                users.name AS sender_name, users.role AS sender_role, wallet_admins.user_id AS admin_id
+            FROM (
+                SELECT id, sender_id, body, created_at FROM chat_messages
+                WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 200
+            ) AS recent
+            JOIN users ON users.id = recent.sender_id
+            LEFT JOIN wallet_admins ON wallet_admins.user_id = users.id
+            ORDER BY recent.created_at ASC
+        `, [req.params.id]);
+        res.json({ messages: rows.map(row => ({
+            id: row.id,
+            senderId: row.sender_id,
+            senderName: row.admin_id ? 'KITUI FARM Support' : row.sender_name,
+            senderRole: row.admin_id ? 'admin' : row.sender_role,
+            body: row.body,
+            createdAt: row.created_at
+        })) });
+    });
+
+    app.post('/api/chat/conversations/:id/messages', auth, async (req, res, next) => {
+        const conversation = await store.get('SELECT * FROM chat_conversations WHERE id = ?', [req.params.id]);
+        if (!await canReadConversation(req.user, conversation)) return res.status(404).json({ error: 'Conversation not found.' });
+        const body = text(req.body?.body, 2000);
+        if (!body) return res.status(400).json({ error: 'Enter a message before sending.' });
+        try {
+            const id = crypto.randomUUID();
+            const createdAt = new Date().toISOString();
+            await store.transaction(async () => {
+                await store.run(`
+                    INSERT INTO chat_messages (id, conversation_id, sender_id, body, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                `, [id, conversation.id, req.user.id, body, createdAt]);
+                await store.run('UPDATE chat_conversations SET last_message_at = ? WHERE id = ?', [createdAt, conversation.id]);
+            });
+            const admin = await chatIsAdmin(req.user.id);
+            res.status(201).json({ message: {
+                id, senderId: req.user.id, senderName: admin ? 'KITUI FARM Support' : req.user.name,
+                senderRole: admin ? 'admin' : req.user.role, body, createdAt
+            } });
+        } catch (error) { next(error); }
+    });
+
     app.post('/api/wallet/admin/topups/:id/review', auth, walletAdmin, async (req, res, next) => {
         const decision = req.body?.decision;
         if (!['approve', 'reject'].includes(decision)) return res.status(400).json({ error: 'Choose approve or reject.' });
@@ -1211,6 +1411,11 @@ function createApp(options = {}) {
         res.setHeader('Cache-Control', 'no-store, private');
         res.setHeader('X-Robots-Tag', 'noindex, nofollow');
         res.sendFile(path.join(ROOT, 'admin.html'));
+    });
+    app.get('/admin-chat.html', adminPageAuth, (req, res) => {
+        res.setHeader('Cache-Control', 'no-store, private');
+        res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+        res.sendFile(path.join(ROOT, 'chat.html'));
     });
     app.get('/admin-profile.html', adminPageAuth, (req, res) => {
         res.setHeader('Cache-Control', 'no-store, private');

@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <script src="api-base.js"></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#4a8c3f">
+    <meta name="robots" content="noindex,nofollow">
+    <title>Messages - KITUI FARM</title>
+    <style>
+        :root { font-family:system-ui,-apple-system,"Segoe UI",sans-serif; --green:#4a8c3f; --deep:#2d5a27; --ink:#263126; --muted:#687468; --line:#e2e9df; --bg:#f4f7f2; --surface:#fff; --pale:#eaf3e6; }
+        * { box-sizing:border-box; }
+        body { margin:0; min-height:100vh; background:var(--bg); color:var(--ink); }
+        .topbar { position:sticky; z-index:3; top:0; border-bottom:1px solid var(--line); background:rgba(255,255,255,.96); backdrop-filter:blur(10px); }
+        .bar,main { width:min(1180px,calc(100% - 36px)); margin:auto; }
+        .bar { min-height:70px; display:flex; align-items:center; justify-content:space-between; gap:14px; }
+        .brand { color:var(--deep); font-size:18px; font-weight:800; text-decoration:none; }
+        .button { display:inline-flex; align-items:center; justify-content:center; min-height:40px; padding:8px 13px; border:1px solid var(--line); border-radius:9px; background:white; color:var(--ink); font:inherit; font-weight:650; text-decoration:none; cursor:pointer; }
+        .button.primary { border-color:var(--green); background:var(--green); color:white; }
+        main { padding:26px 0 50px; }
+        .heading { margin-bottom:17px; }
+        h1 { margin:0 0 5px; color:var(--deep); font-size:clamp(27px,4vw,34px); }
+        .intro { margin:0; color:var(--muted); }
+        .notice { margin:0 0 14px; padding:11px 13px; border:1px solid #f2ceca; border-radius:9px; background:#fff3f1; color:#a52b22; }
+        .chat-layout { display:grid; grid-template-columns:330px minmax(0,1fr); min-height:min(690px,calc(100vh - 190px)); overflow:hidden; border:1px solid var(--line); border-radius:15px; background:var(--surface); box-shadow:0 5px 24px rgba(34,54,29,.05); }
+        .conversation-pane { display:flex; min-height:0; flex-direction:column; border-right:1px solid var(--line); }
+        .pane-head { padding:17px; border-bottom:1px solid var(--line); }
+        .pane-head h2 { margin:0; font-size:18px; }
+        .pane-head p { margin:4px 0 0; color:var(--muted); font-size:12px; }
+        .conversation-list { flex:1; overflow:auto; }
+        .conversation-item { display:block; width:100%; padding:14px 16px; border:0; border-bottom:1px solid #edf0eb; background:white; color:var(--ink); text-align:left; cursor:pointer; }
+        .conversation-item:hover,.conversation-item.active { background:#f0f6ed; }
+        .conversation-item strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .conversation-item small { display:block; margin-top:3px; color:var(--muted); }
+        .preview { display:block; margin-top:5px; overflow:hidden; color:#657164; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
+        .empty-list { padding:20px 16px; color:var(--muted); font-size:13px; }
+        .message-pane { display:flex; min-width:0; min-height:0; flex-direction:column; }
+        .thread-head { min-height:68px; padding:13px 18px; border-bottom:1px solid var(--line); }
+        .thread-head strong { display:block; color:var(--deep); }
+        .thread-head small { color:var(--muted); }
+        .messages { display:flex; flex:1; min-height:220px; flex-direction:column; gap:10px; overflow:auto; padding:18px; background:#fbfcfa; }
+        .message { max-width:min(78%,600px); align-self:flex-start; padding:10px 12px; border:1px solid var(--line); border-radius:13px 13px 13px 4px; background:white; overflow-wrap:anywhere; white-space:pre-wrap; }
+        .message.mine { align-self:flex-end; border-color:#cfe2c8; border-radius:13px 13px 4px 13px; background:#eaf4e6; }
+        .message.support { border-color:#d8def3; background:#f0f2fb; }
+        .message strong { display:block; margin-bottom:3px; color:#52604f; font-size:11px; }
+        .message time { display:block; margin-top:5px; color:#778174; font-size:10px; text-align:right; }
+        .thread-empty { align-self:center; max-width:400px; margin:auto; color:var(--muted); text-align:center; }
+        .composer { display:flex; align-items:flex-end; gap:9px; padding:13px; border-top:1px solid var(--line); }
+        .composer textarea { flex:1; min-height:46px; max-height:130px; resize:vertical; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font:inherit; }
+        .composer textarea:focus { outline:2px solid #d8ebd1; border-color:var(--green); }
+        .composer .button { min-height:46px; }
+        .send-status { padding:0 14px 8px; color:var(--muted); font-size:12px; }
+        [hidden] { display:none !important; }
+        @media(max-width:760px) {
+            .bar,main { width:calc(100% - 24px); }
+            .chat-layout { grid-template-columns:minmax(0,1fr); min-height:calc(100vh - 170px); }
+            .conversation-pane { max-height:230px; border-right:0; border-bottom:1px solid var(--line); }
+            .conversation-list { max-height:155px; }
+            .message-pane { min-height:400px; }
+            .messages { min-height:240px; }
+        }
+        @media(max-width:460px) { .bar { min-height:62px; } .brand { font-size:15px; } .bar .button { min-height:36px; padding:6px 9px; font-size:12px; } .composer { align-items:stretch; flex-direction:column; } .composer .button { width:100%; } .message { max-width:92%; } }
+    </style>
+</head>
+<body>
+    <header class="topbar"><div class="bar"><a class="brand" id="brandLink" href="buyer-dashboard.html">🌱 KITUI FARM <span id="adminLabel" hidden>· Admin support</span></a><a class="button" id="backButton" href="buyer-dashboard.html">← Back</a></div></header>
+    <main>
+        <div class="heading"><h1 id="pageTitle">Messages</h1><p class="intro" id="pageIntro">Chat with farmers about products and orders.</p></div>
+        <p class="notice" id="notice" role="alert" hidden></p>
+        <section class="chat-layout" aria-label="Messages">
+            <aside class="conversation-pane">
+                <div class="pane-head"><h2 id="listTitle">Your conversations</h2><p id="listSubtitle">Choose a chat to read and reply.</p></div>
+                <div class="conversation-list" id="conversationList" aria-live="polite"></div>
+            </aside>
+            <section class="message-pane" aria-label="Chat thread">
+                <div class="thread-head"><strong id="threadTitle">Select a conversation</strong><small id="threadSubtitle">Your messages stay between the participants and authorized KITUI FARM administrators.</small></div>
+                <div class="messages" id="messages" aria-live="polite"><p class="thread-empty">Choose a conversation to view its messages.</p></div>
+                <form class="composer" id="composer" hidden><textarea id="messageBody" maxlength="2000" rows="2" placeholder="Write a message…" aria-label="Write a message" required></textarea><button class="button primary" id="sendButton" type="submit">Send</button></form>
+                <p class="send-status" id="sendStatus" role="status" aria-live="polite"></p>
+            </section>
+        </section>
+    </main>
+    <script>
+        const adminMode = location.pathname.endsWith('/admin-chat.html') || location.search.includes('admin=1');
+        const token = localStorage.getItem('kituiFarmToken') || '';
+        let userSession = null;
+        try {
+            userSession = JSON.parse(localStorage.getItem('kituiFarmSession') || sessionStorage.getItem('kituiFarmSession') || 'null');
+        } catch { userSession = null; }
+        const apiBase = adminMode ? '/api/admin/chat/conversations' : '/api/chat/conversations';
+        const listNode = document.getElementById('conversationList');
+        const messageNode = document.getElementById('messages');
+        const noticeNode = document.getElementById('notice');
+        let conversations = [];
+        let activeConversationId = '';
+        let loadingMessages = false;
+        const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char]);
+        const showNotice = value => { noticeNode.textContent = value; noticeNode.hidden = !value; };
+        async function apiRequest(url, options = {}) {
+            const response = await fetch(url, { ...options, headers: { ...(options.body ? { 'Content-Type':'application/json' } : {}), ...(token ? { Authorization:`Bearer ${token}` } : {}), ...options.headers } });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) { const error = new Error(result.error || 'The request could not be completed.'); error.status = response.status; throw error; }
+            return result;
+        }
+        function dateLabel(value, withTime = false) {
+            const date = new Date(value);
+            return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('en-KE', withTime ? { dateStyle:'medium', timeStyle:'short' } : { dateStyle:'medium' });
+        }
+        function renderConversations() {
+            listNode.innerHTML = conversations.map(item => `<button class="conversation-item ${item.id === activeConversationId ? 'active' : ''}" type="button" data-conversation="${escapeHtml(item.id)}">
+                <strong>${escapeHtml(item.peerName)}</strong><small>${escapeHtml(item.listingName)} · ${escapeHtml(dateLabel(item.updatedAt))}</small>
+                <span class="preview">${escapeHtml(item.lastMessage || 'No messages yet. Start the conversation.')}</span>
+            </button>`).join('');
+            if (!conversations.length) listNode.innerHTML = '<p class="empty-list">No conversations yet. Start a chat from a product listing or an order.</p>';
+            listNode.querySelectorAll('[data-conversation]').forEach(button => button.addEventListener('click', () => selectConversation(button.dataset.conversation)));
+        }
+        function renderMessages(messages) {
+            if (!messages.length) {
+                messageNode.innerHTML = '<p class="thread-empty">No messages yet. Send a message to start this conversation.</p>';
+                return;
+            }
+            messageNode.innerHTML = messages.map(message => {
+                const mine = message.senderId === userSession?.userId;
+                return `<article class="message ${mine ? 'mine' : ''} ${message.senderRole === 'admin' ? 'support' : ''}"><strong>${escapeHtml(message.senderName)}${message.senderRole === 'admin' ? ' · Support' : ''}</strong>${escapeHtml(message.body)}<time>${escapeHtml(dateLabel(message.createdAt, true))}</time></article>`;
+            }).join('');
+            messageNode.scrollTop = messageNode.scrollHeight;
+        }
+        async function loadMessages() {
+            if (!activeConversationId || loadingMessages) return;
+            loadingMessages = true;
+            try {
+                const result = await apiRequest(`/api/chat/conversations/${encodeURIComponent(activeConversationId)}/messages`);
+                renderMessages(result.messages || []);
+            } catch (error) { showNotice(error.message || 'Could not load messages.'); }
+            finally { loadingMessages = false; }
+        }
+        async function selectConversation(id) {
+            activeConversationId = id;
+            const item = conversations.find(conversation => conversation.id === id);
+            document.getElementById('threadTitle').textContent = item ? item.peerName : 'Conversation';
+            document.getElementById('threadSubtitle').textContent = item ? `About: ${item.listingName}` : '';
+            document.getElementById('composer').hidden = false;
+            document.getElementById('messageBody').focus();
+            renderConversations();
+            await loadMessages();
+        }
+        async function loadConversations() {
+            const result = await apiRequest(apiBase);
+            conversations = result.conversations || [];
+            renderConversations();
+            if (activeConversationId && conversations.some(item => item.id === activeConversationId)) await loadMessages();
+        }
+        async function startFromLink() {
+            const params = new URLSearchParams(location.search);
+            const listingId = params.get('listingId');
+            if (!listingId || adminMode) return;
+            const payload = { listingId };
+            if (params.has('buyerId')) { payload.buyerId = params.get('buyerId'); payload.orderId = params.get('orderId'); }
+            const result = await apiRequest('/api/chat/conversations', { method:'POST', body:JSON.stringify(payload) });
+            await loadConversations();
+            if (result.conversation?.id) await selectConversation(result.conversation.id);
+        }
+        document.getElementById('composer').addEventListener('submit', async event => {
+            event.preventDefault();
+            const textarea = document.getElementById('messageBody');
+            const button = document.getElementById('sendButton');
+            const body = textarea.value.trim();
+            if (!body || !activeConversationId) return;
+            button.disabled = true;
+            document.getElementById('sendStatus').textContent = 'Sending…';
+            try {
+                await apiRequest(`/api/chat/conversations/${encodeURIComponent(activeConversationId)}/messages`, { method:'POST', body:JSON.stringify({ body }) });
+                textarea.value = '';
+                document.getElementById('sendStatus').textContent = '';
+                await Promise.all([loadConversations(), loadMessages()]);
+            } catch (error) { document.getElementById('sendStatus').textContent = error.message || 'Could not send your message.'; }
+            finally { button.disabled = false; textarea.focus(); }
+        });
+        if (adminMode) {
+            document.getElementById('adminLabel').hidden = false;
+            document.getElementById('backButton').href = 'admin.html';
+            document.getElementById('pageTitle').textContent = 'User messages';
+            document.getElementById('pageIntro').textContent = 'Review buyer and farmer conversations and reply as KITUI FARM Support.';
+            document.getElementById('listTitle').textContent = 'All conversations';
+            document.getElementById('listSubtitle').textContent = 'Admin access to user chats.';
+        } else if (userSession?.role === 'farmer') {
+            document.getElementById('brandLink')?.setAttribute('href', 'farmer-dashboard.html');
+            document.getElementById('backButton').href = 'farmer-dashboard.html';
+            document.getElementById('pageIntro').textContent = 'Chat with customers about their orders and your products.';
+        }
+        (async () => {
+            try { await loadConversations(); await startFromLink(); }
+            catch (error) { showNotice(error.message || 'Sign in to use KITUI FARM chat.'); }
+        })();
+        window.setInterval(() => { loadConversations().catch(() => {}); }, 10000);
+    </script>
+</body>
+</html>

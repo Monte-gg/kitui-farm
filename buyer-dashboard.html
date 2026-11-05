@@ -151,6 +151,7 @@
         :root[data-theme="dark"] .qty-input, :root[data-theme="dark"] .cart-address { background: #202820; color: var(--ink); }
         .product-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 13px; }
         .product-actions .button { padding: 9px 8px; font-size: 12px; }
+        .message-farmer { grid-column: 1 / -1; }
         .payment-note { margin: 8px 0 0; color: var(--muted); font-size: 10px; text-align: center; }
         .empty-state, .notice { padding: 25px; border: 1px dashed #d5dfd0; border-radius: 12px; color: var(--muted); text-align: center; background: rgba(255,255,255,.6); }
         .notice { margin-top: 15px; border-style: solid; text-align: left; }
@@ -243,6 +244,7 @@
                     <button class="more-toggle" id="moreToggle" type="button" aria-label="Open more options" aria-haspopup="menu" aria-expanded="false" aria-controls="morePanel">⋮</button>
                     <nav class="more-panel" id="morePanel" aria-label="More options" role="menu" hidden>
                         <a class="menu-profile" href="profile.html" role="menuitem"><span class="profile-chip-avatar" id="buyerAvatar"></span><span class="menu-profile-copy"><strong id="buyerName"></strong><small>My profile</small></span></a>
+                        <a href="chat.html" role="menuitem">Messages</a>
                         <a href="wallet.html" role="menuitem">Wallet</a>
                         <a href="settings.html" role="menuitem">Settings</a>
                         <a href="about-us.html" role="menuitem">About KITUI FARM</a>
@@ -389,6 +391,7 @@
                     <div class="product-actions">
                         <button class="button secondary" type="button" data-add="${escapeHtml(item.id)}">Add to Cart</button>
                         <button class="button" type="button" data-buy="${escapeHtml(item.id)}">Buy</button>
+                        <button class="button secondary message-farmer" type="button" data-message-farmer="${escapeHtml(item.farmerId)}" data-message-listing="${escapeHtml(item.id)}">Message farmer</button>
                     </div>
                     <p class="payment-note">Continue to choose cash or a digital payment option.</p>
                 </div>
@@ -505,6 +508,11 @@
             renderProducts();
         });
         document.getElementById('productGrid').addEventListener('click', async event => {
+            const messageButton = event.target.closest('[data-message-farmer]');
+            if (messageButton) {
+                window.location.assign(`chat.html?farmerId=${encodeURIComponent(messageButton.dataset.messageFarmer)}&listingId=${encodeURIComponent(messageButton.dataset.messageListing)}`);
+                return;
+            }
             const videoButton = event.target.closest('[data-video-id]');
             if (videoButton) {
                 const player = videoButton.parentElement.querySelector('.listing-video');
