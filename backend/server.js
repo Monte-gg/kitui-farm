@@ -116,6 +116,12 @@ const SQLITE_SCHEMA = `
         body TEXT NOT NULL,
         created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS wishlist_items (
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        listing_id TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        PRIMARY KEY (user_id, listing_id)
+    );
     CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_listings_farmer ON listings(farmer_id);
     CREATE INDEX IF NOT EXISTS idx_orders_buyer ON orders(buyer_id);
@@ -125,6 +131,7 @@ const SQLITE_SCHEMA = `
     CREATE INDEX IF NOT EXISTS idx_chat_conversations_buyer ON chat_conversations(buyer_id, last_message_at);
     CREATE INDEX IF NOT EXISTS idx_chat_conversations_farmer ON chat_conversations(farmer_id, last_message_at);
     CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_wishlist_items_user ON wishlist_items(user_id, created_at);
 `;
 
 function seedListings(db) {
@@ -265,17 +272,25 @@ function createPostgresStore(connectionString, options = {}) {
                 body text not null,
                 created_at text not null
             )`,
+                `CREATE TABLE IF NOT EXISTS wishlist_items (
+                user_id text not null references users(id) on delete cascade,
+                listing_id text not null,
+                created_at text not null,
+                primary key (user_id, listing_id)
+            )`,
                 'CREATE INDEX IF NOT EXISTS idx_wallet_transactions_user ON wallet_transactions(user_id, created_at)',
                 'CREATE INDEX IF NOT EXISTS idx_wallet_topup_requests_status ON wallet_topup_requests(status, created_at)',
                 'CREATE INDEX IF NOT EXISTS idx_chat_conversations_buyer ON chat_conversations(buyer_id, last_message_at)',
                 'CREATE INDEX IF NOT EXISTS idx_chat_conversations_farmer ON chat_conversations(farmer_id, last_message_at)',
                 'CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, created_at)',
+                'CREATE INDEX IF NOT EXISTS idx_wishlist_items_user ON wishlist_items(user_id, created_at)',
                 'ALTER TABLE wallet_accounts ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE wallet_transactions ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE wallet_topup_requests ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE wallet_admins ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE chat_conversations ENABLE ROW LEVEL SECURITY',
-                'ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY'
+                'ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY',
+                'ALTER TABLE wishlist_items ENABLE ROW LEVEL SECURITY'
             ];
             for (const statement of statements) await pool.query(statement);
         })()
@@ -1157,6 +1172,23 @@ function createApp(options = {}) {
             ? await store.all('SELECT * FROM listings WHERE farmer_id = ? ORDER BY created_at DESC', [req.user.id])
             : await store.all('SELECT * FROM listings WHERE quantity > 0 ORDER BY created_at DESC');
         res.json({ listings: rows.map(publicListing) });
+    });
+    app.get('/api/wishlist', auth, role('buyer'), async (req, res) => {
+        const rows = await store.all('SELECT listing_id FROM wishlist_items WHERE user_id = ? ORDER BY created_at DESC', [req.user.id]);
+        res.json({ listingIds: rows.map(row => row.listing_id) });
+    });
+    app.post('/api/wishlist/:listingId', auth, role('buyer'), async (req, res) => {
+        const listing = await store.get('SELECT id FROM listings WHERE id = ? AND quantity > 0', [req.params.listingId]);
+        if (!listing) return res.status(404).json({ error: 'This product is no longer available.' });
+        await store.run(`
+            INSERT INTO wishlist_items (user_id, listing_id, created_at) VALUES (?, ?, ?)
+            ON CONFLICT (user_id, listing_id) DO NOTHING
+        `, [req.user.id, listing.id, new Date().toISOString()]);
+        res.status(201).json({ listingId: listing.id, saved: true });
+    });
+    app.delete('/api/wishlist/:listingId', auth, role('buyer'), async (req, res) => {
+        await store.run('DELETE FROM wishlist_items WHERE user_id = ? AND listing_id = ?', [req.user.id, req.params.listingId]);
+        res.status(204).end();
     });
     app.post('/api/listings', auth, role('farmer'), async (req, res) => {
         const listing = validateListing(req.body);

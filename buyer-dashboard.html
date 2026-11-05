@@ -132,6 +132,9 @@
         :root[data-theme="dark"] .product-category { background: #202820; }
         .product-content { padding: 15px; }
         .product-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+        .wishlist-toggle { flex: 0 0 auto; min-width: 40px; min-height: 40px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--green-dark); font-size: 18px; cursor: pointer; }
+        .wishlist-toggle[aria-pressed="true"] { border-color: #f0c9c6; color: #b42318; background: #fff5f4; }
+        .wishlist-section { margin: 28px 0 0; scroll-margin-top: 95px; }
         .product-title { margin: 0 0 5px; font-size: 17px; }
         .seller { margin: 0; color: var(--muted); font-size: 12px; }
         .seller-link { color: inherit; font-weight: 650; text-decoration: none; }
@@ -244,6 +247,7 @@
                     <button class="more-toggle" id="moreToggle" type="button" aria-label="Open more options" aria-haspopup="menu" aria-expanded="false" aria-controls="morePanel">⋮</button>
                     <nav class="more-panel" id="morePanel" aria-label="More options" role="menu" hidden>
                         <a class="menu-profile" href="profile.html" role="menuitem"><span class="profile-chip-avatar" id="buyerAvatar"></span><span class="menu-profile-copy"><strong id="buyerName"></strong><small>My profile</small></span></a>
+                        <a href="#wishlist" role="menuitem">Wishlist <span id="wishlistMenuCount">(0)</span></a>
                         <a href="chat.html" role="menuitem">Messages</a>
                         <a href="wallet.html" role="menuitem">Wallet</a>
                         <a href="settings.html" role="menuitem">Settings</a>
@@ -282,6 +286,12 @@
             <p class="notice" id="marketNotice" role="status" aria-live="polite" hidden></p>
         </section>
 
+        <section class="wishlist-section" id="wishlist" aria-labelledby="wishlistTitle">
+            <div class="section-head"><div><h2 id="wishlistTitle">Your wishlist <span aria-hidden="true">♡</span></h2><p>Products you’ve saved to come back to later.</p></div></div>
+            <div class="product-grid" id="wishlistGrid"></div>
+            <div class="empty-state" id="wishlistEmpty">Your wishlist is empty. Tap the heart on a product to save it here.</div>
+        </section>
+
         <section class="panel" aria-labelledby="ordersTitle">
             <div class="panel-header"><h2 id="ordersTitle">Your orders</h2><p>Follow order progress from local farms to your door.</p></div>
             <div class="table-wrap">
@@ -317,6 +327,7 @@
         ];
         let currentFilter = 'all';
         let query = '';
+        let wishlistIds = new Set();
         const productVideoUrls = [];
         const marketNotice = document.getElementById('marketNotice');
 
@@ -378,11 +389,13 @@
                 ? `<button class="listing-video-button" type="button" data-video-id="${escapeHtml(item.id)}">▶ Watch farm video</button><video class="listing-video" controls playsinline preload="none" hidden></video>`
                 : '';
             const isBulk = Number(item.minimumOrder) >= 100;
+            const isWishlisted = wishlistIds.has(String(item.id));
             return `<article class="product-card">
                 <div class="product-image">${image}<span class="product-category">${escapeHtml(item.category)}</span></div>
                 <div class="product-content">
                     <div class="product-title-row"><div><h3 class="product-title">${escapeHtml(item.name)}</h3>
-                        <p class="seller"><a class="seller-link" href="farmer-store.html?farmerId=${encodeURIComponent(item.farmerId)}">${escapeHtml(item.sellerName)}</a> <span class="verified">✓ Verified</span></p></div></div>
+                        <p class="seller"><a class="seller-link" href="farmer-store.html?farmerId=${encodeURIComponent(item.farmerId)}">${escapeHtml(item.sellerName)}</a> <span class="verified">✓ Verified</span></p></div>
+                        <button class="wishlist-toggle" type="button" data-wishlist-toggle="${escapeHtml(item.id)}" aria-label="${isWishlisted ? 'Remove ' + escapeHtml(item.name) + ' from wishlist' : 'Save ' + escapeHtml(item.name) + ' to wishlist'}" aria-pressed="${isWishlisted}" title="${isWishlisted ? 'Remove from wishlist' : 'Save to wishlist'}">${isWishlisted ? '♥' : '♡'}</button></div>
                     ${videoControl}
                     <div class="price-row"><span class="price-label">Price per kilogram</span><span class="price">KES ${Number(item.price).toLocaleString('en-KE')}</span></div>
                     <div class="product-meta"><span><strong>Available:</strong> ${Number(item.quantity).toLocaleString('en-KE')} kg</span><span><strong>Minimum order:</strong> ${Number(item.minimumOrder).toLocaleString('en-KE')} kg${isBulk ? ' (wholesale)' : ''}</span><span><strong>Pickup location:</strong> ${escapeHtml(item.location)}</span></div>
@@ -409,6 +422,32 @@
             document.getElementById('productGrid').innerHTML = visible.map(productCard).join('');
             document.getElementById('productsEmpty').hidden = visible.length > 0;
             document.getElementById('resultCount').textContent = `${visible.length} fresh listing${visible.length === 1 ? '' : 's'} from verified local sellers.`;
+        }
+        function renderWishlist() {
+            const listings = readArray('kituiFarmListings');
+            const saved = [...wishlistIds].map(id => listings.find(item => String(item.id) === id)).filter(Boolean);
+            document.getElementById('wishlistGrid').innerHTML = saved.map(productCard).join('');
+            document.getElementById('wishlistEmpty').hidden = saved.length > 0;
+            document.getElementById('wishlistMenuCount').textContent = `(${wishlistIds.size})`;
+        }
+        async function toggleWishlist(listingId) {
+            const id = String(listingId);
+            const wasSaved = wishlistIds.has(id);
+            const button = document.querySelector(`[data-wishlist-toggle="${CSS.escape(id)}"]`);
+            if (button) button.disabled = true;
+            try {
+                if (wasSaved) await apiRequest(`/api/wishlist/${encodeURIComponent(id)}`, { method:'DELETE' });
+                else await apiRequest(`/api/wishlist/${encodeURIComponent(id)}`, { method:'POST' });
+                if (wasSaved) wishlistIds.delete(id); else wishlistIds.add(id);
+                marketNotice.textContent = wasSaved ? 'Removed from your wishlist.' : 'Saved to your wishlist.';
+                marketNotice.hidden = false;
+                renderProducts();
+                renderWishlist();
+            } catch (error) {
+                marketNotice.textContent = error.message || 'Could not update your wishlist.';
+                marketNotice.hidden = false;
+                if (button) button.disabled = false;
+            }
         }
         function renderCart() {
             const listings = readArray('kituiFarmListings');
@@ -440,12 +479,14 @@
         }
         function render() {
             renderProducts();
+            renderWishlist();
             renderCart();
             renderOrders();
         }
-        function chosenQuantity(id) {
+        function chosenQuantity(id, productCardNode = null) {
             const listing = readArray('kituiFarmListings').find(item => item.id === id);
-            const input = document.querySelector(`[data-quantity="${CSS.escape(id)}"]`);
+            const input = productCardNode?.querySelector(`[data-quantity="${CSS.escape(id)}"]`)
+                || document.querySelector(`[data-quantity="${CSS.escape(id)}"]`);
             if (!listing || !input) throw new Error('That produce listing is no longer available.');
             const quantity = Number(input.value);
             if (!Number.isInteger(quantity) || quantity < listing.minimumOrder || quantity > listing.quantity) {
@@ -453,8 +494,8 @@
             }
             return { listing, quantity };
         }
-        function addToCart(id) {
-            const { listing, quantity } = chosenQuantity(id);
+        function addToCart(id, productCardNode = null) {
+            const { listing, quantity } = chosenQuantity(id, productCardNode);
             const cart = getCart();
             const line = cart.find(item => item.productId === id);
             const nextQuantity = (line ? line.quantity : 0) + quantity;
@@ -507,7 +548,9 @@
             query = event.target.value.trim();
             renderProducts();
         });
-        document.getElementById('productGrid').addEventListener('click', async event => {
+        async function handleProductCardClick(event) {
+            const wishlistButton = event.target.closest('[data-wishlist-toggle]');
+            if (wishlistButton) { await toggleWishlist(wishlistButton.dataset.wishlistToggle); return; }
             const messageButton = event.target.closest('[data-message-farmer]');
             if (messageButton) {
                 window.location.assign(`chat.html?farmerId=${encodeURIComponent(messageButton.dataset.messageFarmer)}&listingId=${encodeURIComponent(messageButton.dataset.messageListing)}`);
@@ -540,14 +583,17 @@
             if (!addId && !buyId) return;
             try {
                 const id = addId || buyId;
-                const { listing, quantity } = chosenQuantity(id);
-                if (addId) addToCart(id);
+                const card = event.target.closest('.product-card');
+                const { listing, quantity } = chosenQuantity(id, card);
+                if (addId) addToCart(id, card);
                 else beginCheckout([{ productId: listing.id, quantity }], 'single');
             } catch (error) {
                 marketNotice.textContent = error.message || 'Could not add that item.';
                 marketNotice.hidden = false;
             }
-        });
+        }
+        document.getElementById('productGrid').addEventListener('click', handleProductCardClick);
+        document.getElementById('wishlistGrid').addEventListener('click', handleProductCardClick);
         const cartMenu = document.getElementById('cartMenu');
         const cartToggle = document.getElementById('cartToggle');
         const cartPanel = document.getElementById('cartPanel');
@@ -712,12 +758,14 @@
         }
         (async () => {
             try {
-                const [listingResult, orderResult] = await Promise.all([
+                const [listingResult, orderResult, wishlistResult] = await Promise.all([
                     apiRequest('/api/listings'),
-                    apiRequest('/api/orders')
+                    apiRequest('/api/orders'),
+                    apiRequest('/api/wishlist')
                 ]);
                 writeArray('kituiFarmListings', listingResult.listings);
                 writeArray('kituiFarmOrders', orderResult.orders);
+                wishlistIds = new Set((wishlistResult.listingIds || []).map(String));
                 render();
             } catch (error) {
                 marketNotice.textContent = error.message || 'Could not load marketplace data from the server.';
