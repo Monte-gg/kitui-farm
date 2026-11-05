@@ -1843,7 +1843,26 @@ function createApp(options = {}) {
                     [salt.toString('hex'), passwordHash.toString('hex'), user.id]);
                 await store.run('DELETE FROM sessions WHERE user_id = ?', [user.id]);
             });
-            res.json({ message: 'Password changed. Sign in with your new password.' });
+            let confirmationEmailSent = false;
+            try {
+                const account = await store.get('SELECT name, email FROM users WHERE id = ?', [user.id]);
+                await sendGmailMessage({
+                    email: account.email,
+                    subject: 'Your KITUI FARM password was changed',
+                    body: `Hello ${account.name},\n\nThe password for your KITUI FARM account was changed successfully. You can now sign in with your new password.\n\nIf you did not make this change, contact KITUI FARM customer service immediately at 0114583373.\n\nKITUI FARM`
+                });
+                confirmationEmailSent = true;
+            } catch (emailError) {
+                console.error('[password-reset] Confirmation email delivery failed', {
+                    status: Number.isInteger(emailError.status) ? emailError.status : 502
+                });
+            }
+            res.json({
+                message: confirmationEmailSent
+                    ? 'Password changed. A confirmation email was sent. Sign in with your new password.'
+                    : 'Password changed. Sign in with your new password; we could not send the confirmation email.',
+                confirmationEmailSent
+            });
         } catch (error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
             next(error);
