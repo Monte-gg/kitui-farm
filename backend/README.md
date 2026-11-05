@@ -25,7 +25,8 @@ All protected routes use the HTTP-only `kitui_farm_session` cookie created by si
 | `POST` | `/api/auth/login` | Sign in with email or Kenyan phone |
 | `POST` | `/api/auth/logout` | Revoke the current session |
 | `GET` | `/api/auth/me` | Read the signed-in account |
-| `POST` | `/api/auth/password-reset` | Reports that email delivery is not configured |
+| `POST` | `/api/auth/password-reset` | Email a one-time password reset code when the account exists |
+| `POST` | `/api/auth/password-reset/confirm` | Verify the reset code, set a new password, and revoke existing sessions |
 | `GET`, `PATCH` | `/api/profile` | Read/update profile |
 | `GET`, `PUT` | `/api/settings` | Read/save appearance and delete settings |
 | `GET` | `/api/wallet` | Read wallet balance, transactions, and top-up requests |
@@ -39,7 +40,7 @@ All protected routes use the HTTP-only `kitui_farm_session` cookie created by si
 | `PATCH` | `/api/orders/:id/status` | Buyer cancellation and farmer fulfillment updates |
 | `DELETE` | `/api/orders/:id` | Hide an order and restock eligible cancellations |
 
-M-PESA, Airtel Money, and bank choices at checkout remain demo-only. Wallet payments debit a KES balance saved in the database. Customers request manual top-ups with their M-PESA receipt; an authorized administrator must verify the receipt before crediting the wallet. No mobile-money payment is initiated by the website. Signup verification uses the Gmail API over HTTPS; password reset remains unavailable until its email flow is implemented.
+M-PESA, Airtel Money, and bank choices at checkout remain demo-only. Wallet payments debit a KES balance saved in the database. Customers request manual top-ups with their M-PESA receipt; an authorized administrator must verify the receipt before crediting the wallet. No mobile-money payment is initiated by the website. Signup verification, welcome email, and password reset codes use the Gmail API over HTTPS. Reset codes expire after 10 minutes and are limited to five attempts; successful resets revoke existing sessions.
 
 Accounts previously stored only in browser local storage are not imported automatically. Create a new account through the server-backed sign-up page; passwords and legacy browser hashes are not transferred.
 

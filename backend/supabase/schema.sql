@@ -53,6 +53,15 @@ create table if not exists pending_signups (
 
 create index if not exists idx_pending_signups_expiry on pending_signups (expires_at);
 
+create table if not exists password_reset_codes (
+    user_id text primary key references users (id) on delete cascade,
+    code_salt text not null,
+    code_hash text not null,
+    attempts integer not null default 0,
+    expires_at bigint not null,
+    created_at text not null
+);
+
 create table if not exists listings (
     id text primary key,
     farmer_id text not null,
@@ -153,6 +162,7 @@ create table if not exists wallet_admins (
 alter table users enable row level security;
 alter table sessions enable row level security;
 alter table pending_signups enable row level security;
+alter table password_reset_codes enable row level security;
 alter table listings enable row level security;
 alter table checkout_requests enable row level security;
 alter table orders enable row level security;

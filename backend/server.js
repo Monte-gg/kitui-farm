@@ -60,6 +60,14 @@ const SQLITE_SCHEMA = `
         expires_at INTEGER NOT NULL,
         created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS password_reset_codes (
+        user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        code_salt TEXT NOT NULL,
+        code_hash TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        expires_at INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS listings (
         id TEXT PRIMARY KEY, farmer_id TEXT NOT NULL, seller_name TEXT NOT NULL, name TEXT NOT NULL,
         category TEXT NOT NULL, quantity INTEGER NOT NULL CHECK (quantity >= 0),
@@ -258,6 +266,14 @@ function createPostgresStore(connectionString, options = {}) {
                 expires_at bigint not null,
                 created_at text not null
             )`,
+                `CREATE TABLE IF NOT EXISTS password_reset_codes (
+                user_id text primary key references users(id) on delete cascade,
+                code_salt text not null,
+                code_hash text not null,
+                attempts integer not null default 0,
+                expires_at bigint not null,
+                created_at text not null
+            )`,
                 `CREATE TABLE IF NOT EXISTS wallet_accounts (
                 user_id text primary key references users(id) on delete cascade,
                 balance_cents integer not null default 0 check (balance_cents >= 0),
@@ -315,6 +331,7 @@ function createPostgresStore(connectionString, options = {}) {
                 'ALTER TABLE wallet_topup_requests ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE wallet_admins ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE pending_signups ENABLE ROW LEVEL SECURITY',
+                'ALTER TABLE password_reset_codes ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE chat_conversations ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE wishlist_items ENABLE ROW LEVEL SECURITY'
@@ -417,7 +434,7 @@ async function sendGmailMessage({ email, subject, body }) {
     const oauthClientSecret = (process.env.GMAIL_OAUTH_CLIENT_SECRET || '').trim();
     const oauthRefreshToken = (process.env.GMAIL_OAUTH_REFRESH_TOKEN || '').trim();
     if (!emailIsValid(gmailUser) || !oauthClientId || !oauthClientSecret || !oauthRefreshToken) {
-        const error = new Error('Email verification is not configured yet. Add the Gmail API OAuth settings in Render, then try again.');
+        const error = new Error('Email delivery is not configured yet. Add the Gmail API OAuth settings in Render, then try again.');
         error.status = 503;
         throw error;
     }
@@ -604,6 +621,7 @@ function createApp(options = {}) {
     const attempts = new Map();
     const adminAttempts = new Map();
     const signupAttempts = new Map();
+    const passwordResetAttempts = new Map();
     const secureCookie = process.env.NODE_ENV === 'production' ? '; Secure' : '';
 
     app.disable('x-powered-by');
@@ -1732,10 +1750,104 @@ function createApp(options = {}) {
         }
     });
 
-    app.post('/api/auth/password-reset', (req, res) => {
+    app.post('/api/auth/password-reset', async (req, res, next) => {
         const email = text(req.body?.email, 254).toLowerCase();
         if (!emailIsValid(email)) return res.status(400).json({ error: 'Enter a valid @gmail.com address.' });
-        res.status(501).json({ error: 'Password reset email delivery is not configured for this local MVP.' });
+        const now = Date.now();
+        const attempt = passwordResetAttempts.get(req.ip) || { count: 0, resetAt: now + 15 * 60 * 1000 };
+        if (attempt.resetAt <= now) { attempt.count = 0; attempt.resetAt = now + 15 * 60 * 1000; }
+        if (attempt.count >= 5) return res.status(429).json({ error: 'Too many reset requests. Try again in 15 minutes.' });
+        attempt.count++;
+        passwordResetAttempts.set(req.ip, attempt);
+        try {
+            await store.run('DELETE FROM password_reset_codes WHERE expires_at <= ?', [now]);
+            const user = await store.get('SELECT id, email, name FROM users WHERE email = ?', [email]);
+            if (user) {
+                const existingCode = await store.get('SELECT created_at FROM password_reset_codes WHERE user_id = ?', [user.id]);
+                const sentAt = existingCode ? Date.parse(existingCode.created_at) : 0;
+                if (!existingCode || !Number.isFinite(sentAt) || now - sentAt >= 60000) {
+                    const code = crypto.randomInt(0, 1000000).toString().padStart(6, '0');
+                    const salt = crypto.randomBytes(16);
+                    const codeHash = crypto.scryptSync(code, salt, 64,
+                        { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 }).toString('hex');
+                    const createdAt = new Date(now).toISOString();
+                    await store.run(`
+                        INSERT INTO password_reset_codes (user_id, code_salt, code_hash, attempts, expires_at, created_at)
+                        VALUES (?, ?, ?, 0, ?, ?)
+                        ON CONFLICT (user_id) DO UPDATE SET
+                            code_salt = excluded.code_salt,
+                            code_hash = excluded.code_hash,
+                            attempts = 0,
+                            expires_at = excluded.expires_at,
+                            created_at = excluded.created_at
+                    `, [user.id, salt.toString('hex'), codeHash, now + 10 * 60 * 1000, createdAt]);
+                    try {
+                        await sendGmailMessage({
+                            email: user.email,
+                            subject: 'Your KITUI FARM password reset code',
+                            body: `Hello ${user.name},\n\nYour KITUI FARM password reset code is: ${code}\n\nEnter this code on the password reset page to choose a new password. The code expires in 10 minutes and can only be used once. If you did not request this, ignore this email.\n\nKITUI FARM`
+                        });
+                    } catch (error) {
+                        await store.run('DELETE FROM password_reset_codes WHERE user_id = ?', [user.id]);
+                        console.error('[password-reset] Code delivery failed', {
+                            status: Number.isInteger(error.status) ? error.status : 502
+                        });
+                    }
+                }
+            }
+            res.status(202).json({ message: 'If an account exists for that email, a reset code has been sent.' });
+        } catch (error) {
+            next(error);
+        }
+    });
+
+    app.post('/api/auth/password-reset/confirm', async (req, res, next) => {
+        const email = text(req.body?.email, 254).toLowerCase();
+        const code = text(req.body?.code, 7);
+        const password = req.body?.password;
+        if (!emailIsValid(email)) return res.status(400).json({ error: 'Enter a valid @gmail.com address.' });
+        if (!/^\d{6}$/.test(code)) return res.status(400).json({ error: 'Enter the 6-digit code from your email.' });
+        if (typeof password !== 'string' || password.length < 8 || password.length > 128) {
+            return res.status(400).json({ error: 'Your new password must be 8 to 128 characters.' });
+        }
+        try {
+            const user = await store.get('SELECT id FROM users WHERE email = ?', [email]);
+            if (!user) return res.status(400).json({ error: 'The code is invalid or expired. Request a new code and try again.' });
+            const reset = await store.get('SELECT * FROM password_reset_codes WHERE user_id = ?', [user.id]);
+            const now = Date.now();
+            if (!reset || reset.expires_at <= now) {
+                if (reset) await store.run('DELETE FROM password_reset_codes WHERE user_id = ?', [user.id]);
+                return res.status(400).json({ error: 'The code is invalid or expired. Request a new code and try again.' });
+            }
+            if (reset.attempts >= 5) {
+                await store.run('DELETE FROM password_reset_codes WHERE user_id = ?', [user.id]);
+                return res.status(400).json({ error: 'Too many incorrect attempts. Request a new reset code.' });
+            }
+            const actualCodeHash = crypto.scryptSync(code, Buffer.from(reset.code_salt, 'hex'), 64,
+                { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+            const expectedCodeHash = Buffer.from(reset.code_hash, 'hex');
+            if (actualCodeHash.length !== expectedCodeHash.length || !crypto.timingSafeEqual(actualCodeHash, expectedCodeHash)) {
+                await store.run('UPDATE password_reset_codes SET attempts = attempts + 1 WHERE user_id = ? AND attempts < 5', [user.id]);
+                return res.status(400).json({ error: 'The code is invalid or expired. Request a new code and try again.' });
+            }
+            const salt = crypto.randomBytes(16);
+            const passwordHash = crypto.scryptSync(password, salt, 64,
+                { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+            await store.transaction(async () => {
+                const consumed = await store.run(`
+                    DELETE FROM password_reset_codes
+                    WHERE user_id = ? AND code_hash = ? AND expires_at > ? AND attempts < 5
+                `, [user.id, reset.code_hash, Date.now()]);
+                if (!consumed.changes) throw walletError('The code is invalid or expired. Request a new code and try again.', 400);
+                await store.run('UPDATE users SET password_salt = ?, password_hash = ? WHERE id = ?',
+                    [salt.toString('hex'), passwordHash.toString('hex'), user.id]);
+                await store.run('DELETE FROM sessions WHERE user_id = ?', [user.id]);
+            });
+            res.json({ message: 'Password changed. Sign in with your new password.' });
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
     });
 
     app.get('/', (req, res) => res.sendFile(path.join(ROOT, 'login.html')));
