@@ -39,7 +39,7 @@ All protected routes use the HTTP-only `kitui_farm_session` cookie created by si
 | `PATCH` | `/api/orders/:id/status` | Buyer cancellation and farmer fulfillment updates |
 | `DELETE` | `/api/orders/:id` | Hide an order and restock eligible cancellations |
 
-M-PESA, Airtel Money, and bank choices at checkout remain demo-only. Wallet payments debit a KES balance saved in the database. Customers request manual top-ups with their M-PESA receipt; an authorized administrator must verify the receipt before crediting the wallet. No mobile-money payment is initiated by the website. Signup verification uses Resend; password reset remains unavailable until its email flow is implemented.
+M-PESA, Airtel Money, and bank choices at checkout remain demo-only. Wallet payments debit a KES balance saved in the database. Customers request manual top-ups with their M-PESA receipt; an authorized administrator must verify the receipt before crediting the wallet. No mobile-money payment is initiated by the website. Signup verification uses Gmail SMTP; password reset remains unavailable until its email flow is implemented.
 
 Accounts previously stored only in browser local storage are not imported automatically. Create a new account through the server-backed sign-up page; passwords and legacy browser hashes are not transferred.
 
@@ -83,9 +83,9 @@ Free Supabase projects pause after a week without activity, which takes the shop
 
 1. In Render choose New, then Blueprint, then this GitHub repo.
 2. When prompted for `DATABASE_URL`, paste the Supabase URI.
-3. In the KITUI FARM service’s Environment settings, add `RESEND_API_KEY` from the Resend dashboard and `RESEND_FROM_EMAIL` using an address on a domain verified in Resend (for example, `KITUI FARM <noreply@your-verified-domain.com>`). Keep the API key secret; do not put it in website code.
-4. Set `PUBLIC_APP_URL` to `https://kitui-farm.onrender.com` (or the chosen custom HTTPS domain), then deploy/restart the service.
-5. `https://<service>.onrender.com` serves both the pages and API from one origin. New signups receive a one-time email link; the account is created only after the user confirms it. Links expire after 24 hours.
+3. Turn on 2-Step Verification for the Gmail sender account, then create an App Password in Google Account security settings. App Passwords require 2-Step Verification.
+4. In the KITUI FARM service’s Environment settings, add `GMAIL_USER` (the sender’s Gmail address), `GMAIL_APP_PASSWORD` (the Google App Password), and `PUBLIC_APP_URL=https://kitui-farm.onrender.com`. Do not use your normal Gmail password or put the app password in website code.
+5. Deploy/restart the service. New signups receive a one-time email link; the account is created only after the user confirms it. Links expire after 24 hours.
 
 The blueprint sets `HOST=0.0.0.0` and `NODE_ENV=production`; with one proxy hop trusted, the same-origin check and `Secure` cookies keep working behind HTTPS. Locally the server still binds to `127.0.0.1`.
 

@@ -6,6 +6,7 @@ const path = require('node:path');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const { DatabaseSync } = require('node:sqlite');
 const express = require('express');
+const nodemailer = require('nodemailer');
 
 const ROOT = path.resolve(__dirname, '..');
 const COOKIE = 'kitui_farm_session';
@@ -412,10 +413,10 @@ function appBaseUrl(req) {
 }
 
 async function sendSignupVerification({ email, name, token, baseUrl }) {
-    const apiKey = (process.env.RESEND_API_KEY || '').trim();
-    const from = (process.env.RESEND_FROM_EMAIL || '').trim();
-    if (!apiKey || !from) {
-        const error = new Error('Email verification is not configured yet. Add RESEND_API_KEY and RESEND_FROM_EMAIL in Render, then try again.');
+    const gmailUser = (process.env.GMAIL_USER || '').trim().toLowerCase();
+    const appPassword = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s/g, '');
+    if (!emailIsValid(gmailUser) || !appPassword) {
+        const error = new Error('Email verification is not configured yet. Add your GMAIL_USER and GMAIL_APP_PASSWORD in Render, then try again.');
         error.status = 503;
         throw error;
     }
@@ -426,27 +427,23 @@ async function sendSignupVerification({ email, name, token, baseUrl }) {
         throw error;
     }
     const verifyUrl = `${configuredUrl}/email-verify.html?token=${encodeURIComponent(token)}`;
-    let response;
+    const transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com', port: 465, secure: true,
+        auth: { user: gmailUser, pass: appPassword },
+        connectionTimeout: 15000, greetingTimeout: 10000, socketTimeout: 20000
+    });
     try {
-        response = await fetch('https://api.resend.com/emails', {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                from, to: [email], subject: 'Verify your KITUI FARM email',
-                text: `Hello ${name},\n\nConfirm this Gmail address to finish creating your KITUI FARM account. This link expires in 24 hours.\n\n${verifyUrl}\n\nIf you did not request this account, you can ignore this email.`
-            }),
-            signal: AbortSignal.timeout(15000)
+        await transporter.sendMail({
+            from: { name: 'KITUI FARM', address: gmailUser },
+            to: email,
+            subject: 'Verify your KITUI FARM email',
+            text: `Hello ${name},\n\nConfirm this Gmail address to finish creating your KITUI FARM account. This link expires in 24 hours.\n\n${verifyUrl}\n\nIf you did not request this account, you can ignore this email.`
         });
     } catch {
-        const error = new Error('We could not reach the email service. Please try again shortly.');
+        const error = new Error('Gmail could not send the verification email. Check GMAIL_USER and the App Password in Render.');
         error.status = 502;
         throw error;
-    }
-    if (!response.ok) {
-        const error = new Error('The verification email could not be sent. Check your Resend sender and API key in Render.');
-        error.status = response.status === 429 ? 429 : 502;
-        throw error;
-    }
+    } finally { transporter.close(); }
 }
 
 function normalizedPhone(value) {
