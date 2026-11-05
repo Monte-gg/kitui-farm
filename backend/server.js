@@ -481,7 +481,7 @@ function createApp(options = {}) {
             'X-Content-Type-Options': 'nosniff',
             'X-Frame-Options': 'DENY',
             'Referrer-Policy': 'same-origin',
-            'Permissions-Policy': 'camera=(), microphone=(), geolocation=()'
+            'Permissions-Policy': 'camera=(), microphone=(), geolocation=(self)'
         });
         if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
         if (req.path.startsWith('/api/') && req.headers.origin) {
