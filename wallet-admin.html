@@ -1,81 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <script src="api-base.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#4a8c3f">
-    <title>Wallet Top-up Approvals - KITUI FARM</title>
-    <style>
-        :root { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; --green:#4a8c3f; --dark:#2d5a27; --ink:#263126; --muted:#657064; --line:#e3e9df; --bg:#f5f7f2; --surface:#fff; --danger:#b42318; }
-        * { box-sizing:border-box; }
-        body { margin:0; background:var(--bg); color:var(--ink); line-height:1.55; }
-        .topbar { background:var(--surface); border-bottom:1px solid var(--line); }
-        .topbar-inner,main { width:min(900px,calc(100% - 36px)); margin:auto; }
-        .topbar-inner { min-height:68px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
-        .brand { color:var(--dark); font-weight:750; text-decoration:none; }
-        .button { display:inline-flex; align-items:center; justify-content:center; min-height:38px; padding:7px 12px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); font:inherit; font-weight:650; text-decoration:none; cursor:pointer; }
-        .approve { border-color:var(--green); background:var(--green); color:#fff; } .reject { color:var(--danger); }
-        main { padding:35px 0 60px; }
-        h1 { margin:0; color:var(--dark); font-size:clamp(28px,5vw,36px); }
-        .intro,.message { color:var(--muted); }
-        .notice { margin:18px 0; padding:13px 16px; border:1px solid #e7d8a6; border-radius:10px; background:#fff8df; color:#554515; }
-        .request { display:grid; grid-template-columns:1fr auto; gap:16px; align-items:center; margin-top:12px; padding:19px; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
-        .request h2 { margin:0 0 4px; color:var(--dark); font-size:18px; }
-        .request p { margin:2px 0; color:var(--muted); font-size:14px; overflow-wrap:anywhere; }
-        .request strong { color:var(--ink); }
-        .actions { display:flex; flex-wrap:wrap; gap:8px; }
-        @media(max-width:640px) { .topbar-inner,main { width:calc(100% - 28px); } .request { grid-template-columns:1fr; } .actions .button { flex:1; } }
-    </style>
-    <script src="site-only.js" defer></script>
+    <meta http-equiv="refresh" content="0; url=admin.html#topup-approvals">
+    <title>Opening Admin Console - KITUI FARM</title>
 </head>
 <body>
-    <header class="topbar"><div class="topbar-inner"><a class="brand" href="wallet.html">🌱 KITUI FARM · Wallet Admin</a><a class="button" href="wallet.html">← Back to wallet</a></div></header>
-    <main>
-        <h1>Top-up approvals</h1>
-        <p class="intro">Check the payment receipt outside the app before approving a wallet credit.</p>
-        <p class="notice">Approving adds real value to a customer’s wallet and cannot be undone here. Approve only after confirming the receipt and amount.</p>
-        <p class="message" id="status" role="status" aria-live="polite">Loading requests…</p>
-        <section id="requestList" aria-label="Pending top-up requests"></section>
-    </main>
-    <script>
-        async function apiRequest(url, options = {}) {
-            const response = await fetch(url, { ...options, headers: { ...(options.body ? { 'Content-Type':'application/json' } : {}), ...options.headers } });
-            const data = response.status === 204 ? null : await response.json();
-            if (!response.ok) throw new Error(data?.error || 'The server request failed.');
-            return data;
-        }
-        function escapeHtml(value) { return String(value).replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char])); }
-        function money(value) { return `KES ${Number(value).toLocaleString('en-KE', { minimumFractionDigits:2, maximumFractionDigits:2 })}`; }
-        async function loadRequests() {
-            const data = await apiRequest('/api/wallet/admin/topups');
-            const list = document.getElementById('requestList');
-            document.getElementById('status').textContent = data.requests.length ? `${data.requests.length} pending request${data.requests.length === 1 ? '' : 's'}.` : 'No pending top-up requests.';
-            list.innerHTML = data.requests.map(item => `
-                <article class="request"><div><h2>${escapeHtml(item.name)} · ${money(item.amount)}</h2>
-                <p>${escapeHtml(item.email)} · ${escapeHtml(item.phone)}</p>
-                <p>Payment reference: <strong>${escapeHtml(item.paymentReference)}</strong></p>
-                <p>Submitted ${new Date(item.createdAt).toLocaleString('en-KE')}</p></div>
-                <div class="actions"><button class="button approve" data-review="approve" data-id="${escapeHtml(item.id)}">Verify &amp; approve</button>
-                <button class="button reject" data-review="reject" data-id="${escapeHtml(item.id)}">Reject</button></div></article>`).join('');
-        }
-        document.getElementById('requestList').addEventListener('click', async event => {
-            const button = event.target.closest('button[data-review]'); if (!button) return;
-            const approval = button.dataset.review === 'approve';
-            const prompt = approval ? 'Confirm you verified this payment receipt and want to credit the wallet?' : 'Reject this top-up request?';
-            if (!window.confirm(prompt)) return;
-            button.disabled = true;
-            try {
-                await apiRequest(`/api/wallet/admin/topups/${encodeURIComponent(button.dataset.id)}/review`, { method:'POST', body:JSON.stringify({ decision:button.dataset.review }) });
-                document.getElementById('status').textContent = approval ? 'Verified payment and credited the wallet.' : 'Top-up request rejected.';
-                await loadRequests();
-            } catch (error) { document.getElementById('status').textContent = error.message; button.disabled = false; }
-        });
-        loadRequests().catch(error => {
-            document.getElementById('status').textContent = error.message.includes('administrator')
-                ? 'This page is restricted to the authorized wallet administrator account.' : error.message;
-            document.getElementById('status').style.color = 'var(--danger)';
-        });
-    </script>
+    <p>Opening the <a href="admin.html#topup-approvals">KITUI FARM Admin Console</a>…</p>
 </body>
 </html>

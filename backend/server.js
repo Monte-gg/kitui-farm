@@ -21,7 +21,7 @@ const PAYMENT_METHODS = new Set([
 const PAGES = [
     'about-us.html', 'buyer-dashboard.html', 'customer-service.html', 'farmer-dashboard.html',
     'forgot-password.html', 'index.html', 'login.html', 'payment.html', 'profile.html',
-    'settings.html', 'signup.html', 'wallet.html', 'wallet-admin.html'
+    'settings.html', 'signup.html', 'wallet.html', 'wallet-admin.html', 'admin.html'
 ];
 
 // ---------------------------------------------------------------------------

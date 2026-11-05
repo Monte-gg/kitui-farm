@@ -57,7 +57,7 @@
     <script src="site-only.js" defer></script>
 </head>
 <body>
-    <header class="topbar"><div class="topbar-inner"><a class="brand" href="buyer-dashboard.html">🌱 KITUI FARM</a><nav class="nav" aria-label="Wallet navigation"><a class="button" href="buyer-dashboard.html">← Marketplace</a><a class="button" href="customer-service.html">Customer service</a><a class="button primary" id="adminLink" href="wallet-admin.html" hidden>Top-up approvals</a></nav></div></header>
+    <header class="topbar"><div class="topbar-inner"><a class="brand" href="buyer-dashboard.html">🌱 KITUI FARM</a><nav class="nav" aria-label="Wallet navigation"><a class="button" href="buyer-dashboard.html">← Marketplace</a><a class="button" href="customer-service.html">Customer service</a></nav></div></header>
     <main>
         <h1>My wallet</h1>
         <p class="intro">Use your wallet balance to pay for marketplace orders.</p>
@@ -89,7 +89,6 @@
         async function loadWallet() {
             const data = await apiRequest('/api/wallet');
             document.getElementById('walletBalance').textContent = money(data.balance);
-            document.getElementById('adminLink').hidden = !data.isAdmin;
             const transactions = document.getElementById('transactions');
             transactions.innerHTML = data.transactions.length ? data.transactions.map(item => `
                 <div class="entry"><span>${escapeHtml(item.description)}<small>${new Date(item.createdAt).toLocaleString('en-KE')}</small></span>

@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script src="api-base.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#234d27">
+    <title>Admin Console - KITUI FARM</title>
+    <style>
+        :root { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; --green:#4a8c3f; --dark:#234d27; --ink:#263126; --muted:#657064; --line:#e3e9df; --bg:#f5f7f2; --surface:#fff; --danger:#b42318; }
+        * { box-sizing:border-box; }
+        body { margin:0; background:var(--bg); color:var(--ink); line-height:1.55; }
+        .topbar { background:var(--surface); border-bottom:1px solid var(--line); }
+        .topbar-inner,main { width:min(1060px,calc(100% - 36px)); margin:auto; }
+        .topbar-inner { min-height:68px; display:flex; align-items:center; justify-content:space-between; gap:14px; }
+        .brand { color:var(--dark); font-weight:800; text-decoration:none; }
+        .nav { display:flex; gap:8px; flex-wrap:wrap; }
+        .button { display:inline-flex; align-items:center; justify-content:center; min-height:40px; padding:8px 13px; border:1px solid var(--line); border-radius:9px; background:var(--surface); color:var(--ink); font:inherit; font-weight:650; text-decoration:none; cursor:pointer; }
+        .button.primary,.approve { border-color:var(--green); background:var(--green); color:#fff; }
+        .reject { color:var(--danger); }
+        main { padding:34px 0 64px; }
+        .eyebrow { margin:0 0 5px; color:var(--green); font-weight:750; letter-spacing:.08em; text-transform:uppercase; }
+        h1 { margin:0; color:var(--dark); font-size:clamp(30px,5vw,42px); line-height:1.15; }
+        .intro,.muted { color:var(--muted); }
+        .intro { margin:10px 0 24px; }
+        .notice { margin:20px 0; padding:14px 16px; border:1px solid #e7d8a6; border-radius:11px; background:#fff8df; color:#554515; }
+        .panel { margin-top:18px; padding:22px; border:1px solid var(--line); border-radius:16px; background:var(--surface); box-shadow:0 8px 28px #20351a0a; }
+        .panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+        h2 { margin:0; color:var(--dark); font-size:23px; }
+        .count { min-width:34px; padding:3px 10px; border-radius:99px; background:#eaf3e6; color:var(--dark); text-align:center; font-weight:750; }
+        .status { margin:14px 0 0; color:var(--muted); }
+        .status.error { color:var(--danger); }
+        .request { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:18px; align-items:center; margin-top:12px; padding:17px; border:1px solid var(--line); border-radius:12px; }
+        .request h3 { margin:0 0 4px; color:var(--dark); font-size:18px; }
+        .request p { margin:2px 0; color:var(--muted); font-size:14px; overflow-wrap:anywhere; }
+        .request strong { color:var(--ink); }
+        .actions { display:flex; flex-wrap:wrap; gap:8px; }
+        .links { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-top:18px; }
+        .link-card { display:block; padding:15px; border:1px solid var(--line); border-radius:12px; color:var(--ink); text-decoration:none; }
+        .link-card:hover { border-color:#9fc396; }
+        .link-card strong { display:block; color:var(--dark); font-size:16px; }
+        .link-card span { color:var(--muted); font-size:14px; }
+        @media(max-width:680px) { .topbar-inner,main { width:calc(100% - 28px); } .topbar-inner { padding:10px 0; align-items:flex-start; flex-direction:column; } .request { grid-template-columns:1fr; } .actions .button { flex:1; } .panel { padding:17px; } }
+    </style>
+    <script src="site-only.js" defer></script>
+</head>
+<body>
+    <header class="topbar"><div class="topbar-inner"><a class="brand" href="admin.html">🌱 KITUI FARM · Admin</a><nav class="nav" aria-label="Admin navigation"><a class="button" href="buyer-dashboard.html">Website</a><a class="button" href="wallet.html">Customer wallet</a><button class="button" id="logoutButton" type="button">Log out</button></nav></div></header>
+    <main>
+        <p class="eyebrow">Control center</p>
+        <h1>Admin console</h1>
+        <p class="intro">Manage the current website administration tasks from one place.</p>
+
+        <section class="panel" id="topup-approvals" aria-labelledby="approvalHeading">
+            <div class="panel-head"><div><h2 id="approvalHeading">Wallet top-up approvals</h2><p class="muted">Verify the customer’s payment outside the website before approving a top-up.</p></div><span class="count" id="pendingCount" aria-label="Pending requests">—</span></div>
+            <p class="notice">Approving credits real funds to a customer’s wallet. Confirm the receipt and amount before you approve.</p>
+            <p class="status" id="status" role="status" aria-live="polite">Checking admin access…</p>
+            <div id="requestList" aria-label="Pending top-up requests"></div>
+        </section>
+
+        <section class="panel" aria-labelledby="quickLinksHeading">
+            <h2 id="quickLinksHeading">Website shortcuts</h2>
+            <div class="links">
+                <a class="link-card" href="wallet.html"><strong>Customer wallet</strong><span>View your wallet and wallet activity.</span></a>
+                <a class="link-card" href="buyer-dashboard.html"><strong>Marketplace</strong><span>Open the buyer-facing website.</span></a>
+                <a class="link-card" href="farmer-dashboard.html"><strong>Farmer dashboard</strong><span>Open the farmer-facing website.</span></a>
+                <a class="link-card" href="customer-service.html"><strong>Customer service</strong><span>Review the support contact page.</span></a>
+            </div>
+        </section>
+    </main>
+    <script>
+        async function apiRequest(url, options = {}) {
+            const response = await fetch(url, { ...options, credentials:'same-origin', headers: { ...(options.body ? { 'Content-Type':'application/json' } : {}), ...options.headers } });
+            let data = null;
+            try { data = response.status === 204 ? null : await response.json(); } catch {}
+            if (!response.ok) { const error = new Error(data?.error || 'The server request failed.'); error.status = response.status; throw error; }
+            return data;
+        }
+        function escapeHtml(value) { return String(value).replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char])); }
+        function money(value) { return `KES ${Number(value).toLocaleString('en-KE', { minimumFractionDigits:2, maximumFractionDigits:2 })}`; }
+        function setStatus(message, isError = false) { const node = document.getElementById('status'); node.textContent = message; node.classList.toggle('error', isError); }
+        async function loadRequests() {
+            const data = await apiRequest('/api/wallet/admin/topups');
+            const list = document.getElementById('requestList');
+            document.getElementById('pendingCount').textContent = data.requests.length;
+            setStatus(data.requests.length ? `${data.requests.length} request${data.requests.length === 1 ? '' : 's'} need review.` : 'You’re signed in as an administrator. There are no pending top-up requests.');
+            list.innerHTML = data.requests.map(item => `
+                <article class="request"><div><h3>${escapeHtml(item.name)} · ${money(item.amount)}</h3>
+                <p>${escapeHtml(item.email)} · ${escapeHtml(item.phone)}</p>
+                <p>Payment reference: <strong>${escapeHtml(item.paymentReference)}</strong></p>
+                <p>Submitted ${new Date(item.createdAt).toLocaleString('en-KE')}</p></div>
+                <div class="actions"><button class="button approve" data-review="approve" data-id="${escapeHtml(item.id)}">Verify &amp; approve</button>
+                <button class="button reject" data-review="reject" data-id="${escapeHtml(item.id)}">Reject</button></div></article>`).join('');
+        }
+        document.getElementById('logoutButton').addEventListener('click', async () => {
+            try { await apiRequest('/api/auth/logout', { method:'POST' }); }
+            catch (error) { setStatus(error.message || 'Could not end your session.', true); return; }
+            localStorage.removeItem('kituiFarmSession');
+            sessionStorage.removeItem('kituiFarmSession');
+            localStorage.removeItem('kituiFarmToken');
+            window.location.replace('login.html');
+        });
+        document.getElementById('requestList').addEventListener('click', async event => {
+            const button = event.target.closest('button[data-review]'); if (!button) return;
+            const approval = button.dataset.review === 'approve';
+            if (!window.confirm(approval ? 'Confirm you verified this payment receipt and want to credit the wallet?' : 'Reject this top-up request?')) return;
+            button.disabled = true;
+            try {
+                await apiRequest(`/api/wallet/admin/topups/${encodeURIComponent(button.dataset.id)}/review`, { method:'POST', body:JSON.stringify({ decision:button.dataset.review }) });
+                setStatus(approval ? 'Payment verified and wallet credited.' : 'Top-up request rejected.');
+                await loadRequests();
+            } catch (error) { setStatus(error.message, true); button.disabled = false; }
+        });
+        loadRequests().catch(error => {
+            document.getElementById('pendingCount').textContent = '—';
+            if (error.status === 401) setStatus('Sign in to the authorized admin account to use this page. Open the admin sign-in link below.', true);
+            else if (error.status === 403) setStatus('This account does not have admin access. Sign in with the account authorized for wallet approvals.', true);
+            else setStatus(error.message, true);
+            if (error.status === 401 || error.status === 403) {
+                const link = document.createElement('a'); link.className = 'button primary'; link.href = 'login.html?next=admin.html'; link.textContent = 'Admin sign in';
+                document.getElementById('requestList').replaceChildren(link);
+            }
+        });
+    </script>
+</body>
+</html>
