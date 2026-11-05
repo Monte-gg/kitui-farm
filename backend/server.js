@@ -1027,6 +1027,10 @@ function createApp(options = {}) {
     });
 
     app.get('/', (req, res) => res.sendFile(path.join(ROOT, 'login.html')));
+    app.get('/wallet.html', (req, res) => {
+        res.setHeader('Cache-Control', 'no-store');
+        res.sendFile(path.join(ROOT, 'wallet.html'));
+    });
     for (const page of PAGES) app.get(`/${page}`, (req, res) => res.sendFile(path.join(ROOT, page)));
     app.get('/site-only.js', (req, res) => res.sendFile(path.join(ROOT, 'site-only.js')));
     app.get('/api-base.js', (req, res) => res.sendFile(path.join(ROOT, 'api-base.js')));

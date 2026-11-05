@@ -6,6 +6,12 @@ services:
     runtime: node
     plan: free
     rootDir: backend
+    buildFilter:
+      paths:
+        - backend/**
+        - "**/*.html"
+        - "**/*.js"
+        - render.yaml
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
