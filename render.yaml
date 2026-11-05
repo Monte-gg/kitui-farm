@@ -30,4 +30,4 @@ services:
       - key: GMAIL_APP_PASSWORD
         sync: false
       - key: PUBLIC_APP_URL
-        value: https://kitui-farm.onrender.com
+        value: https://monte-gg.github.io/kitui-farm
