@@ -76,7 +76,8 @@
         .brand-mark { display: grid; place-items: center; width: 42px; height: 42px; border-radius: 12px; background: var(--green-light); font-size: 23px; }
         .brand strong { display: block; color: var(--green-dark); font-size: 16px; }
         .brand small { display: block; margin-top: 3px; color: var(--muted); font-size: 12px; }
-        .header-actions { display: flex; align-items: center; gap: 12px; }
+        .header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; flex: 1; }
+        .search-box.header-search { width: clamp(190px, 34vw, 430px); flex: 0 1 430px; }
         .profile-chip { display: inline-flex; align-items: center; gap: 8px; min-width: 0; color: var(--ink); text-decoration: none; }
         .profile-chip:focus-visible { outline: 2px solid var(--green); outline-offset: 3px; border-radius: 24px; }
         .profile-chip-avatar { display: grid; place-items: center; width: 38px; height: 38px; flex: 0 0 38px; overflow: hidden; border: 1px solid var(--line); border-radius: 50%; background: var(--green-light); color: var(--green-dark); font-size: 13px; font-weight: 750; }
@@ -90,6 +91,18 @@
         .cart-menu { position: relative; }
         .cart-button { position: relative; min-width: 46px; min-height: 42px; padding: 9px 13px; font-size: 17px; }
         .cart-count { position: absolute; top: -7px; right: -7px; display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border: 2px solid white; border-radius: 50px; background: #e27b28; color: white; font-size: 10px; font-weight: 750; }
+        .more-menu { position: relative; flex: 0 0 auto; }
+        .more-toggle { width: 44px; height: 44px; padding: 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); font-size: 27px; line-height: 1; }
+        .more-toggle:hover { border-color: var(--green); color: var(--green-dark); }
+        .more-panel { position: absolute; z-index: 8; top: calc(100% + 9px); right: 0; width: min(270px, calc(100vw - 28px)); padding: 8px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: 0 12px 34px rgba(24,40,21,.18); }
+        .more-panel a, .more-panel button { display: flex; align-items: center; width: 100%; min-height: 42px; padding: 9px 11px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); text-align: left; text-decoration: none; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+        .more-panel a:hover, .more-panel button:hover { background: var(--green-light); color: var(--green-dark); }
+        .more-panel .menu-profile { gap: 10px; margin-bottom: 5px; border-bottom: 1px solid var(--line); border-radius: 8px 8px 0 0; padding-bottom: 12px; }
+        .more-panel .menu-profile-copy { min-width: 0; }
+        .more-panel .menu-profile-copy strong, .more-panel .menu-profile-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .more-panel .menu-profile-copy small { margin-top: 2px; color: var(--muted); font-size: 12px; font-weight: 400; }
+        .more-panel .menu-divider { height: 1px; margin: 5px 2px; background: var(--line); }
+        .more-panel button.menu-logout { color: var(--danger); }
         .page { padding: 30px 0 56px; }
         .hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 22px; margin-bottom: 22px; }
         h1, h2, p { margin-top: 0; }
@@ -169,11 +182,10 @@
         @media (max-width: 680px) {
             .topbar-inner, .page { width: min(100% - 28px, 1180px); }
             .topbar-inner { min-height: 70px; flex-wrap: wrap; padding: 10px 0; }
-            .profile-chip-avatar { width: 32px; height: 32px; flex-basis: 32px; }
-            .profile-chip-name { max-width: 90px; font-size: 12px; }
-            .header-actions { flex-wrap: wrap; justify-content: flex-end; }
+            .header-actions { width: 100%; flex: 1 1 100%; gap: 8px; }
+            .search-box.header-search { width: auto; min-width: 0; flex: 1 1 auto; }
+            .header-search button { padding: 9px 11px; }
             .hero { align-items: flex-start; flex-direction: column; }
-            .search-box { width: 100%; }
             .product-image { height: 145px; }
         }
         @media (max-width: 480px) {
@@ -183,7 +195,11 @@
             .brand strong { font-size: 14px; }
             .brand-mark { width: 38px; height: 38px; }
             .header-actions { gap: 7px; }
-            .header-actions .button.secondary { padding: 9px; font-size: 12px; }
+            .header-search { padding: 4px; }
+            .header-search input { padding: 8px; font-size: 13px; }
+            .header-search button { padding: 8px 9px; font-size: 12px; }
+            .cart-button { min-width: 43px; min-height: 40px; padding: 7px 11px; }
+            .more-toggle { width: 40px; height: 40px; }
         }
 </style>
     <script src="site-only.js" defer></script>
@@ -196,11 +212,10 @@
                 <span><strong>KITUI FARM</strong><small>Fresh from local farms</small></span>
             </div>
             <div class="header-actions">
-                <a class="profile-chip" href="profile.html" aria-label="View your profile"><span class="profile-chip-avatar" id="buyerAvatar"></span><span class="profile-chip-name" id="buyerName"></span></a>
-                <a class="button secondary" href="wallet.html">Wallet</a>
-                <a class="button secondary" href="settings.html">Settings</a>
-                <a class="button secondary" href="about-us.html">About</a>
-                <a class="button secondary" href="customer-service.html">Customer service</a>
+                <form class="search-box header-search" id="searchForm" role="search">
+                    <input id="searchInput" type="search" placeholder="Search crops, farmers, or locations..." aria-label="Search produce">
+                    <button class="button" type="submit">Search</button>
+                </form>
                 <div class="cart-menu" id="cartMenu">
                     <button class="button secondary cart-button" id="cartToggle" type="button" aria-label="Open shopping cart" aria-expanded="false" aria-controls="cartPanel">
                         🛒 <span class="cart-count" id="cartCount">0</span>
@@ -220,7 +235,18 @@
                         </div>
                     </aside>
                 </div>
-                <button class="button secondary" id="logoutButton" type="button">Log out</button>
+                <div class="more-menu" id="moreMenu">
+                    <button class="more-toggle" id="moreToggle" type="button" aria-label="Open more options" aria-haspopup="menu" aria-expanded="false" aria-controls="morePanel">⋮</button>
+                    <nav class="more-panel" id="morePanel" aria-label="More options" role="menu" hidden>
+                        <a class="menu-profile" href="profile.html" role="menuitem"><span class="profile-chip-avatar" id="buyerAvatar"></span><span class="menu-profile-copy"><strong id="buyerName"></strong><small>My profile</small></span></a>
+                        <a href="wallet.html" role="menuitem">Wallet</a>
+                        <a href="settings.html" role="menuitem">Settings</a>
+                        <a href="about-us.html" role="menuitem">About KITUI FARM</a>
+                        <a href="customer-service.html" role="menuitem">Customer service</a>
+                        <div class="menu-divider" role="separator"></div>
+                        <button class="menu-logout" id="logoutButton" type="button" role="menuitem">Log out</button>
+                    </nav>
+                </div>
             </div>
         </div>
     </header>
@@ -231,10 +257,6 @@
                 <p class="subheading">Discover fresh produce direct from Kitui farmers.</p>
                 <span class="location" id="buyerLocation">📍 Delivery area: Kitui County</span>
             </div>
-            <form class="search-box" id="searchForm" role="search">
-                <input id="searchInput" type="search" placeholder="Search crops, farmers, or locations..." aria-label="Search produce">
-                <button class="button" type="submit">Search</button>
-            </form>
         </section>
 
         <section aria-labelledby="marketTitle">
@@ -537,6 +559,43 @@
         });
         document.addEventListener('click', event => {
             if (!cartMenu.contains(event.target) && !cartPanel.hidden) setCartOpen(false);
+        });
+        const moreMenu = document.getElementById('moreMenu');
+        const moreToggle = document.getElementById('moreToggle');
+        const morePanel = document.getElementById('morePanel');
+        const setMoreOpen = open => {
+            morePanel.hidden = !open;
+            moreToggle.setAttribute('aria-expanded', String(open));
+            moreToggle.setAttribute('aria-label', open ? 'Close more options' : 'Open more options');
+        };
+        moreToggle.addEventListener('click', () => setMoreOpen(morePanel.hidden));
+        moreMenu.addEventListener('focusout', event => {
+            if (!moreMenu.contains(event.relatedTarget)) setMoreOpen(false);
+        });
+        moreMenu.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && !morePanel.hidden) {
+                setMoreOpen(false);
+                moreToggle.focus();
+                return;
+            }
+            if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+                const items = [...morePanel.querySelectorAll('[role="menuitem"]')];
+                if (!items.length) return;
+                event.preventDefault();
+                if (morePanel.hidden) setMoreOpen(true);
+                const current = items.indexOf(document.activeElement);
+                const next = event.key === 'Home' ? 0
+                    : event.key === 'End' ? items.length - 1
+                    : current < 0 ? 0
+                    : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+                items[next].focus();
+            }
+        });
+        morePanel.addEventListener('click', event => {
+            if (event.target.closest('a, button')) setMoreOpen(false);
+        });
+        document.addEventListener('click', event => {
+            if (!moreMenu.contains(event.target) && !morePanel.hidden) setMoreOpen(false);
         });
         document.getElementById('cartContents').addEventListener('click', event => {
             const id = event.target.dataset.remove;
