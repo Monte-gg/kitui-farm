@@ -24,10 +24,14 @@ services:
       # Supabase -> Project Settings -> Database -> Connection string (URI)
       - key: DATABASE_URL
         sync: false
-      # Gmail SMTP sender account and Google App Password.
+      # Gmail API sender account and OAuth credentials.
       - key: GMAIL_USER
         sync: false
-      - key: GMAIL_APP_PASSWORD
+      - key: GMAIL_OAUTH_CLIENT_ID
+        sync: false
+      - key: GMAIL_OAUTH_CLIENT_SECRET
+        sync: false
+      - key: GMAIL_OAUTH_REFRESH_TOKEN
         sync: false
       - key: PUBLIC_APP_URL
         value: https://monte-gg.github.io/kitui-farm

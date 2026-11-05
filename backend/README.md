@@ -39,7 +39,7 @@ All protected routes use the HTTP-only `kitui_farm_session` cookie created by si
 | `PATCH` | `/api/orders/:id/status` | Buyer cancellation and farmer fulfillment updates |
 | `DELETE` | `/api/orders/:id` | Hide an order and restock eligible cancellations |
 
-M-PESA, Airtel Money, and bank choices at checkout remain demo-only. Wallet payments debit a KES balance saved in the database. Customers request manual top-ups with their M-PESA receipt; an authorized administrator must verify the receipt before crediting the wallet. No mobile-money payment is initiated by the website. Signup verification uses Gmail SMTP; password reset remains unavailable until its email flow is implemented.
+M-PESA, Airtel Money, and bank choices at checkout remain demo-only. Wallet payments debit a KES balance saved in the database. Customers request manual top-ups with their M-PESA receipt; an authorized administrator must verify the receipt before crediting the wallet. No mobile-money payment is initiated by the website. Signup verification uses the Gmail API over HTTPS; password reset remains unavailable until its email flow is implemented.
 
 Accounts previously stored only in browser local storage are not imported automatically. Create a new account through the server-backed sign-up page; passwords and legacy browser hashes are not transferred.
 
@@ -83,8 +83,8 @@ Free Supabase projects pause after a week without activity, which takes the shop
 
 1. In Render choose New, then Blueprint, then this GitHub repo.
 2. When prompted for `DATABASE_URL`, paste the Supabase URI.
-3. Turn on 2-Step Verification for the Gmail sender account, then create an App Password in Google Account security settings. App Passwords require 2-Step Verification.
-4. In the KITUI FARM service’s Environment settings, add `GMAIL_USER` (the sender’s Gmail address), `GMAIL_APP_PASSWORD` (the Google App Password), and `PUBLIC_APP_URL=https://monte-gg.github.io/kitui-farm`. This is the public GitHub Pages URL where the verification page is hosted. Do not use your normal Gmail password or put the app password in website code.
+3. In Google Cloud Console, create/select a project, enable the Gmail API, configure the OAuth consent screen, and create a Web application OAuth client. Add `https://developers.google.com/oauthplayground` as an authorized redirect URI. In OAuth 2.0 Playground settings, enable “Use your own OAuth credentials”; enter the client ID/secret, authorize `https://www.googleapis.com/auth/gmail.send` using the sender Gmail account, exchange the code, and copy the refresh token. Keep the client secret and refresh token private. For continuous use, publish the OAuth app to Production; Google says refresh tokens for external apps left in Testing expire after seven days.
+4. In the KITUI FARM service’s Environment settings, add `GMAIL_USER` (the same Gmail account that granted access), `GMAIL_OAUTH_CLIENT_ID`, `GMAIL_OAUTH_CLIENT_SECRET`, `GMAIL_OAUTH_REFRESH_TOKEN`, and `PUBLIC_APP_URL=https://monte-gg.github.io/kitui-farm`. This is the public GitHub Pages URL where the verification page is hosted. Keep OAuth secrets in Render only; never put them in website code or share them in chat.
 5. Deploy/restart the service. New signups receive a one-time email link; the account is created only after the user confirms it. Links expire after 24 hours.
 
 The blueprint sets `HOST=0.0.0.0` and `NODE_ENV=production`; with one proxy hop trusted, the same-origin check and `Secure` cookies keep working behind HTTPS. Locally the server still binds to `127.0.0.1`.

@@ -6,7 +6,6 @@ const path = require('node:path');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const { DatabaseSync } = require('node:sqlite');
 const express = require('express');
-const nodemailer = require('nodemailer');
 
 const ROOT = path.resolve(__dirname, '..');
 const COOKIE = 'kitui_farm_session';
@@ -414,9 +413,11 @@ function appBaseUrl(req) {
 
 async function sendSignupVerification({ email, name, token, baseUrl }) {
     const gmailUser = (process.env.GMAIL_USER || '').trim().toLowerCase();
-    const appPassword = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s/g, '');
-    if (!emailIsValid(gmailUser) || !appPassword) {
-        const error = new Error('Email verification is not configured yet. Add your GMAIL_USER and GMAIL_APP_PASSWORD in Render, then try again.');
+    const oauthClientId = (process.env.GMAIL_OAUTH_CLIENT_ID || '').trim();
+    const oauthClientSecret = (process.env.GMAIL_OAUTH_CLIENT_SECRET || '').trim();
+    const oauthRefreshToken = (process.env.GMAIL_OAUTH_REFRESH_TOKEN || '').trim();
+    if (!emailIsValid(gmailUser) || !oauthClientId || !oauthClientSecret || !oauthRefreshToken) {
+        const error = new Error('Email verification is not configured yet. Add the Gmail API OAuth settings in Render, then try again.');
         error.status = 503;
         throw error;
     }
@@ -427,23 +428,70 @@ async function sendSignupVerification({ email, name, token, baseUrl }) {
         throw error;
     }
     const verifyUrl = `${configuredUrl}/email-verify.html?token=${encodeURIComponent(token)}`;
-    const transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com', port: 465, secure: true,
-        auth: { user: gmailUser, pass: appPassword },
-        connectionTimeout: 15000, greetingTimeout: 10000, socketTimeout: 20000
-    });
+    const subject = 'Verify your KITUI FARM email';
+    const body = `Hello ${name},\n\nConfirm this Gmail address to finish creating your KITUI FARM account. This link expires in 24 hours.\n\n${verifyUrl}\n\nIf you did not request this account, you can ignore this email.`;
+    const rawMessage = [
+        `From: KITUI FARM <${gmailUser}>`,
+        `To: ${email}`,
+        `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`,
+        'MIME-Version: 1.0',
+        'Content-Type: text/plain; charset=UTF-8',
+        'Content-Transfer-Encoding: 8bit',
+        '',
+        body
+    ].join('\r\n');
     try {
-        await transporter.sendMail({
-            from: { name: 'KITUI FARM', address: gmailUser },
-            to: email,
-            subject: 'Verify your KITUI FARM email',
-            text: `Hello ${name},\n\nConfirm this Gmail address to finish creating your KITUI FARM account. This link expires in 24 hours.\n\n${verifyUrl}\n\nIf you did not request this account, you can ignore this email.`
+        const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'content-type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams({
+                client_id: oauthClientId,
+                client_secret: oauthClientSecret,
+                refresh_token: oauthRefreshToken,
+                grant_type: 'refresh_token'
+            }),
+            signal: AbortSignal.timeout(15000)
         });
-    } catch {
-        const error = new Error('Gmail could not send the verification email. Check GMAIL_USER and the App Password in Render.');
+        const tokenPayload = await tokenResponse.json().catch(() => ({}));
+        if (!tokenResponse.ok || !tokenPayload.access_token) {
+            console.error('[signup-email] Gmail OAuth token request failed', {
+                httpStatus: tokenResponse.status,
+                error: typeof tokenPayload.error === 'string' ? tokenPayload.error : 'unknown_error'
+            });
+            const error = new Error('Gmail authorization failed. Check the Gmail API OAuth values in Render.');
+            error.status = 502;
+            throw error;
+        }
+        const sendResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+            method: 'POST',
+            headers: {
+                authorization: `Bearer ${tokenPayload.access_token}`,
+                'content-type': 'application/json'
+            },
+            body: JSON.stringify({ raw: Buffer.from(rawMessage).toString('base64url') }),
+            signal: AbortSignal.timeout(20000)
+        });
+        if (!sendResponse.ok) {
+            const sendPayload = await sendResponse.json().catch(() => ({}));
+            console.error('[signup-email] Gmail API send failed', {
+                httpStatus: sendResponse.status,
+                errorStatus: typeof sendPayload.error?.status === 'string' ? sendPayload.error.status : 'unknown_error',
+                errorCode: Number.isInteger(sendPayload.error?.code) ? sendPayload.error.code : undefined
+            });
+            const error = new Error('Gmail could not send the verification email. Check Gmail API authorization and permissions.');
+            error.status = 502;
+            throw error;
+        }
+    } catch (cause) {
+        if (cause.status) throw cause;
+        console.error('[signup-email] Gmail API request failed', {
+            code: typeof cause.code === 'string' ? cause.code : 'request_failed',
+            name: typeof cause.name === 'string' ? cause.name : 'Error'
+        });
+        const error = new Error('Gmail could not send the verification email. Check the Gmail API OAuth setup in Render.');
         error.status = 502;
         throw error;
-    } finally { transporter.close(); }
+    }
 }
 
 function normalizedPhone(value) {
