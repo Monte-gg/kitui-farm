@@ -149,7 +149,8 @@
         const user = profileSession;
         const form = document.getElementById('profileForm');
         const message = document.getElementById('profileMessage');
-        const roleName = user.role === 'farmer' ? 'Farmer' : 'Buyer';
+        const isAdminProfile = new URLSearchParams(window.location.search).get('from') === 'admin';
+        const roleName = isAdminProfile ? 'Admin' : user.role === 'farmer' ? 'Farmer' : 'Buyer';
         const dashboardLink = document.getElementById('dashboardLink');
         const photoInput = document.getElementById('profilePhotoInput');
         const photoMessage = document.getElementById('photoMessage');
@@ -208,7 +209,8 @@
             });
         }
 
-        dashboardLink.href = user.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
+        dashboardLink.href = isAdminProfile ? 'admin.html' : user.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
+        if (isAdminProfile) dashboardLink.textContent = 'Admin dashboard';
         document.getElementById('walletLink').hidden = user.role !== 'buyer';
         loadProfilePhoto();
         document.getElementById('profileHeading').textContent = user.name;
