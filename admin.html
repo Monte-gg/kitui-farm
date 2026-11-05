@@ -11,11 +11,18 @@
         :root { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; --green:#4a8c3f; --dark:#234d27; --ink:#263126; --muted:#657064; --line:#e3e9df; --bg:#f5f7f2; --surface:#fff; --danger:#b42318; }
         * { box-sizing:border-box; }
         body { margin:0; background:var(--bg); color:var(--ink); line-height:1.55; }
-        .topbar { background:var(--surface); border-bottom:1px solid var(--line); }
+        .topbar { position:sticky; z-index:5; top:0; background:rgba(255,255,255,.97); border-bottom:1px solid var(--line); backdrop-filter:blur(10px); }
         .topbar-inner,main { width:min(1060px,calc(100% - 36px)); margin:auto; }
         .topbar-inner { min-height:68px; display:flex; align-items:center; justify-content:space-between; gap:14px; }
         .brand { color:var(--dark); font-weight:800; text-decoration:none; }
-        .nav { display:flex; gap:8px; flex-wrap:wrap; }
+        .more-menu { position:relative; }
+        .more-toggle { width:44px; height:44px; border:1px solid var(--line); border-radius:10px; background:white; color:var(--ink); font:inherit; font-size:27px; line-height:1; cursor:pointer; }
+        .more-toggle:hover { border-color:var(--green); color:var(--dark); }
+        .more-panel { position:absolute; top:calc(100% + 9px); right:0; z-index:8; width:min(280px,calc(100vw - 28px)); padding:8px; border:1px solid var(--line); border-radius:13px; background:var(--surface); box-shadow:0 12px 34px rgba(24,40,21,.18); }
+        .more-panel a,.more-panel button { display:flex; align-items:center; width:100%; min-height:42px; padding:9px 11px; border:0; border-radius:8px; background:transparent; color:var(--ink); text-align:left; text-decoration:none; font:inherit; font-size:14px; font-weight:650; cursor:pointer; }
+        .more-panel a:hover,.more-panel button:hover { background:#eaf3e6; color:var(--dark); }
+        .more-panel button.menu-logout { color:var(--danger); }
+        .menu-divider { height:1px; margin:5px 2px; background:var(--line); }
         .button { display:inline-flex; align-items:center; justify-content:center; min-height:40px; padding:8px 13px; border:1px solid var(--line); border-radius:9px; background:var(--surface); color:var(--ink); font:inherit; font-weight:650; text-decoration:none; cursor:pointer; }
         .button.primary,.approve { border-color:var(--green); background:var(--green); color:#fff; }
         .reject { color:var(--danger); }
@@ -41,16 +48,56 @@
         .link-card:hover { border-color:#9fc396; }
         .link-card strong { display:block; color:var(--dark); font-size:16px; }
         .link-card span { color:var(--muted); font-size:14px; }
-        @media(max-width:680px) { .topbar-inner,main { width:calc(100% - 28px); } .topbar-inner { padding:10px 0; align-items:flex-start; flex-direction:column; } .request { grid-template-columns:1fr; } .actions .button { flex:1; } .panel { padding:17px; } }
+        .stats { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+        .stat { padding:17px; border:1px solid var(--line); border-radius:12px; background:linear-gradient(135deg,#f2f8ee,#fff); }
+        .stat span { display:block; color:var(--muted); font-size:13px; }
+        .stat strong { display:block; margin-top:5px; color:var(--dark); font-size:27px; }
+        .table-wrap { overflow:auto; margin-top:14px; }
+        table { width:100%; border-collapse:collapse; text-align:left; }
+        th,td { padding:11px 12px; border-bottom:1px solid var(--line); vertical-align:top; font-size:13px; }
+        th { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+        td { overflow-wrap:anywhere; }
+        .empty { padding:17px 0; color:var(--muted); }
+        [hidden] { display:none !important; }
+        @media(max-width:680px) { .topbar-inner,main { width:calc(100% - 28px); } .request { grid-template-columns:1fr; } .actions .button { flex:1; } .panel { padding:17px; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .stat { padding:14px; } .stat strong { font-size:23px; } }
     </style>
     <script src="site-only.js" defer></script>
 </head>
 <body>
-    <header class="topbar"><div class="topbar-inner"><a class="brand" href="admin.html">🌱 KITUI FARM · Admin</a><nav class="nav" aria-label="Admin navigation"><a class="button" href="buyer-dashboard.html">Website</a><a class="button" href="wallet.html">Customer wallet</a><button class="button" id="logoutButton" type="button">Log out</button></nav></div></header>
+    <header class="topbar"><div class="topbar-inner"><a class="brand" href="#dashboard">🌱 KITUI FARM · Admin</a><div class="more-menu" id="moreMenu"><button class="more-toggle" id="moreToggle" type="button" aria-label="Open admin menu" aria-haspopup="menu" aria-expanded="false" aria-controls="morePanel">⋮</button><nav class="more-panel" id="morePanel" aria-label="Admin features" role="menu" hidden><a href="#dashboard" role="menuitem">Dashboard overview</a><a href="#accounts" role="menuitem">Accounts</a><a href="#listings" role="menuitem">Product listings</a><a href="#orders" role="menuitem">Orders</a><a href="#topup-approvals" role="menuitem">Wallet approvals <span class="count" id="menuPendingCount">—</span></a><a href="#website-shortcuts" role="menuitem">Website shortcuts</a><div class="menu-divider" role="separator"></div><button class="menu-logout" id="logoutButton" type="button" role="menuitem">Log out</button></nav></div></div></header>
     <main>
+        <section id="dashboard" aria-labelledby="dashboardHeading">
         <p class="eyebrow">Control center</p>
-        <h1>Admin console</h1>
-        <p class="intro">Manage the current website administration tasks from one place.</p>
+        <h1 id="dashboardHeading">Admin dashboard</h1>
+        <p class="intro">Review accounts, product listings, orders, and wallet requests from one place.</p>
+        <div class="stats" aria-label="Website overview">
+            <article class="stat"><span>Total accounts</span><strong id="accountCount">—</strong></article>
+            <article class="stat"><span>Farmers</span><strong id="farmerCount">—</strong></article>
+            <article class="stat"><span>Buyers</span><strong id="buyerCount">—</strong></article>
+            <article class="stat"><span>Active listings</span><strong id="listingCount">—</strong></article>
+            <article class="stat"><span>Orders</span><strong id="orderCount">—</strong></article>
+            <article class="stat"><span>Pending wallet approvals</span><strong id="topupCount">—</strong></article>
+        </div>
+        <p class="status" id="dashboardStatus" role="status" aria-live="polite">Loading dashboard…</p>
+        </section>
+
+        <section class="panel" id="accounts" aria-labelledby="accountsHeading">
+            <div class="panel-head"><div><h2 id="accountsHeading">User accounts</h2><p class="muted">Buyer and farmer account details.</p></div><span class="count" id="accountsCount">—</span></div>
+            <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Location</th><th>Created</th></tr></thead><tbody id="accountsBody"></tbody></table></div>
+            <p class="empty" id="accountsEmpty" hidden>No user accounts found.</p>
+        </section>
+
+        <section class="panel" id="listings" aria-labelledby="listingsHeading">
+            <div class="panel-head"><div><h2 id="listingsHeading">Product listings</h2><p class="muted">Listings across farmer stores, including out-of-stock products.</p></div><span class="count" id="listingsCount">—</span></div>
+            <div class="table-wrap"><table><thead><tr><th>Product</th><th>Farmer</th><th>Category</th><th>Available</th><th>Price / kg</th><th>Location</th></tr></thead><tbody id="listingsBody"></tbody></table></div>
+            <p class="empty" id="listingsEmpty" hidden>No product listings found.</p>
+        </section>
+
+        <section class="panel" id="orders" aria-labelledby="ordersHeading">
+            <div class="panel-head"><div><h2 id="ordersHeading">Orders</h2><p class="muted">Recent customer orders and their status.</p></div><span class="count" id="ordersCount">—</span></div>
+            <div class="table-wrap"><table><thead><tr><th>Order</th><th>Buyer</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th>Placed</th></tr></thead><tbody id="ordersBody"></tbody></table></div>
+            <p class="empty" id="ordersEmpty" hidden>No orders found.</p>
+        </section>
 
         <section class="panel" id="topup-approvals" aria-labelledby="approvalHeading">
             <div class="panel-head"><div><h2 id="approvalHeading">Wallet top-up approvals</h2><p class="muted">Verify the customer’s payment outside the website before approving a top-up.</p></div><span class="count" id="pendingCount" aria-label="Pending requests">—</span></div>
@@ -59,7 +106,7 @@
             <div id="requestList" aria-label="Pending top-up requests"></div>
         </section>
 
-        <section class="panel" aria-labelledby="quickLinksHeading">
+        <section class="panel" id="website-shortcuts" aria-labelledby="quickLinksHeading">
             <h2 id="quickLinksHeading">Website shortcuts</h2>
             <div class="links">
                 <a class="link-card" href="wallet.html"><strong>Customer wallet</strong><span>View your wallet and wallet activity.</span></a>
@@ -80,10 +127,59 @@
         function escapeHtml(value) { return String(value).replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char])); }
         function money(value) { return `KES ${Number(value).toLocaleString('en-KE', { minimumFractionDigits:2, maximumFractionDigits:2 })}`; }
         function setStatus(message, isError = false) { const node = document.getElementById('status'); node.textContent = message; node.classList.toggle('error', isError); }
+        function displayDate(value) {
+            if (!value) return '—';
+            const date = new Date(value);
+            return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('en-KE', { dateStyle:'medium', timeStyle:'short' });
+        }
+        async function loadDashboard() {
+            const [overviewData, accountData, listingData, orderData] = await Promise.all([
+                apiRequest('/api/admin/overview'), apiRequest('/api/admin/accounts'),
+                apiRequest('/api/admin/listings'), apiRequest('/api/admin/orders')
+            ]);
+            const overview = overviewData.overview;
+            document.getElementById('accountCount').textContent = overview.accounts;
+            document.getElementById('farmerCount').textContent = overview.farmers;
+            document.getElementById('buyerCount').textContent = overview.buyers;
+            document.getElementById('listingCount').textContent = overview.activeListings;
+            document.getElementById('orderCount').textContent = overview.orders;
+            document.getElementById('topupCount').textContent = overview.pendingTopups;
+            document.getElementById('menuPendingCount').textContent = overview.pendingTopups;
+
+            const accounts = accountData.accounts || [];
+            document.getElementById('accountsCount').textContent = accounts.length;
+            document.getElementById('accountsEmpty').hidden = accounts.length > 0;
+            document.getElementById('accountsBody').innerHTML = accounts.map(account => `<tr>
+                <td>${escapeHtml(account.name)}</td><td>${escapeHtml(account.email)}</td><td>${escapeHtml(account.phone)}</td>
+                <td>${escapeHtml(account.role)}</td><td>${escapeHtml(account.location || '—')}</td><td>${escapeHtml(displayDate(account.createdAt))}</td>
+            </tr>`).join('');
+
+            const listings = listingData.listings || [];
+            document.getElementById('listingsCount').textContent = listings.length;
+            document.getElementById('listingsEmpty').hidden = listings.length > 0;
+            document.getElementById('listingsBody').innerHTML = listings.map(item => `<tr>
+                <td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.sellerName)}</td><td>${escapeHtml(item.category)}</td>
+                <td>${Number(item.quantity).toLocaleString('en-KE')} kg</td><td>${money(item.price)} / kg</td><td>${escapeHtml(item.location)}</td>
+            </tr>`).join('');
+
+            const orders = orderData.orders || [];
+            document.getElementById('ordersCount').textContent = orders.length;
+            document.getElementById('ordersEmpty').hidden = orders.length > 0;
+            document.getElementById('ordersBody').innerHTML = orders.map(order => `<tr>
+                <td>${escapeHtml(order.id)}</td><td>${escapeHtml(order.buyerName)}</td>
+                <td>${order.items.map(item => `${escapeHtml(item.name)} × ${Number(item.quantity)}`).join('<br>')}</td>
+                <td>${money(order.total)}</td><td>${escapeHtml(order.paymentMethod)}</td>
+                <td>${escapeHtml(order.status)}</td><td>${escapeHtml(displayDate(order.createdAt))}</td>
+            </tr>`).join('');
+            const dashboardStatus = document.getElementById('dashboardStatus');
+            dashboardStatus.textContent = 'Dashboard data is up to date.';
+            dashboardStatus.classList.remove('error');
+        }
         async function loadRequests() {
             const data = await apiRequest('/api/wallet/admin/topups');
             const list = document.getElementById('requestList');
             document.getElementById('pendingCount').textContent = data.requests.length;
+            document.getElementById('menuPendingCount').textContent = data.requests.length;
             setStatus(data.requests.length ? `${data.requests.length} request${data.requests.length === 1 ? '' : 's'} need review.` : 'You’re signed in as an administrator. There are no pending top-up requests.');
             list.innerHTML = data.requests.map(item => `
                 <article class="request"><div><h3>${escapeHtml(item.name)} · ${money(item.amount)}</h3>
@@ -93,6 +189,30 @@
                 <div class="actions"><button class="button approve" data-review="approve" data-id="${escapeHtml(item.id)}">Verify &amp; approve</button>
                 <button class="button reject" data-review="reject" data-id="${escapeHtml(item.id)}">Reject</button></div></article>`).join('');
         }
+        const moreMenu = document.getElementById('moreMenu');
+        const moreToggle = document.getElementById('moreToggle');
+        const morePanel = document.getElementById('morePanel');
+        const setMenuOpen = open => {
+            morePanel.hidden = !open;
+            moreToggle.setAttribute('aria-expanded', String(open));
+            moreToggle.setAttribute('aria-label', open ? 'Close admin menu' : 'Open admin menu');
+        };
+        moreToggle.addEventListener('click', () => setMenuOpen(morePanel.hidden));
+        moreMenu.addEventListener('focusout', event => { if (!moreMenu.contains(event.relatedTarget)) setMenuOpen(false); });
+        moreMenu.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && !morePanel.hidden) { setMenuOpen(false); moreToggle.focus(); return; }
+            if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+            const items = [...morePanel.querySelectorAll('[role="menuitem"]')];
+            if (!items.length) return;
+            event.preventDefault();
+            if (morePanel.hidden) setMenuOpen(true);
+            const current = items.indexOf(document.activeElement);
+            const next = event.key === 'Home' ? 0 : event.key === 'End' ? items.length - 1
+                : current < 0 ? 0 : (current + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
+            items[next].focus();
+        });
+        morePanel.addEventListener('click', event => { if (event.target.closest('a,button')) setMenuOpen(false); });
+        document.addEventListener('click', event => { if (!moreMenu.contains(event.target) && !morePanel.hidden) setMenuOpen(false); });
         document.getElementById('logoutButton').addEventListener('click', async () => {
             try { await apiRequest('/api/auth/logout', { method:'POST' }); }
             catch (error) { setStatus(error.message || 'Could not end your session.', true); return; }
@@ -121,6 +241,11 @@
                 const link = document.createElement('a'); link.className = 'button primary'; link.href = 'admin-signin.html'; link.textContent = 'Admin sign in';
                 document.getElementById('requestList').replaceChildren(link);
             }
+        });
+        loadDashboard().catch(error => {
+            const dashboardStatus = document.getElementById('dashboardStatus');
+            dashboardStatus.textContent = error.message || 'Could not load the admin dashboard.';
+            dashboardStatus.classList.add('error');
         });
     </script>
 </body>

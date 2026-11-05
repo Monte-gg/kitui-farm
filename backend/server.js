@@ -827,6 +827,50 @@ function createApp(options = {}) {
         } catch (error) { next(error); }
     });
 
+    app.get('/api/admin/overview', auth, walletAdmin, async (req, res, next) => {
+        try {
+            const [users, farmers, buyers, listings, orders, topups] = await Promise.all([
+                store.get('SELECT COUNT(*) AS total FROM users'),
+                store.get("SELECT COUNT(*) AS total FROM users WHERE role = 'farmer'"),
+                store.get("SELECT COUNT(*) AS total FROM users WHERE role = 'buyer'"),
+                store.get('SELECT COUNT(*) AS total FROM listings WHERE quantity > 0'),
+                store.get('SELECT COUNT(*) AS total FROM orders'),
+                store.get("SELECT COUNT(*) AS total FROM wallet_topup_requests WHERE status = 'pending'")
+            ]);
+            res.json({ overview: {
+                accounts: Number(users.total), farmers: Number(farmers.total), buyers: Number(buyers.total),
+                activeListings: Number(listings.total), orders: Number(orders.total), pendingTopups: Number(topups.total)
+            } });
+        } catch (error) { next(error); }
+    });
+
+    app.get('/api/admin/accounts', auth, walletAdmin, async (req, res, next) => {
+        try {
+            const rows = await store.all(`
+                SELECT id, name, email, phone, role, location, gender, profile_photo, created_at
+                FROM users ORDER BY created_at DESC LIMIT 500
+            `);
+            res.json({ accounts: rows.map(row => ({ ...publicUser(row), createdAt: row.created_at })) });
+        } catch (error) { next(error); }
+    });
+
+    app.get('/api/admin/listings', auth, walletAdmin, async (req, res, next) => {
+        try {
+            const rows = await store.all(`
+                SELECT id, farmer_id, seller_name, name, category, quantity, minimum_order, price, location, created_at
+                FROM listings ORDER BY created_at DESC LIMIT 500
+            `);
+            res.json({ listings: rows.map(publicListing) });
+        } catch (error) { next(error); }
+    });
+
+    app.get('/api/admin/orders', auth, walletAdmin, async (req, res, next) => {
+        try {
+            const rows = await store.all('SELECT * FROM orders ORDER BY created_at DESC LIMIT 200');
+            res.json({ orders: await Promise.all(rows.map(row => publicOrder(store, row))) });
+        } catch (error) { next(error); }
+    });
+
     app.post('/api/wallet/admin/topups/:id/review', auth, walletAdmin, async (req, res, next) => {
         const decision = req.body?.decision;
         if (!['approve', 'reject'].includes(decision)) return res.status(400).json({ error: 'Choose approve or reject.' });
