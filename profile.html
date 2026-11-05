@@ -81,6 +81,11 @@
         .actions { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
         .message { margin: 0; color: var(--green-dark); font-size: 13px; }
         .message.error { color: var(--danger); }
+        .danger-zone { margin-top: 20px; padding: 22px; border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); }
+        .danger-zone h2 { margin: 0 0 7px; color: var(--danger); font-size: 20px; }
+        .danger-zone > p { max-width: 680px; color: var(--muted); }
+        .danger-form { grid-template-columns: 1fr; padding: 10px 0 0; }
+        .delete-button { background: var(--danger); }
         @media (max-width: 560px) {
             .topbar-inner, main { width: calc(100% - 28px); }
             .topbar-inner { min-height: 68px; }
@@ -125,6 +130,16 @@
                 <div class="field"><label for="gender">Gender <span class="hint">(optional)</span></label><select id="gender"><option value="">Prefer not to say</option><option value="female">Female</option><option value="male">Male</option><option value="non-binary">Non-binary</option><option value="other">Other</option></select></div>
                 <div class="field full"><label for="location" id="locationLabel">Location</label><input id="location" maxlength="120" required></div>
                 <div class="actions"><button class="button" type="submit">Save changes</button><p class="message" id="profileMessage" role="status" aria-live="polite"></p></div>
+            </form>
+        </section>
+
+        <section class="card danger-zone" aria-labelledby="deleteAccountHeading">
+            <h2 id="deleteAccountHeading">Delete account permanently</h2>
+            <p>This permanently removes your account, profile, wallet balance and activity, listings, and personal order history from KITUI FARM. Buyers’ order history will no longer identify a deleted farmer. This cannot be undone.</p>
+            <form id="deleteAccountForm" class="danger-form">
+                <div class="field"><label for="deletePassword">Account password</label><input id="deletePassword" type="password" autocomplete="current-password" required maxlength="128"></div>
+                <div class="field"><label for="deleteConfirmation">Type DELETE to confirm</label><input id="deleteConfirmation" autocomplete="off" autocapitalize="characters" pattern="DELETE" required title="Type DELETE in capital letters"></div>
+                <div class="actions"><button class="button delete-button" id="deleteAccountButton" type="submit">Permanently delete account</button><p class="message" id="deleteAccountMessage" role="status" aria-live="polite"></p></div>
             </form>
         </section>
 
@@ -308,6 +323,73 @@
             } catch (error) {
                 message.textContent = error.message || 'Could not save your profile.';
                 message.classList.add('error');
+            }
+        });
+
+        const deleteForm = document.getElementById('deleteAccountForm');
+        const deleteMessage = document.getElementById('deleteAccountMessage');
+        deleteForm.addEventListener('submit', async event => {
+            event.preventDefault();
+            const password = document.getElementById('deletePassword').value;
+            const confirmation = document.getElementById('deleteConfirmation').value;
+            if (confirmation !== 'DELETE') {
+                deleteMessage.textContent = 'Type DELETE in capital letters to confirm.';
+                deleteMessage.classList.add('error');
+                return;
+            }
+            const button = document.getElementById('deleteAccountButton');
+            button.disabled = true;
+            deleteMessage.textContent = 'Deleting your account…';
+            deleteMessage.classList.remove('error');
+            try {
+                const response = await fetch('/api/account', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password, confirmation })
+                });
+                if (!response.ok) {
+                    const result = await response.json().catch(() => ({}));
+                    throw new Error(result.error || 'Could not delete your account.');
+                }
+
+                try {
+                    const localListings = readArray('kituiFarmListings');
+                    const ownedProductIds = new Set(localListings.filter(item => item.farmerId === user.id).map(item => item.id));
+                    saveArray('kituiFarmListings', localListings.filter(item => item.farmerId !== user.id));
+                    const cachedOrders = readArray('kituiFarmOrders');
+                    if (user.role === 'buyer') {
+                        saveArray('kituiFarmOrders', cachedOrders.filter(order => order.buyerId !== user.id));
+                    } else {
+                        saveArray('kituiFarmOrders', cachedOrders.map(order => ({
+                            ...order,
+                            items: (order.items || []).map(item => item.farmerId === user.id
+                                ? { ...item, farmerId: '', sellerName: 'Deleted farmer', location: '' } : item)
+                        })));
+                        saveArray('kituiFarmCart', readArray('kituiFarmCart').filter(item => !ownedProductIds.has(item.productId)));
+                    }
+                    saveArray('kituiFarmUsers', readArray('kituiFarmUsers').filter(account => account.id !== user.id));
+                    localStorage.removeItem(photoKey);
+                    localStorage.removeItem(`kituiFarmSettings_${user.id}`);
+                    localStorage.removeItem(`kituiFarmCheckoutDraft_${user.id}`);
+                } catch (error) { /* Server-side deletion has already succeeded. */ }
+                try {
+                    for (const storage of [localStorage, sessionStorage]) {
+                        try {
+                        const raw = storage.getItem('kituiFarmSession');
+                        if (raw && JSON.parse(raw).userId === user.id) storage.removeItem('kituiFarmSession');
+                        } catch (error) { storage.removeItem('kituiFarmSession'); }
+                    }
+                } catch (error) { /* Continue to sign out even if browser storage is unavailable. */ }
+                try {
+                    localStorage.removeItem('kituiFarmToken');
+                    const remembered = localStorage.getItem('kituiFarmRememberedLogin');
+                    if (remembered && [user.email, user.phone].includes(remembered)) localStorage.removeItem('kituiFarmRememberedLogin');
+                } catch (error) { /* The server session is already revoked. */ }
+                window.location.replace('login.html?accountDeleted=1');
+            } catch (error) {
+                deleteMessage.textContent = error.message || 'Could not delete your account.';
+                deleteMessage.classList.add('error');
+                button.disabled = false;
             }
         });
     </script>

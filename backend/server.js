@@ -606,6 +606,53 @@ function createApp(options = {}) {
         res.status(204).end();
     });
     app.get('/api/auth/me', auth, (req, res) => res.json({ user: publicUser(req.user) }));
+
+    app.delete('/api/account', auth, async (req, res, next) => {
+        const password = req.body?.password;
+        if (req.body?.confirmation !== 'DELETE') {
+            return res.status(400).json({ error: 'Type DELETE to confirm account removal.' });
+        }
+        if (typeof password !== 'string' || !password || password.length > 128) {
+            return res.status(400).json({ error: 'Enter your account password to confirm deletion.' });
+        }
+        try {
+            const account = await store.get('SELECT * FROM users WHERE id = ?', [req.user.id]);
+            if (!account) return res.status(401).json({ error: 'Your account is no longer available. Please sign in again.' });
+            const actual = crypto.scryptSync(password, Buffer.from(account.password_salt, 'hex'), 64,
+                { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+            const expected = Buffer.from(account.password_hash, 'hex');
+            if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {
+                return res.status(401).json({ error: 'The password is incorrect. Your account was not deleted.' });
+            }
+
+            await store.transaction(async () => {
+                // Keep other users' wallet records valid if this account approved or created them.
+                await store.run('UPDATE wallet_topup_requests SET reviewed_by = NULL WHERE reviewed_by = ?', [account.id]);
+                await store.run('UPDATE wallet_transactions SET created_by = NULL WHERE created_by = ?', [account.id]);
+
+                if (account.role === 'buyer') {
+                    await store.run(`DELETE FROM order_items WHERE order_id IN
+                        (SELECT id FROM orders WHERE buyer_id = ?)`, [account.id]);
+                    await store.run('DELETE FROM orders WHERE buyer_id = ?', [account.id]);
+                    await store.run('DELETE FROM checkout_requests WHERE buyer_id = ?', [account.id]);
+                } else {
+                    await store.run('DELETE FROM listings WHERE farmer_id = ?', [account.id]);
+                    // Preserve other buyers' order history while removing the deleted farmer's identity.
+                    await store.run(`UPDATE order_items SET farmer_id = '', seller_name = 'Deleted farmer', location = ''
+                        WHERE farmer_id = ?`, [account.id]);
+                }
+
+                await store.run('DELETE FROM sessions WHERE user_id = ?', [account.id]);
+                const deleted = await store.run('DELETE FROM users WHERE id = ?', [account.id]);
+                if (!deleted.changes) throw new Error('The account could not be deleted.');
+            });
+
+            res.setHeader('Set-Cookie', `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secureCookie}`);
+            res.status(204).end();
+        } catch (error) {
+            next(error);
+        }
+    });
     app.get('/api/profile', auth, (req, res) => res.json({ user: publicUser(req.user) }));
 
     app.patch('/api/profile', auth, async (req, res, next) => {

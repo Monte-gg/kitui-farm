@@ -137,6 +137,10 @@
         const rememberCheckbox = document.getElementById('remember');
         const formStatus = document.getElementById('formStatus');
 
+        if (new URLSearchParams(window.location.search).get('accountDeleted') === '1') {
+            formStatus.textContent = 'Your account and associated personal data have been deleted.';
+        }
+
         if (rememberedLogin) {
             rememberCheckbox.checked = true;
             identifierInput.value = rememberedLogin;
