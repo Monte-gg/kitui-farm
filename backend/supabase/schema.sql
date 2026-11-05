@@ -38,6 +38,21 @@ create table if not exists sessions (
 
 create index if not exists idx_sessions_expiry on sessions (expires_at);
 
+create table if not exists pending_signups (
+    email text primary key,
+    name text not null,
+    phone text not null unique,
+    role text not null check (role in ('buyer', 'farmer')),
+    password_salt text not null,
+    password_hash text not null,
+    remember integer not null default 0,
+    token_hash text not null unique,
+    expires_at bigint not null,
+    created_at text not null
+);
+
+create index if not exists idx_pending_signups_expiry on pending_signups (expires_at);
+
 create table if not exists listings (
     id text primary key,
     farmer_id text not null,
@@ -137,6 +152,7 @@ create table if not exists wallet_admins (
 
 alter table users enable row level security;
 alter table sessions enable row level security;
+alter table pending_signups enable row level security;
 alter table listings enable row level security;
 alter table checkout_requests enable row level security;
 alter table orders enable row level security;

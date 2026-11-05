@@ -24,3 +24,10 @@ services:
       # Supabase -> Project Settings -> Database -> Connection string (URI)
       - key: DATABASE_URL
         sync: false
+      # Resend -> API Keys. Sender address must use a verified Resend domain.
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: PUBLIC_APP_URL
+        value: https://kitui-farm.onrender.com

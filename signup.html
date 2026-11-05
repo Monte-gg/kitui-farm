@@ -112,6 +112,7 @@
         .error-message.show {
             display: block;
         }
+        .field-hint { display:block; margin:6px 0 0; color:#657064; font-size:12px; }
         .password-strength {
             height: 4px;
             border-radius: 2px;
@@ -258,6 +259,7 @@
             <div class="form-group">
                 <label for="email">Gmail address</label>
                 <input type="email" id="email" name="email" autocomplete="email" placeholder="you@gmail.com" required>
+                <small class="field-hint">We’ll send a verification link to confirm this inbox before activating your account.</small>
                 <p class="error-message" id="emailError" aria-live="polite"></p>
             </div>
             <div class="form-group">
@@ -301,6 +303,7 @@
             <p class="error-message" id="termsError" aria-live="polite"></p>
             <button type="submit" class="btn-login">Create Account</button>
             <p class="form-status" id="formStatus" role="status" aria-live="polite"></p>
+            <button type="button" class="btn-login" id="resendVerificationButton" hidden>Resend verification email</button>
         </form>
         <div class="signup-cta"><p>Already have an account? <a href="login.html">Log in</a></p></div>
         <div class="signup-cta"><a href="about-us.html">About KITUI FARM</a></div>
@@ -314,6 +317,7 @@
         const signupPhone = document.getElementById('phone');
         const signupPassword = document.getElementById('password');
         const signupStatus = document.getElementById('formStatus');
+        const resendVerificationButton = document.getElementById('resendVerificationButton');
 
         function setError(id, message) {
             const element = document.getElementById(id);
@@ -396,6 +400,11 @@
                 }
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.error || 'Account creation failed. Please try again.');
+                if (result.verificationRequired) {
+                    signupStatus.textContent = `A verification link was sent to ${email}. Open it within 24 hours to finish creating your account. Check your spam folder if needed.`;
+                    resendVerificationButton.hidden = false;
+                    return;
+                }
                 const user = result.user;
                 if (result.token) {
                     try { localStorage.setItem('kituiFarmToken', result.token); } catch (error) { /* ignore */ }
@@ -425,6 +434,26 @@
             } catch (error) {
                 signupStatus.textContent = error.message || 'Account creation failed. Please try again.';
             }
+        });
+
+        resendVerificationButton.addEventListener('click', async () => {
+            const email = signupEmail.value.trim().toLowerCase();
+            if (!isGmailAddress(email)) {
+                setError('emailError', 'Enter the same valid @gmail.com address used for signup.');
+                return;
+            }
+            resendVerificationButton.disabled = true;
+            signupStatus.textContent = 'Sending a new verification link…';
+            try {
+                const response = await fetch('/api/auth/resend-verification', {
+                    method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify({ email })
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.error || 'Could not resend the verification email.');
+                signupStatus.textContent = `A new verification link was sent to ${email}. Check your inbox and spam folder.`;
+            } catch (error) {
+                signupStatus.textContent = error.message || 'Could not resend the verification email.';
+            } finally { resendVerificationButton.disabled = false; }
         });
     </script>
 </body>

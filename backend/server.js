@@ -19,7 +19,7 @@ const PAYMENT_METHODS = new Set([
     'Cash on delivery', 'M-PESA (demo)', 'Airtel Money (demo)', 'Bank transfer (demo)', 'KITUI FARM Wallet'
 ]);
 const PAGES = [
-    'about-us.html', 'admin-signin.html', 'buyer-dashboard.html', 'chat.html', 'customer-service.html', 'farmer-dashboard.html', 'farmer-store.html',
+    'about-us.html', 'admin-signin.html', 'buyer-dashboard.html', 'chat.html', 'customer-service.html', 'email-verify.html', 'farmer-dashboard.html', 'farmer-store.html',
     'forgot-password.html', 'index.html', 'login.html', 'payment.html', 'profile.html',
     'settings.html', 'signup.html', 'wallet.html'
 ];
@@ -47,6 +47,18 @@ const SQLITE_SCHEMA = `
     CREATE TABLE IF NOT EXISTS sessions (
         token_hash TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         expires_at INTEGER NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS pending_signups (
+        email TEXT PRIMARY KEY COLLATE NOCASE,
+        name TEXT NOT NULL,
+        phone TEXT NOT NULL UNIQUE,
+        role TEXT NOT NULL CHECK (role IN ('buyer', 'farmer')),
+        password_salt TEXT NOT NULL,
+        password_hash TEXT NOT NULL,
+        remember INTEGER NOT NULL DEFAULT 0,
+        token_hash TEXT NOT NULL UNIQUE,
+        expires_at INTEGER NOT NULL,
+        created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS listings (
         id TEXT PRIMARY KEY, farmer_id TEXT NOT NULL, seller_name TEXT NOT NULL, name TEXT NOT NULL,
@@ -123,6 +135,7 @@ const SQLITE_SCHEMA = `
         PRIMARY KEY (user_id, listing_id)
     );
     CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
+    CREATE INDEX IF NOT EXISTS idx_pending_signups_expiry ON pending_signups(expires_at);
     CREATE INDEX IF NOT EXISTS idx_listings_farmer ON listings(farmer_id);
     CREATE INDEX IF NOT EXISTS idx_orders_buyer ON orders(buyer_id);
     CREATE INDEX IF NOT EXISTS idx_order_items_farmer ON order_items(farmer_id);
@@ -233,6 +246,18 @@ function createPostgresStore(connectionString, options = {}) {
             const statements = [
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_photo TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS gender TEXT NOT NULL DEFAULT ''",
+                `CREATE TABLE IF NOT EXISTS pending_signups (
+                email text primary key,
+                name text not null,
+                phone text not null unique,
+                role text not null check (role in ('buyer', 'farmer')),
+                password_salt text not null,
+                password_hash text not null,
+                remember integer not null default 0,
+                token_hash text not null unique,
+                expires_at bigint not null,
+                created_at text not null
+            )`,
                 `CREATE TABLE IF NOT EXISTS wallet_accounts (
                 user_id text primary key references users(id) on delete cascade,
                 balance_cents integer not null default 0 check (balance_cents >= 0),
@@ -279,6 +304,7 @@ function createPostgresStore(connectionString, options = {}) {
                 primary key (user_id, listing_id)
             )`,
                 'CREATE INDEX IF NOT EXISTS idx_wallet_transactions_user ON wallet_transactions(user_id, created_at)',
+                'CREATE INDEX IF NOT EXISTS idx_pending_signups_expiry ON pending_signups(expires_at)',
                 'CREATE INDEX IF NOT EXISTS idx_wallet_topup_requests_status ON wallet_topup_requests(status, created_at)',
                 'CREATE INDEX IF NOT EXISTS idx_chat_conversations_buyer ON chat_conversations(buyer_id, last_message_at)',
                 'CREATE INDEX IF NOT EXISTS idx_chat_conversations_farmer ON chat_conversations(farmer_id, last_message_at)',
@@ -288,6 +314,7 @@ function createPostgresStore(connectionString, options = {}) {
                 'ALTER TABLE wallet_transactions ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE wallet_topup_requests ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE wallet_admins ENABLE ROW LEVEL SECURITY',
+                'ALTER TABLE pending_signups ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE chat_conversations ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE wishlist_items ENABLE ROW LEVEL SECURITY'
@@ -375,6 +402,51 @@ function text(value, maxLength) {
 
 function emailIsValid(value) {
     return /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@gmail\.com$/i.test(value);
+}
+
+function appBaseUrl(req) {
+    const origin = req.headers.origin && ALLOWED_ORIGINS.includes(new URL(req.headers.origin).origin)
+        ? new URL(req.headers.origin).origin : `${req.protocol}://${req.get('host')}`;
+    const defaultBase = new URL(origin).hostname.endsWith('.github.io') ? `${origin}/kitui-farm` : origin;
+    return (process.env.PUBLIC_APP_URL || defaultBase).trim().replace(/\/$/, '');
+}
+
+async function sendSignupVerification({ email, name, token, baseUrl }) {
+    const apiKey = (process.env.RESEND_API_KEY || '').trim();
+    const from = (process.env.RESEND_FROM_EMAIL || '').trim();
+    if (!apiKey || !from) {
+        const error = new Error('Email verification is not configured yet. Add RESEND_API_KEY and RESEND_FROM_EMAIL in Render, then try again.');
+        error.status = 503;
+        throw error;
+    }
+    const configuredUrl = (process.env.PUBLIC_APP_URL || baseUrl).trim().replace(/\/$/, '');
+    if (!/^https:\/\//i.test(configuredUrl) && process.env.NODE_ENV === 'production') {
+        const error = new Error('Email verification needs an HTTPS PUBLIC_APP_URL in Render.');
+        error.status = 503;
+        throw error;
+    }
+    const verifyUrl = `${configuredUrl}/email-verify.html?token=${encodeURIComponent(token)}`;
+    let response;
+    try {
+        response = await fetch('https://api.resend.com/emails', {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                from, to: [email], subject: 'Verify your KITUI FARM email',
+                text: `Hello ${name},\n\nConfirm this Gmail address to finish creating your KITUI FARM account. This link expires in 24 hours.\n\n${verifyUrl}\n\nIf you did not request this account, you can ignore this email.`
+            }),
+            signal: AbortSignal.timeout(15000)
+        });
+    } catch {
+        const error = new Error('We could not reach the email service. Please try again shortly.');
+        error.status = 502;
+        throw error;
+    }
+    if (!response.ok) {
+        const error = new Error('The verification email could not be sent. Check your Resend sender and API key in Render.');
+        error.status = response.status === 429 ? 429 : 502;
+        throw error;
+    }
 }
 
 function normalizedPhone(value) {
@@ -468,6 +540,7 @@ function createApp(options = {}) {
     const app = express();
     const attempts = new Map();
     const adminAttempts = new Map();
+    const signupAttempts = new Map();
     const secureCookie = process.env.NODE_ENV === 'production' ? '; Secure' : '';
 
     app.disable('x-powered-by');
@@ -604,21 +677,102 @@ function createApp(options = {}) {
         if (typeof password !== 'string' || password.length < 8 || password.length > 128) {
             return res.status(400).json({ error: 'Password must be at least 8 characters.' });
         }
-        const id = crypto.randomUUID();
-        const salt = crypto.randomBytes(16);
-        const hash = crypto.scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+        const now = Date.now();
+        const attempt = signupAttempts.get(req.ip) || { count: 0, resetAt: now + 15 * 60 * 1000 };
+        if (attempt.resetAt <= now) { attempt.count = 0; attempt.resetAt = now + 15 * 60 * 1000; }
+        if (attempt.count >= 5) return res.status(429).json({ error: 'Too many verification emails requested. Try again in 15 minutes.' });
+        attempt.count++;
+        signupAttempts.set(req.ip, attempt);
         try {
+            await store.run('DELETE FROM pending_signups WHERE expires_at <= ?', [now]);
+            const existing = await store.get('SELECT id FROM users WHERE email = ? OR phone = ?', [email, phone]);
+            if (existing) return res.status(409).json({ error: 'An account already exists with this email or phone number.' });
+            const pendingPhone = await store.get('SELECT email FROM pending_signups WHERE phone = ? AND email <> ? AND expires_at > ?', [phone, email, now]);
+            if (pendingPhone) return res.status(409).json({ error: 'A signup is already awaiting verification with this phone number.' });
+            const priorPending = await store.get('SELECT created_at FROM pending_signups WHERE email = ?', [email]);
+            if (priorPending && now - new Date(priorPending.created_at).getTime() < 60000) {
+                return res.status(429).json({ error: 'A verification email was just sent. Check your inbox or wait one minute before requesting another.' });
+            }
+            const salt = crypto.randomBytes(16);
+            const passwordHash = crypto.scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+            const rawToken = crypto.randomBytes(32).toString('hex');
+            const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+            const expiresAt = now + 24 * 60 * 60 * 1000;
+            const createdAt = new Date(now).toISOString();
+            await store.run('DELETE FROM pending_signups WHERE email = ?', [email]);
             await store.run(`
-                INSERT INTO users (id, name, email, phone, role, password_salt, password_hash, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            `, [id, name, email, phone, accountRole, salt.toString('hex'), hash.toString('hex'), new Date().toISOString()]);
-            const user = await store.get('SELECT * FROM users WHERE id = ?', [id]);
-            const token = await createSession(user, res, Boolean(req.body.remember));
-            res.status(201).json({ user: publicUser(user), token });
+                INSERT INTO pending_signups (email, name, phone, role, password_salt, password_hash, remember, token_hash, expires_at, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [email, name, phone, accountRole, salt.toString('hex'), passwordHash.toString('hex'), req.body.remember ? 1 : 0,
+                tokenHash, expiresAt, createdAt]);
+            try {
+                await sendSignupVerification({ email, name, token: rawToken, baseUrl: appBaseUrl(req) });
+            } catch (error) {
+                await store.run('DELETE FROM pending_signups WHERE email = ? AND token_hash = ?', [email, tokenHash]);
+                throw error;
+            }
+            res.status(202).json({ verificationRequired: true, email });
         } catch (error) {
             if (error.errcode === 2067) {
                 return res.status(409).json({ error: 'An account already exists with this email or phone number.' });
             }
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
+    app.post('/api/auth/resend-verification', async (req, res, next) => {
+        const email = text(req.body?.email, 254).toLowerCase();
+        if (!emailIsValid(email)) return res.status(400).json({ error: 'Enter a valid @gmail.com address.' });
+        const now = Date.now();
+        const attempt = signupAttempts.get(req.ip) || { count: 0, resetAt: now + 15 * 60 * 1000 };
+        if (attempt.resetAt <= now) { attempt.count = 0; attempt.resetAt = now + 15 * 60 * 1000; }
+        if (attempt.count >= 5) return res.status(429).json({ error: 'Too many verification emails requested. Try again in 15 minutes.' });
+        attempt.count++;
+        signupAttempts.set(req.ip, attempt);
+        try {
+            const pending = await store.get('SELECT * FROM pending_signups WHERE email = ? AND expires_at > ?', [email, now]);
+            if (!pending) return res.status(404).json({ error: 'No unverified signup was found for this Gmail address. Start signup again.' });
+            if (now - new Date(pending.created_at).getTime() < 60000) {
+                return res.status(429).json({ error: 'A verification email was just sent. Wait one minute before requesting another.' });
+            }
+            const rawToken = crypto.randomBytes(32).toString('hex');
+            const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+            const createdAt = new Date(now).toISOString();
+            await store.run('UPDATE pending_signups SET token_hash = ?, expires_at = ?, created_at = ? WHERE email = ?',
+                [tokenHash, now + 24 * 60 * 60 * 1000, createdAt, email]);
+            await sendSignupVerification({ email: pending.email, name: pending.name, token: rawToken, baseUrl: appBaseUrl(req) });
+            res.json({ verificationRequired: true, email });
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
+    app.post('/api/auth/verify-email', async (req, res, next) => {
+        const rawToken = text(req.body?.token, 128);
+        if (!/^[a-f0-9]{64}$/i.test(rawToken)) return res.status(400).json({ error: 'This verification link is invalid or incomplete.' });
+        const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+        try {
+            const pending = await store.get('SELECT * FROM pending_signups WHERE token_hash = ? AND expires_at > ?', [tokenHash, Date.now()]);
+            if (!pending) return res.status(400).json({ error: 'This verification link has expired or was already used. Request a new link.' });
+            const id = crypto.randomUUID();
+            const createdAt = new Date().toISOString();
+            await store.transaction(async () => {
+                const stillPending = await store.get('SELECT email FROM pending_signups WHERE token_hash = ? AND expires_at > ?', [tokenHash, Date.now()]);
+                if (!stillPending) throw walletError('This verification link has expired or was already used. Request a new link.', 400);
+                await store.run(`
+                    INSERT INTO users (id, name, email, phone, role, password_salt, password_hash, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `, [id, pending.name, pending.email, pending.phone, pending.role, pending.password_salt, pending.password_hash, createdAt]);
+                await store.run('DELETE FROM pending_signups WHERE token_hash = ?', [tokenHash]);
+            });
+            const user = await store.get('SELECT * FROM users WHERE id = ?', [id]);
+            const sessionToken = await createSession(user, res, Boolean(pending.remember));
+            res.status(201).json({ user: publicUser(user), token: sessionToken, remember: Boolean(pending.remember) });
+        } catch (error) {
+            if (error.errcode === 2067) return res.status(409).json({ error: 'An account already exists with this email or phone number. Please sign in.' });
+            if (error.status) return res.status(error.status).json({ error: error.message });
             next(error);
         }
     });
