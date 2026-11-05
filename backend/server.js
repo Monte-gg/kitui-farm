@@ -19,7 +19,7 @@ const PAYMENT_METHODS = new Set([
     'Cash on delivery', 'M-PESA (demo)', 'Airtel Money (demo)', 'Bank transfer (demo)', 'KITUI FARM Wallet'
 ]);
 const PAGES = [
-    'about-us.html', 'buyer-dashboard.html', 'customer-service.html', 'farmer-dashboard.html', 'farmer-store.html',
+    'about-us.html', 'admin-signin.html', 'buyer-dashboard.html', 'customer-service.html', 'farmer-dashboard.html', 'farmer-store.html',
     'forgot-password.html', 'index.html', 'login.html', 'payment.html', 'profile.html',
     'settings.html', 'signup.html', 'wallet.html'
 ];
@@ -412,6 +412,7 @@ function createApp(options = {}) {
     const store = createStore(options);
     const app = express();
     const attempts = new Map();
+    const adminAttempts = new Map();
     const secureCookie = process.env.NODE_ENV === 'production' ? '; Secure' : '';
 
     app.disable('x-powered-by');
@@ -501,7 +502,7 @@ function createApp(options = {}) {
         const bearer = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
         const token = bearer || cookies(req.headers.cookie)[COOKIE];
         if (!token || !/^[a-f0-9]{64}$/.test(token)) {
-            return res.redirect('/login.html?next=admin.html');
+            return res.redirect('/admin-signin.html');
         }
         try {
             const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
@@ -510,7 +511,7 @@ function createApp(options = {}) {
                 JOIN users ON users.id = sessions.user_id
                 WHERE sessions.token_hash = ? AND sessions.expires_at > ?
             `, [tokenHash, Date.now()]);
-            if (!session) return res.redirect('/login.html?next=admin.html');
+            if (!session) return res.redirect('/admin-signin.html');
             const admin = await store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [session.id]);
             if (!admin) return res.status(404).type('text/plain').send('Not found.');
             req.user = session;
@@ -594,6 +595,40 @@ function createApp(options = {}) {
             }
             attempts.delete(req.ip);
             const token = await createSession(user, res, Boolean(req.body.remember));
+            res.json({ user: publicUser(user), token });
+        } catch (error) {
+            next(error);
+        }
+    });
+
+    app.post('/api/admin/login', async (req, res, next) => {
+        const now = Date.now();
+        const attempt = adminAttempts.get(req.ip) || { count: 0, resetAt: now + 15 * 60 * 1000 };
+        if (attempt.resetAt <= now) {
+            attempt.count = 0;
+            attempt.resetAt = now + 15 * 60 * 1000;
+        }
+        if (attempt.count >= 5) return res.status(429).json({ error: 'Too many admin sign-in attempts. Try again in 15 minutes.' });
+        const configuredCode = process.env.ADMIN_ACCESS_CODE || '';
+        if (!configuredCode) return res.status(503).json({ error: 'Admin sign-in is not configured. Contact the site administrator.' });
+        try {
+            const name = text(req.body?.name, 100).trim();
+            const email = text(req.body?.email, 254).trim().toLowerCase();
+            const code = text(req.body?.code, 32);
+            const user = name.length >= 2 && emailIsValid(email)
+                ? await store.get('SELECT * FROM users WHERE lower(name) = lower(?) AND lower(email) = ?', [name, email])
+                : null;
+            const admin = user ? await store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [user.id]) : null;
+            const provided = Buffer.from(code);
+            const expected = Buffer.from(configuredCode);
+            const codeMatches = provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
+            if (!user || !admin || !codeMatches) {
+                attempt.count++;
+                adminAttempts.set(req.ip, attempt);
+                return res.status(401).json({ error: 'The details could not be verified for an enabled admin account.' });
+            }
+            adminAttempts.delete(req.ip);
+            const token = await createSession(user, res, true);
             res.json({ user: publicUser(user), token });
         } catch (error) {
             next(error);

@@ -114,11 +114,11 @@
         });
         loadRequests().catch(error => {
             document.getElementById('pendingCount').textContent = '—';
-            if (error.status === 401) setStatus('Sign in to the authorized admin account to use this page. Open the admin sign-in link below.', true);
+            if (error.status === 401) setStatus('Sign in to the authorized admin account to use this page.', true);
             else if (error.status === 403) setStatus('This account does not have admin access. Sign in with the account authorized for wallet approvals.', true);
             else setStatus(error.message, true);
             if (error.status === 401 || error.status === 403) {
-                const link = document.createElement('a'); link.className = 'button primary'; link.href = 'login.html?next=admin.html'; link.textContent = 'Admin sign in';
+                const link = document.createElement('a'); link.className = 'button primary'; link.href = 'admin-signin.html'; link.textContent = 'Admin sign in';
                 document.getElementById('requestList').replaceChildren(link);
             }
         });
