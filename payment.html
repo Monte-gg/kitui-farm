@@ -371,7 +371,7 @@
         }
         })();
         apiRequest('/api/wallet').then(wallet => {
-            walletBalance = Number(wallet.balance) || 0;
+            walletBalance = Number(wallet.wallet?.balance) || 0;
             walletLoaded = true;
             updatePaymentOptions();
         }).catch(() => {

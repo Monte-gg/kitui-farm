@@ -123,7 +123,11 @@ create table if not exists user_settings (
 
 create table if not exists wallet_accounts (
     user_id text primary key references users (id) on delete cascade,
+    wallet_id text not null unique,
     balance_cents integer not null default 0 check (balance_cents >= 0),
+    currency text not null default 'KES',
+    status text not null default 'active' check (status in ('active', 'closed')),
+    created_at text not null,
     updated_at text not null
 );
 
@@ -131,28 +135,45 @@ create table if not exists wallet_transactions (
     id text primary key,
     user_id text not null references users (id) on delete cascade,
     kind text not null check (kind in ('credit', 'debit')),
+    event_type text not null default 'adjustment',
     amount_cents integer not null check (amount_cents > 0),
     reference_key text not null unique,
     payment_reference text,
     description text not null,
     created_by text references users (id),
-    created_at text not null
+    created_at text not null,
+    status text not null default 'completed',
+    channel text not null default 'internal',
+    counterparty_wallet_id text,
+    operation_id text
 );
 
 create index if not exists idx_wallet_transactions_user on wallet_transactions (user_id, created_at);
 
-create table if not exists wallet_topup_requests (
+create table if not exists wallet_operations (
     id text primary key,
-    buyer_id text not null references users (id) on delete cascade,
+    user_id text not null references users (id) on delete cascade,
+    kind text not null check (kind in ('deposit', 'withdrawal', 'transfer')),
     amount_cents integer not null check (amount_cents > 0),
-    payment_reference text not null unique,
-    status text not null check (status in ('pending', 'approved', 'rejected')),
+    fee_cents integer not null default 0 check (fee_cents >= 0),
+    currency text not null default 'KES',
+    channel text not null,
+    details_json text not null default '{}',
+    payment_reference text,
+    status text not null check (status in ('pending', 'processing', 'completed', 'rejected', 'failed')),
+    peer_user_id text references users (id) on delete set null,
+    peer_wallet_id text,
+    idempotency_key text unique,
     reviewed_by text references users (id),
     reviewed_at text,
-    created_at text not null
+    created_at text not null,
+    updated_at text not null
 );
 
-create index if not exists idx_wallet_topup_requests_status on wallet_topup_requests (status, created_at);
+create index if not exists idx_wallet_operations_user on wallet_operations (user_id, created_at);
+create index if not exists idx_wallet_operations_status on wallet_operations (status, created_at);
+create unique index if not exists idx_wallet_operations_payment_reference on wallet_operations (payment_reference) where payment_reference is not null;
+create table if not exists wallet_schema_migrations (version integer primary key, applied_at text not null);
 
 create table if not exists wallet_admins (
     user_id text primary key references users (id) on delete cascade,
@@ -170,7 +191,8 @@ alter table order_items enable row level security;
 alter table user_settings enable row level security;
 alter table wallet_accounts enable row level security;
 alter table wallet_transactions enable row level security;
-alter table wallet_topup_requests enable row level security;
+alter table wallet_operations enable row level security;
+alter table wallet_schema_migrations enable row level security;
 alter table wallet_admins enable row level security;
 
 -- Demo listings, matching seedListings() in backend/server.js.

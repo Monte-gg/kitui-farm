@@ -99,23 +99,34 @@ const SQLITE_SCHEMA = `
     );
     CREATE TABLE IF NOT EXISTS wallet_accounts (
         user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        wallet_id TEXT NOT NULL UNIQUE,
         balance_cents INTEGER NOT NULL DEFAULT 0 CHECK (balance_cents >= 0),
+        currency TEXT NOT NULL DEFAULT 'KES',
+        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'closed')),
+        created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS wallet_transactions (
         id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         kind TEXT NOT NULL CHECK (kind IN ('credit', 'debit')),
+        event_type TEXT NOT NULL DEFAULT 'adjustment',
         amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
         reference_key TEXT NOT NULL UNIQUE, payment_reference TEXT,
-        description TEXT NOT NULL, created_by TEXT REFERENCES users(id), created_at TEXT NOT NULL
+        description TEXT NOT NULL, created_by TEXT REFERENCES users(id), created_at TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'completed', channel TEXT NOT NULL DEFAULT 'internal',
+        counterparty_wallet_id TEXT, operation_id TEXT
     );
-    CREATE TABLE IF NOT EXISTS wallet_topup_requests (
-        id TEXT PRIMARY KEY, buyer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    CREATE TABLE IF NOT EXISTS wallet_operations (
+        id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('deposit', 'withdrawal', 'transfer')),
         amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
-        payment_reference TEXT NOT NULL UNIQUE,
-        status TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'rejected')),
-        reviewed_by TEXT REFERENCES users(id), reviewed_at TEXT, created_at TEXT NOT NULL
+        fee_cents INTEGER NOT NULL DEFAULT 0 CHECK (fee_cents >= 0), currency TEXT NOT NULL DEFAULT 'KES',
+        channel TEXT NOT NULL, details_json TEXT NOT NULL DEFAULT '{}', payment_reference TEXT,
+        status TEXT NOT NULL CHECK (status IN ('pending', 'processing', 'completed', 'rejected', 'failed')),
+        peer_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, peer_wallet_id TEXT, idempotency_key TEXT UNIQUE,
+        reviewed_by TEXT REFERENCES users(id), reviewed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS wallet_schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS wallet_admins (
         user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
         created_at TEXT NOT NULL
@@ -148,7 +159,9 @@ const SQLITE_SCHEMA = `
     CREATE INDEX IF NOT EXISTS idx_orders_buyer ON orders(buyer_id);
     CREATE INDEX IF NOT EXISTS idx_order_items_farmer ON order_items(farmer_id);
     CREATE INDEX IF NOT EXISTS idx_wallet_transactions_user ON wallet_transactions(user_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_wallet_topup_requests_status ON wallet_topup_requests(status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_wallet_operations_user ON wallet_operations(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_wallet_operations_status ON wallet_operations(status, created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_operations_payment_reference ON wallet_operations(payment_reference) WHERE payment_reference IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_chat_conversations_buyer ON chat_conversations(buyer_id, last_message_at);
     CREATE INDEX IF NOT EXISTS idx_chat_conversations_farmer ON chat_conversations(farmer_id, last_message_at);
     CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, created_at);
@@ -178,6 +191,33 @@ function createSqliteStore(dbPath) {
     if (dbPath !== ':memory:') fs.mkdirSync(path.dirname(dbPath), { recursive: true });
     const db = new DatabaseSync(dbPath);
     db.exec(SQLITE_SCHEMA);
+    const addMissingColumns = (table, columns) => {
+        const existing = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map(column => column.name));
+        for (const [name, definition] of Object.entries(columns)) {
+            if (!existing.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${definition}`);
+        }
+    };
+    addMissingColumns('wallet_accounts', {
+        wallet_id: 'TEXT', currency: "TEXT NOT NULL DEFAULT 'KES'", status: "TEXT NOT NULL DEFAULT 'active'",
+        created_at: "TEXT NOT NULL DEFAULT ''"
+    });
+    addMissingColumns('wallet_transactions', {
+        event_type: "TEXT NOT NULL DEFAULT 'adjustment'", status: "TEXT NOT NULL DEFAULT 'completed'",
+        channel: "TEXT NOT NULL DEFAULT 'internal'", counterparty_wallet_id: 'TEXT', operation_id: 'TEXT'
+    });
+    if (!db.prepare('SELECT version FROM wallet_schema_migrations WHERE version = 2').get()) {
+        db.exec('BEGIN IMMEDIATE');
+        try {
+            // The owner explicitly requested a clean wallet start; keep the admin allowlist intact.
+            db.exec('DELETE FROM wallet_transactions; DELETE FROM wallet_operations; DELETE FROM wallet_accounts; DROP TABLE IF EXISTS wallet_topup_requests;');
+            db.prepare('INSERT INTO wallet_schema_migrations (version, applied_at) VALUES (2, ?)').run(new Date().toISOString());
+            db.exec('COMMIT');
+        } catch (error) {
+            db.exec('ROLLBACK');
+            throw error;
+        }
+    }
+    db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_accounts_wallet_id ON wallet_accounts(wallet_id)');
     const userColumns = db.prepare('PRAGMA table_info(users)').all();
     if (!userColumns.some(column => column.name === 'profile_photo')) {
         db.exec("ALTER TABLE users ADD COLUMN profile_photo TEXT NOT NULL DEFAULT ''");
@@ -276,23 +316,58 @@ function createPostgresStore(connectionString, options = {}) {
             )`,
                 `CREATE TABLE IF NOT EXISTS wallet_accounts (
                 user_id text primary key references users(id) on delete cascade,
+                wallet_id text not null unique,
                 balance_cents integer not null default 0 check (balance_cents >= 0),
+                currency text not null default 'KES',
+                status text not null default 'active' check (status in ('active', 'closed')),
+                created_at text not null,
                 updated_at text not null
             )`,
                 `CREATE TABLE IF NOT EXISTS wallet_transactions (
                 id text primary key, user_id text not null references users(id) on delete cascade,
                 kind text not null check (kind in ('credit', 'debit')),
+                event_type text not null default 'adjustment',
                 amount_cents integer not null check (amount_cents > 0),
                 reference_key text not null unique, payment_reference text,
-                description text not null, created_by text references users(id), created_at text not null
+                description text not null, created_by text references users(id), created_at text not null,
+                status text not null default 'completed', channel text not null default 'internal',
+                counterparty_wallet_id text, operation_id text
             )`,
-                `CREATE TABLE IF NOT EXISTS wallet_topup_requests (
-                id text primary key, buyer_id text not null references users(id) on delete cascade,
+                `CREATE TABLE IF NOT EXISTS wallet_operations (
+                id text primary key, user_id text not null references users(id) on delete cascade,
+                kind text not null check (kind in ('deposit', 'withdrawal', 'transfer')),
                 amount_cents integer not null check (amount_cents > 0),
-                payment_reference text not null unique,
-                status text not null check (status in ('pending', 'approved', 'rejected')),
-                reviewed_by text references users(id), reviewed_at text, created_at text not null
+                fee_cents integer not null default 0 check (fee_cents >= 0), currency text not null default 'KES',
+                channel text not null, details_json text not null default '{}', payment_reference text,
+                status text not null check (status in ('pending', 'processing', 'completed', 'rejected', 'failed')),
+                peer_user_id text references users(id) on delete set null, peer_wallet_id text, idempotency_key text unique,
+                reviewed_by text references users(id), reviewed_at text, created_at text not null, updated_at text not null
             )`,
+                'ALTER TABLE wallet_accounts ADD COLUMN IF NOT EXISTS wallet_id text',
+                "ALTER TABLE wallet_accounts ADD COLUMN IF NOT EXISTS currency text NOT NULL DEFAULT 'KES'",
+                "ALTER TABLE wallet_accounts ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active'",
+                "ALTER TABLE wallet_accounts ADD COLUMN IF NOT EXISTS created_at text NOT NULL DEFAULT ''",
+                "ALTER TABLE wallet_transactions ADD COLUMN IF NOT EXISTS event_type text NOT NULL DEFAULT 'adjustment'",
+                "ALTER TABLE wallet_transactions ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'completed'",
+                "ALTER TABLE wallet_transactions ADD COLUMN IF NOT EXISTS channel text NOT NULL DEFAULT 'internal'",
+                'ALTER TABLE wallet_transactions ADD COLUMN IF NOT EXISTS counterparty_wallet_id text',
+                'ALTER TABLE wallet_transactions ADD COLUMN IF NOT EXISTS operation_id text',
+                'CREATE TABLE IF NOT EXISTS wallet_schema_migrations (version integer primary key, applied_at text not null)',
+                `DO $wallet_migration$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM wallet_schema_migrations WHERE version = 2) THEN
+                        DELETE FROM wallet_transactions;
+                        DELETE FROM wallet_operations;
+                        DELETE FROM wallet_accounts;
+                        DROP TABLE IF EXISTS wallet_topup_requests;
+                        INSERT INTO wallet_schema_migrations (version, applied_at) VALUES (2, now()::text);
+                    END IF;
+                END; $wallet_migration$`,
+                'ALTER TABLE wallet_accounts ALTER COLUMN wallet_id SET NOT NULL',
+                `DO $wallet_account_constraints$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'wallet_accounts_status_check' AND conrelid = 'wallet_accounts'::regclass) THEN
+                        ALTER TABLE wallet_accounts ADD CONSTRAINT wallet_accounts_status_check CHECK (status IN ('active', 'closed'));
+                    END IF;
+                END; $wallet_account_constraints$`,
                 `CREATE TABLE IF NOT EXISTS wallet_admins (
                 user_id text primary key references users(id) on delete cascade,
                 created_at text not null
@@ -320,15 +395,19 @@ function createPostgresStore(connectionString, options = {}) {
                 primary key (user_id, listing_id)
             )`,
                 'CREATE INDEX IF NOT EXISTS idx_wallet_transactions_user ON wallet_transactions(user_id, created_at)',
+                'CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_accounts_wallet_id ON wallet_accounts(wallet_id)',
+                'CREATE INDEX IF NOT EXISTS idx_wallet_operations_user ON wallet_operations(user_id, created_at)',
+                'CREATE INDEX IF NOT EXISTS idx_wallet_operations_status ON wallet_operations(status, created_at)',
+                'CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_operations_payment_reference ON wallet_operations(payment_reference) WHERE payment_reference IS NOT NULL',
                 'CREATE INDEX IF NOT EXISTS idx_pending_signups_expiry ON pending_signups(expires_at)',
-                'CREATE INDEX IF NOT EXISTS idx_wallet_topup_requests_status ON wallet_topup_requests(status, created_at)',
                 'CREATE INDEX IF NOT EXISTS idx_chat_conversations_buyer ON chat_conversations(buyer_id, last_message_at)',
                 'CREATE INDEX IF NOT EXISTS idx_chat_conversations_farmer ON chat_conversations(farmer_id, last_message_at)',
                 'CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, created_at)',
                 'CREATE INDEX IF NOT EXISTS idx_wishlist_items_user ON wishlist_items(user_id, created_at)',
                 'ALTER TABLE wallet_accounts ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE wallet_transactions ENABLE ROW LEVEL SECURITY',
-                'ALTER TABLE wallet_topup_requests ENABLE ROW LEVEL SECURITY',
+                'ALTER TABLE wallet_operations ENABLE ROW LEVEL SECURITY',
+                'ALTER TABLE wallet_schema_migrations ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE wallet_admins ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE pending_signups ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE password_reset_codes ENABLE ROW LEVEL SECURITY',
@@ -732,10 +811,24 @@ function createApp(options = {}) {
     }
 
     async function ensureWallet(userId) {
-        await store.run(`
-            INSERT INTO wallet_accounts (user_id, balance_cents, updated_at) VALUES (?, 0, ?)
-            ON CONFLICT (user_id) DO NOTHING
-        `, [userId, new Date().toISOString()]);
+        let account = await store.get('SELECT * FROM wallet_accounts WHERE user_id = ?', [userId]);
+        if (account) return account;
+        const now = new Date().toISOString();
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const walletId = `KF${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
+            try {
+                await store.run(`
+                    INSERT INTO wallet_accounts (user_id, wallet_id, balance_cents, currency, status, created_at, updated_at)
+                    VALUES (?, ?, 0, 'KES', 'active', ?, ?)
+                    ON CONFLICT (user_id) DO NOTHING
+                `, [userId, walletId, now, now]);
+                account = await store.get('SELECT * FROM wallet_accounts WHERE user_id = ?', [userId]);
+                if (account) return account;
+            } catch (error) {
+                if (error.errcode !== 2067) throw error;
+            }
+        }
+        throw new Error('Could not initialize a unique wallet ID. Try again.');
     }
 
     function walletError(message, status) {
@@ -964,7 +1057,7 @@ function createApp(options = {}) {
 
             await store.transaction(async () => {
                 // Keep other users' wallet records valid if this account approved or created them.
-                await store.run('UPDATE wallet_topup_requests SET reviewed_by = NULL WHERE reviewed_by = ?', [account.id]);
+                await store.run('UPDATE wallet_operations SET reviewed_by = NULL WHERE reviewed_by = ?', [account.id]);
                 await store.run('UPDATE wallet_transactions SET created_by = NULL WHERE created_by = ?', [account.id]);
 
                 if (account.role === 'buyer') {
@@ -1065,68 +1158,339 @@ function createApp(options = {}) {
         res.json({ settings });
     });
 
-    app.get('/api/wallet', auth, role('buyer'), async (req, res, next) => {
+    app.get('/api/wallet', auth, async (req, res, next) => {
         try {
-            await ensureWallet(req.user.id);
-            const [account, transactions, topups, admin] = await Promise.all([
-                store.get('SELECT balance_cents FROM wallet_accounts WHERE user_id = ?', [req.user.id]),
-                store.all('SELECT id, kind, amount_cents, description, created_at FROM wallet_transactions WHERE user_id = ? ORDER BY created_at DESC LIMIT 50', [req.user.id]),
-                store.all('SELECT id, amount_cents, payment_reference, status, created_at FROM wallet_topup_requests WHERE buyer_id = ? ORDER BY created_at DESC LIMIT 20', [req.user.id]),
+            const account = await ensureWallet(req.user.id);
+            const [transactions, operations, admin] = await Promise.all([
+                store.all(`SELECT id, kind, event_type, amount_cents, description, status, channel,
+                    counterparty_wallet_id, operation_id, created_at FROM wallet_transactions
+                    WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`, [req.user.id]),
+                store.all(`SELECT id, kind, amount_cents, fee_cents, currency, channel, details_json,
+                    payment_reference, status, created_at, updated_at FROM wallet_operations
+                    WHERE user_id = ? AND kind IN ('deposit', 'withdrawal') ORDER BY created_at DESC LIMIT 30`, [req.user.id]),
                 store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [req.user.id])
             ]);
             res.json({
-                balance: Number(account?.balance_cents || 0) / 100,
+                wallet: { id: account.wallet_id, balance: Number(account.balance_cents) / 100, currency: account.currency, status: account.status, createdAt: account.created_at },
                 transactions: transactions.map(row => ({
-                    id: row.id, kind: row.kind, amount: Number(row.amount_cents) / 100,
-                    description: row.description, createdAt: row.created_at
+                    id: row.id, type: row.event_type, direction: row.kind, amount: Number(row.amount_cents) / 100,
+                    description: row.description, status: row.status, channel: row.channel,
+                    counterpartyWalletId: row.counterparty_wallet_id || '', operationId: row.operation_id || '', createdAt: row.created_at
                 })),
-                topupRequests: topups.map(row => ({
-                    id: row.id, amount: Number(row.amount_cents) / 100,
-                    paymentReference: row.payment_reference, status: row.status, createdAt: row.created_at
+                operations: operations.map(row => ({
+                    id: row.id, type: row.kind, amount: Number(row.amount_cents) / 100, fee: Number(row.fee_cents) / 100,
+                    currency: row.currency, channel: row.channel, details: JSON.parse(row.details_json || '{}'),
+                    paymentReference: row.payment_reference || '', status: row.status, createdAt: row.created_at, updatedAt: row.updated_at
                 })),
                 isAdmin: Boolean(admin)
             });
         } catch (error) { next(error); }
     });
 
-    app.post('/api/wallet/topups', auth, role('buyer'), async (req, res, next) => {
-        const cents = amountCents(req.body?.amount);
-        if (!cents) return res.status(400).json({ error: 'Enter an amount from KES 0.01 to KES 1,000,000.00.' });
-        const paymentReference = text(req.body?.paymentReference, 32).toUpperCase();
-        if (!/^[A-Z0-9-]{5,32}$/.test(paymentReference)) {
-            return res.status(400).json({ error: 'Enter a valid M-PESA receipt or payment reference.' });
-        }
+    app.get('/api/wallet/recipient', auth, async (req, res, next) => {
+        const identifier = text(req.query?.identifier, 120);
+        if (!identifier) return res.status(400).json({ error: 'Enter a wallet ID, phone number, or full name.' });
         try {
-            const id = crypto.randomUUID();
+            let user;
+            const phone = normalizedPhone(identifier);
+            const wallet = await store.get(`
+                SELECT users.id, users.name, users.role, users.phone, wallet_accounts.wallet_id, wallet_accounts.status
+                FROM wallet_accounts JOIN users ON users.id = wallet_accounts.user_id
+                WHERE lower(wallet_accounts.wallet_id) = lower(?)
+            `, [identifier]);
+            if (wallet) user = wallet;
+            else if (phone) user = await store.get(`
+                SELECT users.id, users.name, users.role, users.phone, wallet_accounts.wallet_id, wallet_accounts.status
+                FROM users LEFT JOIN wallet_accounts ON wallet_accounts.user_id = users.id WHERE users.phone = ?
+            `, [phone]);
+            else {
+                const matches = await store.all(`
+                    SELECT users.id, users.name, users.role, users.phone, wallet_accounts.wallet_id, wallet_accounts.status
+                    FROM users LEFT JOIN wallet_accounts ON wallet_accounts.user_id = users.id
+                    WHERE lower(users.name) = lower(?) ORDER BY users.id ASC LIMIT 2
+                `, [identifier]);
+                if (matches.length > 1) return res.status(409).json({ error: 'That name matches more than one account. Use the recipient’s wallet ID or phone number.' });
+                user = matches[0];
+            }
+            if (!user) return res.status(404).json({ error: 'No active wallet found for that recipient.' });
+            if (user.id === req.user.id) return res.status(400).json({ error: 'You cannot transfer money to your own wallet.' });
+            if (!user.wallet_id) {
+                const initialized = await ensureWallet(user.id);
+                user = { ...user, wallet_id: initialized.wallet_id, status: initialized.status };
+            }
+            if (user.status !== 'active') return res.status(404).json({ error: 'No active wallet found for that recipient.' });
+            res.json({ recipient: { name: user.name, role: user.role, walletId: user.wallet_id, phone: user.phone } });
+        } catch (error) { next(error); }
+    });
+
+    app.post('/api/wallet/transfers', auth, async (req, res, next) => {
+        const identifier = text(req.body?.recipient, 120);
+        const cents = amountCents(req.body?.amount);
+        const idempotencyKey = text(req.body?.idempotencyKey, 80);
+        if (!identifier) return res.status(400).json({ error: 'Enter the recipient wallet ID, phone number, or full name.' });
+        if (!cents) return res.status(400).json({ error: 'Enter an amount from KES 0.01 to KES 1,000,000.00.' });
+        if (!/^[A-Za-z0-9-]{16,80}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Refresh the page and try the transfer again.' });
+        try {
+            const prior = await store.get('SELECT id, status, amount_cents, peer_wallet_id FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
+            if (prior) return res.json({ transfer: { id: prior.id, status: prior.status, amount: Number(prior.amount_cents) / 100, toWalletId: prior.peer_wallet_id } });
+            let recipient;
+            const phone = normalizedPhone(identifier);
+            if (phone) recipient = await store.get('SELECT id FROM users WHERE phone = ?', [phone]);
+            if (!recipient) recipient = await store.get(`
+                SELECT users.id FROM wallet_accounts JOIN users ON users.id = wallet_accounts.user_id
+                WHERE lower(wallet_accounts.wallet_id) = lower(?)
+            `, [identifier]);
+            if (!recipient && !phone) {
+                const matches = await store.all('SELECT id FROM users WHERE lower(name) = lower(?) ORDER BY id LIMIT 2', [identifier]);
+                if (matches.length > 1) return res.status(409).json({ error: 'That name matches more than one account. Use the recipient’s wallet ID or phone number.' });
+                recipient = matches[0];
+            }
+            if (!recipient) return res.status(404).json({ error: 'Recipient account not found.' });
+            if (recipient.id === req.user.id) return res.status(400).json({ error: 'You cannot transfer money to your own wallet.' });
+            const operationId = crypto.randomUUID();
             const createdAt = new Date().toISOString();
-            await store.run(`
-                INSERT INTO wallet_topup_requests
-                    (id, buyer_id, amount_cents, payment_reference, status, created_at)
-                VALUES (?, ?, ?, ?, 'pending', ?)
-            `, [id, req.user.id, cents, paymentReference, createdAt]);
-            res.status(201).json({ request: { id, amount: cents / 100, paymentReference, status: 'pending', createdAt } });
+            let senderWalletId = '';
+            let recipientWalletId = '';
+            await store.transaction(async () => {
+                const sender = await ensureWallet(req.user.id);
+                const receiver = await ensureWallet(recipient.id);
+                if (sender.status !== 'active' || receiver.status !== 'active') throw walletError('Both wallets must be active to transfer funds.', 409);
+                const debited = await store.run(`
+                    UPDATE wallet_accounts SET balance_cents = balance_cents - ?, updated_at = ?
+                    WHERE user_id = ? AND status = 'active' AND balance_cents >= ?
+                `, [cents, createdAt, req.user.id, cents]);
+                if (!debited.changes) throw walletError('Your available balance is too low for this transfer.', 402);
+                const credited = await store.run(`
+                    UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
+                    WHERE user_id = ? AND status = 'active' AND balance_cents <= ?
+                `, [cents, createdAt, recipient.id, 2147483647 - cents]);
+                if (!credited.changes) throw walletError('The recipient wallet cannot accept this amount.', 409);
+                await store.run(`
+                    INSERT INTO wallet_operations
+                        (id, user_id, kind, amount_cents, currency, channel, details_json, status, peer_user_id, peer_wallet_id, idempotency_key, created_at, updated_at)
+                    VALUES (?, ?, 'transfer', ?, 'KES', 'wallet', '{}', 'completed', ?, ?, ?, ?, ?)
+                `, [operationId, req.user.id, cents, recipient.id, receiver.wallet_id, idempotencyKey, createdAt, createdAt]);
+                await store.run(`
+                    INSERT INTO wallet_transactions
+                        (id, user_id, kind, event_type, amount_cents, reference_key, description, created_at, status, channel, counterparty_wallet_id, operation_id)
+                    VALUES (?, ?, 'debit', 'transfer', ?, ?, ?, ?, 'completed', 'wallet', ?, ?)
+                `, [crypto.randomUUID(), req.user.id, cents, `wallet-transfer:${operationId}:sent`, `Transfer to ${receiver.wallet_id}`, createdAt, receiver.wallet_id, operationId]);
+                await store.run(`
+                    INSERT INTO wallet_transactions
+                        (id, user_id, kind, event_type, amount_cents, reference_key, description, created_at, status, channel, counterparty_wallet_id, operation_id)
+                    VALUES (?, ?, 'credit', 'transfer', ?, ?, ?, ?, 'completed', 'wallet', ?, ?)
+                `, [crypto.randomUUID(), recipient.id, cents, `wallet-transfer:${operationId}:received`, `Transfer from ${sender.wallet_id}`, createdAt, sender.wallet_id, operationId]);
+                senderWalletId = sender.wallet_id;
+                recipientWalletId = receiver.wallet_id;
+            });
+            res.status(201).json({ transfer: { id: operationId, amount: cents / 100, status: 'completed', fromWalletId: senderWalletId, toWalletId: recipientWalletId } });
         } catch (error) {
-            if (error.errcode === 2067) return res.status(409).json({ error: 'That payment reference has already been submitted.' });
+            if (error.errcode === 2067) {
+                const prior = await store.get('SELECT id, status, amount_cents, peer_wallet_id FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
+                if (prior) return res.json({ transfer: { id: prior.id, amount: Number(prior.amount_cents) / 100, toWalletId: prior.peer_wallet_id, status: prior.status } });
+                return res.status(409).json({ error: 'This transfer request could not be completed. Refresh and try again.' });
+            }
+            if (error.status) return res.status(error.status).json({ error: error.message });
             next(error);
         }
     });
 
-    app.get('/api/wallet/admin/topups', auth, walletAdmin, async (req, res, next) => {
+    app.post('/api/wallet/deposits', auth, async (req, res, next) => {
+        const cents = amountCents(req.body?.amount);
+        const channel = text(req.body?.channel, 32);
+        const idempotencyKey = text(req.body?.idempotencyKey, 80);
+        const allowedChannels = new Set(['mpesa_stk_simulation', 'airtel_money', 'bank_transfer']);
+        if (!cents) return res.status(400).json({ error: 'Enter an amount from KES 0.01 to KES 1,000,000.00.' });
+        if (!allowedChannels.has(channel)) return res.status(400).json({ error: 'Choose a supported deposit method.' });
+        if (!/^[A-Za-z0-9-]{16,80}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Refresh the page and try the deposit request again.' });
+        const paymentReference = text(req.body?.paymentReference, 32).toUpperCase();
+        if (paymentReference && !/^[A-Z0-9-]{5,32}$/.test(paymentReference)) return res.status(400).json({ error: 'Enter a valid payment reference.' });
+        const details = {};
+        if (channel === 'mpesa_stk_simulation' || channel === 'airtel_money') {
+            const phone = normalizedPhone(text(req.body?.phone, 30));
+            if (!phone) return res.status(400).json({ error: 'Enter a valid Kenyan mobile number.' });
+            details.phone = phone;
+        }
+        if (channel === 'bank_transfer') {
+            details.bankName = text(req.body?.bankName, 80);
+            details.accountReference = text(req.body?.accountReference, 80);
+            if (!details.bankName) return res.status(400).json({ error: 'Enter the sending bank name.' });
+        }
+        try {
+            const prior = await store.get('SELECT id, kind, amount_cents, status, channel, payment_reference, created_at FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
+            if (prior) return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, status: prior.status, channel: prior.channel, paymentReference: prior.payment_reference || '', createdAt: prior.created_at } });
+            if (!paymentReference) return res.status(400).json({ error: 'Enter the payment receipt/reference. A real M-Pesa prompt is not connected yet.' });
+            const wallet = await ensureWallet(req.user.id);
+            if (wallet.status !== 'active') return res.status(409).json({ error: 'This wallet is closed. Contact customer service before using it again.' });
+            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND status = 'pending'", [req.user.id]);
+            if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several deposits awaiting review. Wait for those to be resolved first.' });
+            const id = crypto.randomUUID();
+            const now = new Date().toISOString();
+            await store.run(`
+                INSERT INTO wallet_operations
+                    (id, user_id, kind, amount_cents, currency, channel, details_json, payment_reference, status, idempotency_key, created_at, updated_at)
+                VALUES (?, ?, 'deposit', ?, 'KES', ?, ?, ?, 'pending', ?, ?, ?)
+            `, [id, req.user.id, cents, channel, JSON.stringify(details), paymentReference || null, idempotencyKey, now, now]);
+            res.status(201).json({ operation: { id, type: 'deposit', amount: cents / 100, status: 'pending', channel, paymentReference, createdAt: now } });
+        } catch (error) {
+            if (error.errcode === 2067) {
+                const prior = await store.get('SELECT id, kind, amount_cents, status, channel, payment_reference, created_at FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
+                if (prior) return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, status: prior.status, channel: prior.channel, paymentReference: prior.payment_reference || '', createdAt: prior.created_at } });
+                return res.status(409).json({ error: 'That payment reference has already been submitted.' });
+            }
+            next(error);
+        }
+    });
+
+    app.post('/api/wallet/withdrawals', auth, async (req, res, next) => {
+        const cents = amountCents(req.body?.amount);
+        const channel = text(req.body?.channel, 16);
+        const idempotencyKey = text(req.body?.idempotencyKey, 80);
+        if (!cents) return res.status(400).json({ error: 'Enter an amount from KES 0.01 to KES 1,000,000.00.' });
+        if (!['mpesa', 'airtel', 'bank'].includes(channel)) return res.status(400).json({ error: 'Choose M-Pesa, Airtel Money, or bank withdrawal.' });
+        if (!/^[A-Za-z0-9-]{16,80}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Refresh the page and try the withdrawal request again.' });
+        const details = {};
+        if (channel === 'mpesa' || channel === 'airtel') {
+            const phone = normalizedPhone(text(req.body?.phone, 30));
+            if (!phone) return res.status(400).json({ error: 'Enter a valid Kenyan mobile number.' });
+            details.phone = phone;
+        } else {
+            details.accountName = text(req.body?.accountName, 100);
+            details.accountNumber = text(req.body?.accountNumber, 34);
+            details.bankName = text(req.body?.bankName, 80);
+            details.branch = text(req.body?.branch, 80);
+            if (!details.accountName || !/^[A-Za-z0-9 -]{5,34}$/.test(details.accountNumber) || !details.bankName) {
+                return res.status(400).json({ error: 'Enter the bank account name, account number, and bank name.' });
+            }
+        }
+        try {
+            const prior = await store.get('SELECT id, kind, amount_cents, fee_cents, status, channel, created_at FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
+            if (prior) return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, fee: Number(prior.fee_cents) / 100, status: prior.status, channel: prior.channel, createdAt: prior.created_at } });
+            const wallet = await ensureWallet(req.user.id);
+            if (wallet.status !== 'active') return res.status(409).json({ error: 'This wallet is closed.' });
+            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'withdrawal' AND status = 'pending'", [req.user.id]);
+            if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several withdrawals awaiting review. Wait for those to be resolved first.' });
+            const id = crypto.randomUUID();
+            const now = new Date().toISOString();
+            const description = `Withdrawal request via ${channel === 'mpesa' ? 'M-Pesa' : channel === 'airtel' ? 'Airtel Money' : 'bank transfer'}`;
+            await store.transaction(async () => {
+                const debited = await store.run(`
+                    UPDATE wallet_accounts SET balance_cents = balance_cents - ?, updated_at = ?
+                    WHERE user_id = ? AND status = 'active' AND balance_cents >= ?
+                `, [cents, now, req.user.id, cents]);
+                if (!debited.changes) throw walletError('Your available balance is too low for this withdrawal.', 402);
+                await store.run(`
+                    INSERT INTO wallet_operations
+                        (id, user_id, kind, amount_cents, fee_cents, currency, channel, details_json, status, idempotency_key, created_at, updated_at)
+                    VALUES (?, ?, 'withdrawal', ?, 0, 'KES', ?, ?, 'pending', ?, ?, ?)
+                `, [id, req.user.id, cents, channel, JSON.stringify(details), idempotencyKey, now, now]);
+                await store.run(`
+                    INSERT INTO wallet_transactions
+                        (id, user_id, kind, event_type, amount_cents, reference_key, description, created_at, status, channel, operation_id)
+                    VALUES (?, ?, 'debit', 'withdrawal', ?, ?, ?, ?, 'pending', ?, ?)
+                `, [crypto.randomUUID(), req.user.id, cents, `wallet-withdrawal:${id}`, description, now, channel, id]);
+            });
+            res.status(201).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'pending', channel, createdAt: now } });
+        } catch (error) {
+            if (error.errcode === 2067) {
+                const prior = await store.get('SELECT id, kind, amount_cents, fee_cents, status, channel, created_at FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
+                if (prior) return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, fee: Number(prior.fee_cents) / 100, status: prior.status, channel: prior.channel, createdAt: prior.created_at } });
+            }
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
+    app.post('/api/wallet/close', auth, async (req, res, next) => {
+        if (req.body?.confirmation !== 'CLOSE') return res.status(400).json({ error: 'Type CLOSE to confirm wallet closure.' });
+        if (typeof req.body?.password !== 'string' || !req.body.password || req.body.password.length > 128) return res.status(400).json({ error: 'Enter your account password to close the wallet.' });
+        try {
+            const user = await store.get('SELECT * FROM users WHERE id = ?', [req.user.id]);
+            const actual = crypto.scryptSync(req.body.password, Buffer.from(user.password_salt, 'hex'), 64,
+                { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+            const expected = Buffer.from(user.password_hash, 'hex');
+            if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return res.status(401).json({ error: 'The password is incorrect.' });
+            const changed = await store.run(`
+                UPDATE wallet_accounts SET status = 'closed', updated_at = ?
+                WHERE user_id = ? AND status = 'active' AND balance_cents = 0
+                    AND NOT EXISTS (SELECT 1 FROM wallet_operations WHERE user_id = ? AND status IN ('pending', 'processing'))
+            `, [new Date().toISOString(), req.user.id, req.user.id]);
+            if (!changed.changes) return res.status(409).json({ error: 'Wallet closure requires a zero balance and no pending deposits or withdrawals.' });
+            res.json({ status: 'closed', message: 'Your wallet is closed. Contact customer service if you need it reopened.' });
+        } catch (error) { next(error); }
+    });
+
+    app.get('/api/wallet/admin/operations', auth, walletAdmin, async (req, res, next) => {
         try {
             const rows = await store.all(`
-                SELECT wallet_topup_requests.id, wallet_topup_requests.amount_cents,
-                    wallet_topup_requests.payment_reference, wallet_topup_requests.created_at,
-                    users.name, users.email, users.phone
-                FROM wallet_topup_requests JOIN users ON users.id = wallet_topup_requests.buyer_id
-                WHERE wallet_topup_requests.status = 'pending'
-                ORDER BY wallet_topup_requests.created_at ASC LIMIT 100
+                SELECT wallet_operations.*, users.name, users.email, users.phone, wallet_accounts.wallet_id
+                FROM wallet_operations
+                JOIN users ON users.id = wallet_operations.user_id
+                JOIN wallet_accounts ON wallet_accounts.user_id = wallet_operations.user_id
+                WHERE wallet_operations.status = 'pending'
+                ORDER BY wallet_operations.created_at ASC LIMIT 100
             `);
             res.json({ requests: rows.map(row => ({
-                id: row.id, amount: Number(row.amount_cents) / 100,
-                paymentReference: row.payment_reference, createdAt: row.created_at,
-                name: row.name, email: row.email, phone: row.phone
+                id: row.id, type: row.kind, amount: Number(row.amount_cents) / 100, fee: Number(row.fee_cents) / 100,
+                currency: row.currency, channel: row.channel, details: JSON.parse(row.details_json || '{}'),
+                paymentReference: row.payment_reference || '', status: row.status, createdAt: row.created_at,
+                name: row.name, email: row.email, phone: row.phone, walletId: row.wallet_id
             })) });
         } catch (error) { next(error); }
+    });
+
+    app.post('/api/wallet/admin/operations/:id/review', auth, walletAdmin, async (req, res, next) => {
+        const decision = text(req.body?.decision, 12);
+        if (!['approve', 'reject'].includes(decision)) return res.status(400).json({ error: 'Choose approve or reject.' });
+        try {
+            let reviewedOperation;
+            await store.transaction(async () => {
+                const operation = await store.get('SELECT * FROM wallet_operations WHERE id = ?', [req.params.id]);
+                if (!operation) throw walletError('Wallet request not found.', 404);
+                if (operation.status !== 'pending') throw walletError('This wallet request has already been reviewed.', 409);
+                const now = new Date().toISOString();
+                const claimed = await store.run(`UPDATE wallet_operations SET status = 'processing', reviewed_by = ?, reviewed_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'`, [req.user.id, now, now, operation.id]);
+                if (!claimed.changes) throw walletError('This wallet request has already been reviewed.', 409);
+                if (operation.kind === 'deposit' && decision === 'approve') {
+                    const credited = await store.run(`
+                        UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
+                        WHERE user_id = ? AND status = 'active' AND balance_cents <= ?
+                    `, [operation.amount_cents, now, operation.user_id, 2147483647 - operation.amount_cents]);
+                    if (!credited.changes) throw walletError('This wallet is closed or cannot accept the deposit.', 409);
+                    await store.run(`
+                        INSERT INTO wallet_transactions
+                            (id, user_id, kind, event_type, amount_cents, reference_key, payment_reference, description, created_by, created_at, status, channel, operation_id)
+                        VALUES (?, ?, 'credit', 'deposit', ?, ?, ?, ?, ?, ?, 'completed', ?, ?)
+                    `, [crypto.randomUUID(), operation.user_id, operation.amount_cents, `wallet-deposit:${operation.id}`, operation.payment_reference,
+                        `Wallet deposit approved (${operation.channel})`, req.user.id, now, operation.channel, operation.id]);
+                } else if (operation.kind === 'withdrawal' && decision === 'approve') {
+                    const finalized = await store.run(`
+                        UPDATE wallet_transactions SET status = 'completed' WHERE operation_id = ? AND event_type = 'withdrawal' AND status = 'pending'
+                    `, [operation.id]);
+                    if (!finalized.changes) throw walletError('The withdrawal ledger could not be finalized.', 409);
+                } else if (operation.kind === 'withdrawal' && decision === 'reject') {
+                    const credited = await store.run(`
+                        UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
+                        WHERE user_id = ? AND status = 'active' AND balance_cents <= ?
+                    `, [operation.amount_cents, now, operation.user_id, 2147483647 - operation.amount_cents]);
+                    if (!credited.changes) throw walletError('Could not refund the rejected withdrawal to this wallet.', 409);
+                    await store.run("UPDATE wallet_transactions SET status = 'rejected' WHERE operation_id = ? AND event_type = 'withdrawal'", [operation.id]);
+                    await store.run(`
+                        INSERT INTO wallet_transactions
+                            (id, user_id, kind, event_type, amount_cents, reference_key, description, created_by, created_at, status, channel, operation_id)
+                        VALUES (?, ?, 'credit', 'refund', ?, ?, ?, ?, ?, 'completed', 'internal', ?)
+                    `, [crypto.randomUUID(), operation.user_id, operation.amount_cents, `wallet-withdrawal-refund:${operation.id}`,
+                        'Refund for rejected wallet withdrawal', req.user.id, now, operation.id]);
+                }
+                const status = decision === 'reject' ? 'rejected' : 'completed';
+                await store.run(`UPDATE wallet_operations SET status = ?, updated_at = ? WHERE id = ? AND status = 'processing'`, [status, now, operation.id]);
+                reviewedOperation = { id: operation.id, type: operation.kind, status };
+            });
+            res.json({ operation: reviewedOperation });
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
     });
 
     app.get('/api/admin/overview', auth, walletAdmin, async (req, res, next) => {
@@ -1137,12 +1501,12 @@ function createApp(options = {}) {
                 store.get("SELECT COUNT(*) AS total FROM users WHERE role = 'buyer' AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)"),
                 store.get('SELECT COUNT(*) AS total FROM listings WHERE quantity > 0'),
                 store.get('SELECT COUNT(*) AS total FROM orders'),
-                store.get("SELECT COUNT(*) AS total FROM wallet_topup_requests WHERE status = 'pending'"),
+                store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE status = 'pending'"),
                 store.get('SELECT COUNT(*) AS total FROM wallet_admins')
             ]);
             res.json({ overview: {
                 accounts: Number(users.total), farmers: Number(farmers.total), buyers: Number(buyers.total),
-                activeListings: Number(listings.total), orders: Number(orders.total), pendingTopups: Number(topups.total),
+                activeListings: Number(listings.total), orders: Number(orders.total), pendingWalletOperations: Number(topups.total),
                 admins: Number(admins.total)
             } });
         } catch (error) { next(error); }
@@ -1412,44 +1776,6 @@ function createApp(options = {}) {
         } catch (error) { next(error); }
     });
 
-    app.post('/api/wallet/admin/topups/:id/review', auth, walletAdmin, async (req, res, next) => {
-        const decision = req.body?.decision;
-        if (!['approve', 'reject'].includes(decision)) return res.status(400).json({ error: 'Choose approve or reject.' });
-        try {
-            const result = await store.transaction(async () => {
-                const request = await store.get('SELECT * FROM wallet_topup_requests WHERE id = ?', [req.params.id]);
-                if (!request) throw walletError('Top-up request not found.', 404);
-                if (request.status !== 'pending') throw walletError('This top-up request has already been reviewed.', 409);
-                const reviewedAt = new Date().toISOString();
-                const status = decision === 'approve' ? 'approved' : 'rejected';
-                const updated = await store.run(`
-                    UPDATE wallet_topup_requests SET status = ?, reviewed_by = ?, reviewed_at = ?
-                    WHERE id = ? AND status = 'pending'
-                `, [status, req.user.id, reviewedAt, request.id]);
-                if (!updated.changes) throw walletError('This top-up request has already been reviewed.', 409);
-                if (decision === 'approve') {
-                    await ensureWallet(request.buyer_id);
-                    const credited = await store.run(`
-                        UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
-                        WHERE user_id = ? AND balance_cents <= ?
-                    `, [request.amount_cents, reviewedAt, request.buyer_id, 2147483647 - request.amount_cents]);
-                    if (!credited.changes) throw walletError('This wallet has reached its maximum balance.', 409);
-                    await store.run(`
-                        INSERT INTO wallet_transactions
-                            (id, user_id, kind, amount_cents, reference_key, payment_reference, description, created_by, created_at)
-                        VALUES (?, ?, 'credit', ?, ?, ?, ?, ?, ?)
-                    `, [crypto.randomUUID(), request.buyer_id, request.amount_cents, `topup:${request.id}`,
-                        request.payment_reference, 'Manually verified top-up', req.user.id, reviewedAt]);
-                }
-                return { id: request.id, status, reviewedAt };
-            });
-            res.json({ request: result });
-        } catch (error) {
-            if (error.status) return res.status(error.status).json({ error: error.message });
-            next(error);
-        }
-    });
-
     app.get('/api/listings/:id/video', auth, async (req, res, next) => {
         try {
             const row = await store.get('SELECT farmer_id, quantity, image FROM listings WHERE id = ?', [req.params.id]);
@@ -1627,13 +1953,13 @@ function createApp(options = {}) {
                     await ensureWallet(req.user.id);
                     const debited = await store.run(`
                         UPDATE wallet_accounts SET balance_cents = balance_cents - ?, updated_at = ?
-                        WHERE user_id = ? AND balance_cents >= ?
+                        WHERE user_id = ? AND status = 'active' AND balance_cents >= ?
                     `, [totalCents, createdAt, req.user.id, totalCents]);
                     if (!debited.changes) throw walletError('Your wallet balance is too low. Add funds, then try again.', 402);
                     await store.run(`
                         INSERT INTO wallet_transactions
-                            (id, user_id, kind, amount_cents, reference_key, description, created_at)
-                        VALUES (?, ?, 'debit', ?, ?, ?, ?)
+                            (id, user_id, kind, event_type, amount_cents, reference_key, description, created_at, status, channel)
+                        VALUES (?, ?, 'debit', 'purchase', ?, ?, ?, ?, 'completed', 'wallet')
                     `, [crypto.randomUUID(), req.user.id, totalCents, `checkout:${checkoutKey}`, 'Marketplace order payment', createdAt]);
                 }
                 const status = paymentMethod === 'Cash on delivery' ? 'Cash on delivery'
@@ -1702,8 +2028,8 @@ function createApp(options = {}) {
                         if (!refunded.changes) throw walletError('The wallet cannot accept this refund right now.', 409);
                         await store.run(`
                             INSERT INTO wallet_transactions
-                                (id, user_id, kind, amount_cents, reference_key, description, created_by, created_at)
-                            VALUES (?, ?, 'credit', ?, ?, ?, ?, ?)
+                                (id, user_id, kind, event_type, amount_cents, reference_key, description, created_by, created_at, status, channel)
+                            VALUES (?, ?, 'credit', 'refund', ?, ?, ?, ?, ?, 'completed', 'wallet')
                         `, [crypto.randomUUID(), order.buyer_id, cents, `refund:${order.id}`, `Refund for cancelled order ${order.id}`, req.user.id, new Date().toISOString()]);
                     }
                 }
@@ -1742,8 +2068,8 @@ function createApp(options = {}) {
                     if (!refunded.changes) throw walletError('The wallet cannot accept this refund right now.', 409);
                     await store.run(`
                         INSERT INTO wallet_transactions
-                            (id, user_id, kind, amount_cents, reference_key, description, created_by, created_at)
-                        VALUES (?, ?, 'credit', ?, ?, ?, ?, ?)
+                            (id, user_id, kind, event_type, amount_cents, reference_key, description, created_by, created_at, status, channel)
+                        VALUES (?, ?, 'credit', 'refund', ?, ?, ?, ?, ?, 'completed', 'wallet')
                     `, [crypto.randomUUID(), order.buyer_id, cents, `refund:${order.id}`, `Refund for cancelled order ${order.id}`, req.user.id, new Date().toISOString()]);
                 }
             });
@@ -1893,7 +2219,7 @@ function createApp(options = {}) {
         res.setHeader('X-Robots-Tag', 'noindex, nofollow');
         res.sendFile(path.join(ROOT, 'admin-profile.html'));
     });
-    app.get('/wallet-admin.html', adminPageAuth, (req, res) => res.redirect('/admin.html#topup-approvals'));
+    app.get('/wallet-admin.html', adminPageAuth, (req, res) => res.redirect('/admin.html#wallet-approvals'));
     for (const page of PAGES) app.get(`/${page}`, (req, res) => res.sendFile(path.join(ROOT, page)));
     app.get('/site-only.js', (req, res) => res.sendFile(path.join(ROOT, 'site-only.js')));
     app.get('/api-base.js', (req, res) => res.sendFile(path.join(ROOT, 'api-base.js')));

@@ -64,7 +64,7 @@
     <script src="site-only.js" defer></script>
 </head>
 <body>
-    <header class="topbar"><div class="topbar-inner"><a class="brand" href="#dashboard">🌱 KITUI FARM · Admin</a><div class="more-menu" id="moreMenu"><button class="more-toggle" id="moreToggle" type="button" aria-label="Open admin menu" aria-haspopup="menu" aria-expanded="false" aria-controls="morePanel">⋮</button><nav class="more-panel" id="morePanel" aria-label="Admin features" role="menu" hidden><a href="admin-profile.html" role="menuitem">Admin profile</a><a href="#dashboard" role="menuitem">Dashboard overview</a><a href="#people" role="menuitem">People</a><a href="#admins" role="menuitem">Admins</a><a href="#listings" role="menuitem">Product listings</a><a href="#orders" role="menuitem">Orders</a><a href="admin-chat.html" role="menuitem">User messages</a><a href="#topup-approvals" role="menuitem">Wallet approvals <span class="count" id="menuPendingCount">—</span></a><a href="#website-shortcuts" role="menuitem">Website shortcuts</a><div class="menu-divider" role="separator"></div><button class="menu-logout" id="logoutButton" type="button" role="menuitem">Log out</button></nav></div></div></header>
+    <header class="topbar"><div class="topbar-inner"><a class="brand" href="#dashboard">🌱 KITUI FARM · Admin</a><div class="more-menu" id="moreMenu"><button class="more-toggle" id="moreToggle" type="button" aria-label="Open admin menu" aria-haspopup="menu" aria-expanded="false" aria-controls="morePanel">⋮</button><nav class="more-panel" id="morePanel" aria-label="Admin features" role="menu" hidden><a href="admin-profile.html" role="menuitem">Admin profile</a><a href="#dashboard" role="menuitem">Dashboard overview</a><a href="#people" role="menuitem">People</a><a href="#admins" role="menuitem">Admins</a><a href="#listings" role="menuitem">Product listings</a><a href="#orders" role="menuitem">Orders</a><a href="admin-chat.html" role="menuitem">User messages</a><a href="#wallet-approvals" role="menuitem">Wallet operations <span class="count" id="menuPendingCount">—</span></a><a href="#website-shortcuts" role="menuitem">Website shortcuts</a><div class="menu-divider" role="separator"></div><button class="menu-logout" id="logoutButton" type="button" role="menuitem">Log out</button></nav></div></div></header>
     <main>
         <section id="dashboard" aria-labelledby="dashboardHeading">
         <p class="eyebrow">Control center</p>
@@ -77,7 +77,7 @@
             <article class="stat"><span>Enabled admins</span><strong id="adminCount">—</strong></article>
             <article class="stat"><span>Active listings</span><strong id="listingCount">—</strong></article>
             <article class="stat"><span>Orders</span><strong id="orderCount">—</strong></article>
-            <article class="stat"><span>Pending wallet approvals</span><strong id="topupCount">—</strong></article>
+            <article class="stat"><span>Pending wallet operations</span><strong id="walletOperationCount">—</strong></article>
         </div>
         <p class="status" id="dashboardStatus" role="status" aria-live="polite">Loading dashboard…</p>
         </section>
@@ -106,11 +106,11 @@
             <p class="empty" id="ordersEmpty" hidden>No orders found.</p>
         </section>
 
-        <section class="panel" id="topup-approvals" aria-labelledby="approvalHeading">
-            <div class="panel-head"><div><h2 id="approvalHeading">Wallet top-up approvals</h2><p class="muted">Verify the customer’s payment outside the website before approving a top-up.</p></div><span class="count" id="pendingCount" aria-label="Pending requests">—</span></div>
-            <p class="notice">Approving credits real funds to a customer’s wallet. Confirm the receipt and amount before you approve.</p>
+        <section class="panel" id="wallet-approvals" aria-labelledby="approvalHeading">
+            <div class="panel-head"><div><h2 id="approvalHeading">Wallet operation approvals</h2><p class="muted">Verify deposits and process requested payouts. Internal wallet transfers complete automatically.</p></div><span class="count" id="pendingCount" aria-label="Pending requests">—</span></div>
+            <p class="notice">Verify a deposit receipt before crediting the wallet. Mark a withdrawal complete only after sending the payout through the selected external service.</p>
             <p class="status" id="status" role="status" aria-live="polite">Checking admin access…</p>
-            <div id="requestList" aria-label="Pending top-up requests"></div>
+            <div id="requestList" aria-label="Pending wallet operations"></div>
         </section>
 
         <section class="panel" id="website-shortcuts" aria-labelledby="quickLinksHeading">
@@ -152,8 +152,8 @@
             document.getElementById('adminCount').textContent = overview.admins;
             document.getElementById('listingCount').textContent = overview.activeListings;
             document.getElementById('orderCount').textContent = overview.orders;
-            document.getElementById('topupCount').textContent = overview.pendingTopups;
-            document.getElementById('menuPendingCount').textContent = overview.pendingTopups;
+            document.getElementById('walletOperationCount').textContent = overview.pendingWalletOperations;
+            document.getElementById('menuPendingCount').textContent = overview.pendingWalletOperations;
 
             const accounts = accountData.accounts || [];
             document.getElementById('accountsCount').textContent = accounts.length;
@@ -193,18 +193,24 @@
             dashboardStatus.classList.remove('error');
         }
         async function loadRequests() {
-            const data = await apiRequest('/api/wallet/admin/topups');
+            const data = await apiRequest('/api/wallet/admin/operations');
             const list = document.getElementById('requestList');
             document.getElementById('pendingCount').textContent = data.requests.length;
             document.getElementById('menuPendingCount').textContent = data.requests.length;
-            setStatus(data.requests.length ? `${data.requests.length} request${data.requests.length === 1 ? '' : 's'} need review.` : 'You’re signed in as an administrator. There are no pending top-up requests.');
-            list.innerHTML = data.requests.map(item => `
-                <article class="request"><div><h3>${escapeHtml(item.name)} · ${money(item.amount)}</h3>
-                <p>${escapeHtml(item.email)} · ${escapeHtml(item.phone)}</p>
-                <p>Payment reference: <strong>${escapeHtml(item.paymentReference)}</strong></p>
+            setStatus(data.requests.length ? `${data.requests.length} request${data.requests.length === 1 ? '' : 's'} need review.` : 'You’re signed in as an administrator. There are no pending wallet operations.');
+            list.innerHTML = data.requests.map(item => {
+                const details = item.details || {};
+                const deposit = item.type === 'deposit';
+                const method = item.channel === 'mpesa_stk_simulation' ? 'M-Pesa (simulation)' : item.channel === 'airtel_money' || item.channel === 'airtel' ? 'Airtel Money' : item.channel === 'bank_transfer' || item.channel === 'bank' ? 'Bank transfer' : item.channel;
+                const destination = details.phone || [details.accountName, details.accountNumber, details.bankName, details.branch].filter(Boolean).join(' · ');
+                return `<article class="request"><div><h3>${escapeHtml(item.name)} · ${money(item.amount)} · ${deposit ? 'Deposit' : 'Withdrawal'}</h3>
+                <p>${escapeHtml(item.email)} · ${escapeHtml(item.phone)} · Wallet ${escapeHtml(item.walletId)}</p>
+                <p>Method: <strong>${escapeHtml(method)}</strong>${destination ? ` · ${escapeHtml(destination)}` : ''}</p>
+                ${deposit ? `<p>Payment reference: <strong>${escapeHtml(item.paymentReference || 'Not provided')}</strong>${details.bankName ? ` · Bank: ${escapeHtml(details.bankName)}` : ''}</p>` : `<p>Reserved payout amount. Fee: ${money(item.fee)}.</p>`}
                 <p>Submitted ${new Date(item.createdAt).toLocaleString('en-KE')}</p></div>
-                <div class="actions"><button class="button approve" data-review="approve" data-id="${escapeHtml(item.id)}">Verify &amp; approve</button>
-                <button class="button reject" data-review="reject" data-id="${escapeHtml(item.id)}">Reject</button></div></article>`).join('');
+                <div class="actions"><button class="button approve" data-review="approve" data-type="${escapeHtml(item.type)}" data-id="${escapeHtml(item.id)}">${deposit ? 'Verify &amp; credit' : 'Mark payout sent'}</button>
+                <button class="button reject" data-review="reject" data-type="${escapeHtml(item.type)}" data-id="${escapeHtml(item.id)}">${deposit ? 'Reject deposit' : 'Reject &amp; refund'}</button></div></article>`;
+            }).join('');
         }
         const moreMenu = document.getElementById('moreMenu');
         const moreToggle = document.getElementById('moreToggle');
@@ -241,11 +247,12 @@
         document.getElementById('requestList').addEventListener('click', async event => {
             const button = event.target.closest('button[data-review]'); if (!button) return;
             const approval = button.dataset.review === 'approve';
-            if (!window.confirm(approval ? 'Confirm you verified this payment receipt and want to credit the wallet?' : 'Reject this top-up request?')) return;
+            const isDeposit = button.dataset.type === 'deposit';
+            if (!window.confirm(approval ? (isDeposit ? 'Confirm you verified the external deposit and want to credit this wallet?' : 'Confirm you sent the external payout and want to mark this withdrawal complete?') : (isDeposit ? 'Reject this deposit request?' : 'Reject this withdrawal and return the reserved amount to the wallet?'))) return;
             button.disabled = true;
             try {
-                await apiRequest(`/api/wallet/admin/topups/${encodeURIComponent(button.dataset.id)}/review`, { method:'POST', body:JSON.stringify({ decision:button.dataset.review }) });
-                setStatus(approval ? 'Payment verified and wallet credited.' : 'Top-up request rejected.');
+                await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.id)}/review`, { method:'POST', body:JSON.stringify({ decision:button.dataset.review }) });
+                setStatus(approval ? (isDeposit ? 'Deposit verified and wallet credited.' : 'Withdrawal marked as paid.') : (isDeposit ? 'Deposit request rejected.' : 'Withdrawal rejected and funds refunded.'));
                 await loadRequests();
             } catch (error) { setStatus(error.message, true); button.disabled = false; }
         });

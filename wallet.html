@@ -1,118 +1,150 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-    <script src="api-base.js"></script>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#4a8c3f">
-    <title>My Wallet - KITUI FARM</title>
-    <script>
-        const walletSession = (() => {
-            try {
-                const session = JSON.parse(localStorage.getItem('kituiFarmSession') || sessionStorage.getItem('kituiFarmSession') || 'null');
-                const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
-                const user = Array.isArray(users) && session ? users.find(account => account.id === session.userId && account.role === 'buyer') : null;
-                return user ? { ...session, ...user } : null;
-            } catch { return null; }
-        })();
-        if (!walletSession) window.location.replace('login.html');
-    </script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f4f7f1">
+    <title>My wallet · KITUI FARM</title>
     <style>
-        :root { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; --green:#4a8c3f; --dark:#2d5a27; --ink:#263126; --muted:#657064; --line:#e3e9df; --bg:#f5f7f2; --surface:#fff; --danger:#b42318; }
-        * { box-sizing:border-box; }
-        body { margin:0; background:var(--bg); color:var(--ink); line-height:1.55; }
-        .topbar { background:var(--surface); border-bottom:1px solid var(--line); }
-        .topbar-inner, main { width:min(980px,calc(100% - 36px)); margin:auto; }
-        .topbar-inner { min-height:68px; display:flex; align-items:center; justify-content:space-between; gap:12px; }
-        .brand { color:var(--dark); font-weight:750; text-decoration:none; }
-        .nav { display:flex; flex-wrap:wrap; gap:8px; }
-        .button { display:inline-flex; align-items:center; justify-content:center; min-height:40px; padding:8px 13px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); font:inherit; font-weight:650; text-decoration:none; cursor:pointer; }
-        .button.primary { border-color:var(--green); background:var(--green); color:#fff; }
-        main { padding:34px 0 60px; }
-        h1 { margin:0; color:var(--dark); font-size:clamp(28px,5vw,38px); }
-        .intro { margin:6px 0 22px; color:var(--muted); }
-        .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
-        .card { padding:22px; border:1px solid var(--line); border-radius:14px; background:var(--surface); }
-        .balance-card { background:linear-gradient(135deg,#e6f2e1,#fff); }
-        .label { margin:0 0 5px; color:var(--muted); font-size:13px; font-weight:650; }
-        .balance { margin:0; color:var(--dark); font-size:clamp(34px,7vw,48px); font-weight:780; letter-spacing:-.03em; }
-        .card h2 { margin:0 0 13px; color:var(--dark); font-size:20px; }
-        .card p { color:var(--muted); }
-        .field { display:grid; gap:6px; margin:13px 0; }
-        .field label { font-size:14px; font-weight:650; }
-        input { width:100%; min-height:44px; padding:9px 11px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); font:inherit; }
-        .hint { margin:5px 0 0; color:var(--muted); font-size:13px; }
-        .message { min-height:22px; margin:10px 0 0; color:var(--dark); font-size:14px; }
-        .message.error { color:var(--danger); }
-        .stack { display:grid; gap:9px; }
-        .entry { display:flex; justify-content:space-between; align-items:flex-start; gap:14px; padding:12px 0; border-top:1px solid var(--line); }
-        .entry:first-child { border-top:0; }
-        .entry small { display:block; color:var(--muted); }
-        .amount { white-space:nowrap; font-weight:700; }
-        .credit { color:var(--dark); } .debit { color:var(--danger); }
-        .status { padding:3px 8px; border-radius:999px; background:#edf5e9; color:var(--dark); font-size:12px; font-weight:700; text-transform:capitalize; }
-        .wide { grid-column:1/-1; }
-        @media(max-width:650px) { .topbar-inner,main { width:calc(100% - 28px); } .topbar-inner { flex-wrap:wrap; padding:9px 0; } .nav { justify-content:flex-end; } .button { min-height:36px; padding:7px 10px; font-size:13px; } .grid { grid-template-columns:1fr; } .wide { grid-column:auto; } .card { padding:18px; } }
+        :root{color-scheme:light;--bg:#f4f7f1;--surface:#fff;--line:#dce6d7;--dark:#285a2b;--green:#4b913f;--ink:#233126;--muted:#66766a;--danger:#b42318}
+        [hidden]{display:none!important}
+        *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}.topbar{background:#fff;border-bottom:1px solid var(--line)}.topbar-inner,main{width:min(1120px,calc(100% - 36px));margin:auto}.topbar-inner{min-height:68px;display:flex;align-items:center;justify-content:space-between;gap:12px}.brand{color:var(--dark);font-weight:800;text-decoration:none}.nav{display:flex;flex-wrap:wrap;gap:8px}.button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:9px 14px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);font:inherit;font-weight:700;text-decoration:none;cursor:pointer}.button.primary{border-color:var(--green);background:var(--green);color:#fff}.button.danger{border-color:#efc5c1;color:var(--danger)}button:disabled{opacity:.6;cursor:wait}main{padding:34px 0 60px}h1{margin:0;color:var(--dark);font-size:clamp(30px,5vw,42px)}.intro{margin:4px 0 20px;color:var(--muted)}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.card{min-width:0;padding:22px;border:1px solid var(--line);border-radius:15px;background:#fff}.balance-card{background:linear-gradient(135deg,#e5f1df,#fff)}.label{margin:0 0 4px;color:var(--muted);font-weight:700}.balance{margin:0;color:var(--dark);font-size:clamp(38px,7vw,54px);font-weight:850;letter-spacing:-.04em}.wallet-meta{display:flex;flex-wrap:wrap;gap:8px 18px;margin-top:14px;color:var(--muted);font-size:14px}.card h2{margin:0 0 10px;color:var(--dark);font-size:21px}.card>p{color:var(--muted)}.field{display:grid;gap:6px;margin:13px 0}.field label{font-size:14px;font-weight:700}.field input,.field select{width:100%;min-height:45px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);font:inherit}.hint{margin:5px 0 0;color:var(--muted);font-size:13px}.message{min-height:22px;margin:10px 0 0;color:var(--dark);font-size:14px}.message.error{color:var(--danger)}.wide{grid-column:1/-1}.split{display:grid;grid-template-columns:1fr 1fr;gap:12px}.stack{display:grid;gap:2px}.entry{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:13px 0;border-top:1px solid var(--line)}.entry:first-child{border-top:0}.entry small{display:block;color:var(--muted)}.amount{white-space:nowrap;font-weight:750}.credit{color:var(--dark)}.debit{color:#9b3434}.status{display:inline-flex;padding:3px 9px;border-radius:999px;background:#edf5e9;color:var(--dark);font-size:12px;font-weight:750;text-transform:capitalize}.status.pending,.status.processing{background:#fff4d6;color:#7a5100}.status.rejected,.status.failed{background:#ffeded;color:var(--danger)}.recipient-preview{min-height:22px;color:var(--dark);font-size:14px}.notice{padding:12px 14px;border:1px solid #ead7a1;border-radius:10px;background:#fff9e8;color:#69551f;font-size:14px}.danger-zone{border-color:#edcfcc}.empty{color:var(--muted)}@media(max-width:740px){.topbar-inner,main{width:calc(100% - 26px)}.topbar-inner{flex-wrap:wrap;padding:10px 0}.nav{justify-content:flex-end}.button{min-height:38px;padding:7px 10px;font-size:14px}.grid{grid-template-columns:1fr}.wide{grid-column:auto}.card{padding:18px}.split{grid-template-columns:1fr}}
     </style>
+    <script src="api-base.js"></script>
     <script src="site-only.js" defer></script>
 </head>
 <body>
-    <header class="topbar"><div class="topbar-inner"><a class="brand" href="buyer-dashboard.html">🌱 KITUI FARM</a><nav class="nav" aria-label="Wallet navigation"><a class="button" href="buyer-dashboard.html">← Marketplace</a><a class="button" href="customer-service.html">Customer service</a></nav></div></header>
+    <header class="topbar"><div class="topbar-inner"><a class="brand" id="brandLink" href="index.html">🌱 KITUI FARM</a><nav class="nav" aria-label="Wallet navigation"><a class="button" id="backLink" href="buyer-dashboard.html">← Dashboard</a><a class="button" href="customer-service.html">Customer service</a></nav></div></header>
     <main>
-        <h1>My wallet</h1>
-        <p class="intro">Use your wallet balance to pay for marketplace orders.</p>
+        <h1>My wallet</h1><p class="intro">Manage your KES balance, move funds, and review every wallet transaction.</p>
         <div class="grid">
-            <section class="card balance-card"><p class="label">Available balance</p><p class="balance" id="walletBalance">KES —</p><p class="hint">Your wallet balance and payment history are saved to your account.</p></section>
-            <section class="card">
-                <h2>Request a top-up</h2>
-                <p class="hint">Contact Customer Service for payment instructions. Submit your payment reference after you pay. An administrator will verify it before adding funds.</p>
-                <form id="topupForm">
-                    <div class="field"><label for="topupAmount">Amount (KES)</label><input id="topupAmount" type="number" min="0.01" max="1000000" step="0.01" required></div>
-                    <div class="field"><label for="paymentReference">M-PESA receipt/reference</label><input id="paymentReference" maxlength="32" autocomplete="off" placeholder="e.g. QAB12CD34E" required><p class="hint">Enter the receipt code from your payment message.</p></div>
-                    <button class="button primary" id="topupButton" type="submit">Submit top-up request</button>
-                    <p class="message" id="topupMessage" role="status" aria-live="polite"></p>
+            <section class="card balance-card"><p class="label">Available balance</p><p class="balance" id="walletBalance">KES —</p><div class="wallet-meta"><span>Wallet ID: <strong id="walletId">Loading…</strong></span><span>Status: <strong id="walletStatus">—</strong></span></div><p class="hint">Internal wallet transfers and marketplace wallet payments update instantly.</p></section>
+
+            <section class="card"><h2>Add money</h2><p class="hint">Requests stay pending until an administrator verifies the payment. Make the payment using customer-service instructions, then enter its receipt. No real STK prompt or external charge is triggered on this page.</p>
+                <form id="depositForm"><div class="field"><label for="depositChannel">Deposit method</label><select id="depositChannel"><option value="mpesa_stk_simulation">M-Pesa (request simulation)</option><option value="airtel_money">Airtel Money (manual verification)</option><option value="bank_transfer">Bank transfer (manual verification)</option></select></div>
+                    <div class="field"><label for="depositAmount">Amount (KES)</label><input id="depositAmount" type="number" min="0.01" max="1000000" step="0.01" required></div>
+                    <div class="field" data-deposit-field="phone"><label for="depositPhone">Mobile number</label><input id="depositPhone" type="tel" inputmode="tel" placeholder="07xx xxx xxx"><p class="hint" id="phoneHint">Simulation only: this does not send a real M-Pesa prompt.</p></div>
+                    <div class="field" data-deposit-field="bank"><label for="bankName">Sending bank</label><input id="bankName" maxlength="80" placeholder="Bank name"></div>
+                    <div class="field" data-deposit-field="bank"><label for="accountReference">Bank account/reference (optional)</label><input id="accountReference" maxlength="80" placeholder="Optional"></div>
+                    <div class="field"><label for="depositReference">Payment receipt/reference</label><input id="depositReference" maxlength="32" autocomplete="off" placeholder="e.g. QAB12CD34E" required><p class="hint">Enter the receipt from your payment message. The M-Pesa prompt is not connected yet.</p></div>
+                    <button class="button primary" id="depositButton" type="submit">Submit deposit request</button><p class="message" id="depositMessage" role="status" aria-live="polite"></p>
                 </form>
             </section>
-            <section class="card"><h2>Recent activity</h2><div class="stack" id="transactions"><p class="hint">Loading wallet activity…</p></div></section>
-            <section class="card"><h2>Top-up requests</h2><div class="stack" id="topupRequests"><p class="hint">Loading requests…</p></div></section>
+
+            <section class="card"><h2>Transfer to another wallet</h2><p class="hint">Find the recipient by wallet ID, Kenyan phone number, or exact account name. Check the recipient before sending.</p>
+                <form id="recipientForm"><div class="field"><label for="recipient">Recipient</label><input id="recipient" autocomplete="off" maxlength="120" required placeholder="Wallet ID, phone, or full name"></div><button class="button" type="submit">Check recipient</button><p id="recipientPreview" class="recipient-preview" aria-live="polite"></p></form>
+                <form id="transferForm"><div class="field"><label for="transferAmount">Amount (KES)</label><input id="transferAmount" type="number" min="0.01" max="1000000" step="0.01" required></div><button class="button primary" type="submit">Transfer funds</button><p class="message" id="transferMessage" role="status" aria-live="polite"></p></form>
+            </section>
+
+            <section class="card"><h2>Withdraw funds</h2><p class="hint">Your wallet is reserved for the requested amount. The payout is processed manually; rejecting the request refunds the amount. Current fee: KES 0.00.</p>
+                <form id="withdrawalForm"><div class="field"><label for="withdrawChannel">Send to</label><select id="withdrawChannel"><option value="mpesa">M-Pesa</option><option value="airtel">Airtel Money</option><option value="bank">Bank account</option></select></div>
+                    <div class="field"><label for="withdrawAmount">Amount (KES)</label><input id="withdrawAmount" type="number" min="0.01" max="1000000" step="0.01" required></div>
+                    <div class="field" data-withdraw-field="phone"><label for="withdrawPhone">Mobile number</label><input id="withdrawPhone" type="tel" inputmode="tel" placeholder="07xx xxx xxx"></div>
+                    <div class="field" data-withdraw-field="bank"><label for="withdrawAccountName">Account name</label><input id="withdrawAccountName" maxlength="100"></div>
+                    <div class="split" data-withdraw-field="bank"><div class="field"><label for="withdrawAccountNumber">Account number</label><input id="withdrawAccountNumber" maxlength="34"></div><div class="field"><label for="withdrawBankName">Bank name</label><input id="withdrawBankName" maxlength="80"></div></div>
+                    <div class="field" data-withdraw-field="bank"><label for="withdrawBranch">Branch (optional)</label><input id="withdrawBranch" maxlength="80" placeholder="Optional"></div>
+                    <button class="button primary" type="submit">Request withdrawal</button><p class="message" id="withdrawMessage" role="status" aria-live="polite"></p>
+                </form>
+            </section>
+
+            <section class="card wide"><h2>Transaction history</h2><div class="stack" id="transactions"><p class="empty">Loading wallet activity…</p></div></section>
+            <section class="card wide"><h2>Deposit and withdrawal requests</h2><div class="stack" id="operations"><p class="empty">Loading requests…</p></div></section>
+            <section class="card danger-zone wide"><h2>Close wallet</h2><p class="hint">Closing is allowed only with a zero balance and no pending deposits or withdrawals. Account password confirmation is required.</p>
+                <form id="closeForm" class="split"><div class="field"><label for="closePassword">Account password</label><input id="closePassword" type="password" autocomplete="current-password" required></div><div class="field"><label for="closeConfirmation">Type CLOSE to confirm</label><input id="closeConfirmation" autocomplete="off" required></div><div><button class="button danger" type="submit">Close wallet</button></div></form><p class="message" id="closeMessage" role="status" aria-live="polite"></p>
+            </section>
         </div>
     </main>
     <script>
-        async function apiRequest(url, options = {}) {
-            const response = await fetch(url, { ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers } });
-            const data = response.status === 204 ? null : await response.json();
-            if (!response.ok) throw new Error(data?.error || 'The server request failed.');
+        const $ = id => document.getElementById(id);
+        let currentWallet = null;
+        let currentUser = null;
+        let checkedRecipient = null;
+        let depositSubmissionKey = crypto.randomUUID();
+        let withdrawalSubmissionKey = crypto.randomUUID();
+        let transferSubmissionKey = crypto.randomUUID();
+        const apiRequest = async (url, options = {}) => {
+            const response = await fetch(url, { ...options, headers: { ...(options.body ? { 'Content-Type':'application/json' } : {}), ...options.headers } });
+            let data = null; try { data = response.status === 204 ? null : await response.json(); } catch { data = null; }
+            if (!response.ok) { const error = new Error(data?.error || 'The server request failed.'); error.status = response.status; throw error; }
             return data;
-        }
-        function money(value) { return `KES ${Number(value).toLocaleString('en-KE', { minimumFractionDigits:2, maximumFractionDigits:2 })}`; }
-        function escapeHtml(value) { return String(value).replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char])); }
-        async function loadWallet() {
-            const data = await apiRequest('/api/wallet');
-            document.getElementById('walletBalance').textContent = money(data.balance);
-            const transactions = document.getElementById('transactions');
-            transactions.innerHTML = data.transactions.length ? data.transactions.map(item => `
-                <div class="entry"><span>${escapeHtml(item.description)}<small>${new Date(item.createdAt).toLocaleString('en-KE')}</small></span>
-                <span class="amount ${item.kind}">${item.kind === 'credit' ? '+' : '−'}${money(item.amount)}</span></div>`).join('') : '<p class="hint">No wallet transactions yet.</p>';
-            const requests = document.getElementById('topupRequests');
-            requests.innerHTML = data.topupRequests.length ? data.topupRequests.map(item => `
-                <div class="entry"><span>${money(item.amount)}<small>Receipt ${escapeHtml(item.paymentReference)} · ${new Date(item.createdAt).toLocaleDateString('en-KE')}</small></span>
-                <span class="status">${escapeHtml(item.status)}</span></div>`).join('') : '<p class="hint">No top-up requests yet.</p>';
-        }
-        loadWallet().catch(error => { document.getElementById('walletBalance').textContent = 'Unavailable'; document.getElementById('topupMessage').textContent = error.message; document.getElementById('topupMessage').classList.add('error'); });
-        document.getElementById('topupForm').addEventListener('submit', async event => {
-            event.preventDefault();
-            const form = event.currentTarget;
-            const button = document.getElementById('topupButton'); const message = document.getElementById('topupMessage');
-            button.disabled = true; message.classList.remove('error'); message.textContent = 'Sending request…';
-            try {
-                const result = await apiRequest('/api/wallet/topups', { method:'POST', body:JSON.stringify({ amount:document.getElementById('topupAmount').value, paymentReference:document.getElementById('paymentReference').value.trim() }) });
-                message.textContent = `Request received for ${money(result.request.amount)}. It will be credited after an administrator verifies the payment.`;
-                form.reset();
-                try { await loadWallet(); }
-                catch { message.textContent += ' Your request was submitted, but wallet activity could not refresh. Reload this page to check its status.'; }
-            } catch (error) { message.textContent = error.message; message.classList.add('error'); }
-            finally { button.disabled = false; }
+        };
+        const money = value => `KES ${Number(value).toLocaleString('en-KE',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+        const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+        const setMessage = (id, text, error = false) => { $(id).textContent = text; $(id).classList.toggle('error', error); };
+        const setConditionalFields = (selector, value, activeValue) => document.querySelectorAll(selector).forEach(group => {
+            const active = group.dataset.depositField === activeValue || group.dataset.withdrawField === activeValue;
+            group.hidden = !active;
+            group.querySelectorAll('input').forEach(input => { input.required = active && !input.placeholder.includes('optional'); });
         });
+        $('depositChannel').addEventListener('change', () => {
+            const channel = $('depositChannel').value;
+            setConditionalFields('[data-deposit-field="phone"]', channel, channel === 'bank_transfer' ? 'bank' : 'phone');
+            setConditionalFields('[data-deposit-field="bank"]', channel, channel === 'bank_transfer' ? 'bank' : 'none');
+            $('depositReference').required = true;
+            $('phoneHint').textContent = channel === 'mpesa_stk_simulation' ? 'M-Pesa prompt simulation only: pay using customer-service instructions; this does not send an STK prompt.' : 'The administrator will confirm payment before crediting this wallet.';
+        });
+        $('withdrawChannel').addEventListener('change', () => {
+            const bank = $('withdrawChannel').value === 'bank';
+            setConditionalFields('[data-withdraw-field="phone"]', '', bank ? 'bank' : 'phone');
+            setConditionalFields('[data-withdraw-field="bank"]', '', bank ? 'bank' : 'none');
+        });
+        function renderWallet(data) {
+            currentWallet = data.wallet;
+            $('walletBalance').textContent = money(data.wallet.balance);
+            $('walletId').textContent = data.wallet.id;
+            $('walletStatus').textContent = data.wallet.status;
+            const dashboard = currentUser?.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
+            $('backLink').href = dashboard; $('brandLink').href = dashboard;
+            const closed = data.wallet.status !== 'active';
+            document.querySelectorAll('#depositForm button,#transferForm button,#recipientForm button,#withdrawalForm button').forEach(button => button.disabled = closed);
+            const tx = data.transactions || [];
+            $('transactions').innerHTML = tx.length ? tx.map(item => `<div class="entry"><span>${escapeHtml(item.description)}<small>${escapeHtml(item.type)} · ${escapeHtml(item.channel)} · ${new Date(item.createdAt).toLocaleString('en-KE')}</small></span><span class="amount ${item.direction === 'credit' ? 'credit' : 'debit'}">${item.direction === 'credit' ? '+' : '−'}${money(item.amount)}<small class="status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</small></span></div>`).join('') : '<p class="empty">No wallet transactions yet.</p>';
+            const ops = data.operations || [];
+            $('operations').innerHTML = ops.length ? ops.map(item => `<div class="entry"><span>${escapeHtml(item.type)} · ${escapeHtml(item.channel)}<small>${item.paymentReference ? `Reference ${escapeHtml(item.paymentReference)} · ` : ''}${new Date(item.createdAt).toLocaleString('en-KE')}</small></span><span class="amount">${money(item.amount)}<small class="status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</small></span></div>`).join('') : '<p class="empty">No deposit or withdrawal requests yet.</p>';
+        }
+        async function loadWallet() { const data = await apiRequest('/api/wallet'); renderWallet(data); }
+        async function initialize() {
+            try { const result = await apiRequest('/api/auth/me'); currentUser = result.user; await loadWallet(); }
+            catch (error) { if (error.status === 401) { location.replace('login.html'); return; } setMessage('depositMessage', error.message, true); }
+        }
+        $('depositForm').addEventListener('submit', async event => {
+            event.preventDefault(); const button = $('depositButton'); button.disabled = true; setMessage('depositMessage','Submitting deposit request…');
+            const channel = $('depositChannel').value;
+            const body = { amount:$('depositAmount').value, channel, paymentReference:$('depositReference').value.trim(), idempotencyKey:depositSubmissionKey };
+            if (channel === 'bank_transfer') Object.assign(body,{bankName:$('bankName').value,accountReference:$('accountReference').value});
+            else body.phone = $('depositPhone').value;
+            try { const data = await apiRequest('/api/wallet/deposits',{method:'POST',body:JSON.stringify(body)}); setMessage('depositMessage',`Request ${data.operation.id.slice(0,8)} submitted as pending. Funds appear after admin verification.`); depositSubmissionKey=crypto.randomUUID();event.currentTarget.reset(); $('depositChannel').dispatchEvent(new Event('change')); await loadWallet(); }
+            catch(error){setMessage('depositMessage',error.message,true);} finally{button.disabled=currentWallet?.status!=='active';}
+        });
+        $('recipientForm').addEventListener('submit', async event => {
+            event.preventDefault(); checkedRecipient = null; $('recipientPreview').textContent = 'Checking recipient…';
+            try { const data = await apiRequest(`/api/wallet/recipient?identifier=${encodeURIComponent($('recipient').value.trim())}`); checkedRecipient=data.recipient; $('recipientPreview').textContent=`Sending to ${data.recipient.name} · ${data.recipient.walletId}. Check the name before proceeding.`; }
+            catch(error){$('recipientPreview').textContent=error.message;}
+        });
+        $('transferForm').addEventListener('submit', async event => {
+            event.preventDefault(); if(!checkedRecipient){setMessage('transferMessage','Check and confirm the recipient before sending.',true);return;}
+            if(!window.confirm(`Send ${money($('transferAmount').value)} to ${checkedRecipient.name} (${checkedRecipient.walletId})?`))return;
+            const button=event.currentTarget.querySelector('button');button.disabled=true;setMessage('transferMessage','Processing transfer…');
+            try{const data=await apiRequest('/api/wallet/transfers',{method:'POST',body:JSON.stringify({recipient:$('recipient').value.trim(),amount:$('transferAmount').value,idempotencyKey:transferSubmissionKey})});setMessage('transferMessage',`Transfer complete to ${data.transfer.toWalletId}.`);transferSubmissionKey=crypto.randomUUID();event.currentTarget.reset();checkedRecipient=null;$('recipientPreview').textContent='';await loadWallet();}
+            catch(error){setMessage('transferMessage',error.message,true);}finally{button.disabled=currentWallet?.status!=='active';}
+        });
+        $('withdrawalForm').addEventListener('submit',async event=>{
+            event.preventDefault();const channel=$('withdrawChannel').value;const body={channel,amount:$('withdrawAmount').value};
+            if(channel==='bank')Object.assign(body,{accountName:$('withdrawAccountName').value,accountNumber:$('withdrawAccountNumber').value,bankName:$('withdrawBankName').value,branch:$('withdrawBranch').value});else body.phone=$('withdrawPhone').value;
+            if(!window.confirm(`Request a ${money(body.amount)} withdrawal to ${channel==='bank'?'the bank account provided':channel==='mpesa'?'M-Pesa':'Airtel Money'}? The amount will be reserved while it is processed.`))return;
+            const button=event.currentTarget.querySelector('button');button.disabled=true;setMessage('withdrawMessage','Submitting withdrawal request…');
+            body.idempotencyKey=withdrawalSubmissionKey;
+            try{const data=await apiRequest('/api/wallet/withdrawals',{method:'POST',body:JSON.stringify(body)});setMessage('withdrawMessage',`Withdrawal request ${data.operation.id.slice(0,8)} is pending. Fee: ${money(data.operation.fee)}.`);withdrawalSubmissionKey=crypto.randomUUID();event.currentTarget.reset();$('withdrawChannel').dispatchEvent(new Event('change'));await loadWallet();}
+            catch(error){setMessage('withdrawMessage',error.message,true);}finally{button.disabled=currentWallet?.status!=='active';}
+        });
+        $('closeForm').addEventListener('submit',async event=>{
+            event.preventDefault();if($('closeConfirmation').value!=='CLOSE'){setMessage('closeMessage','Type CLOSE exactly to confirm.',true);return;}
+            if(!window.confirm('Close this wallet? You can’t make wallet payments while it is closed.'))return;
+            const button=event.currentTarget.querySelector('button');button.disabled=true;setMessage('closeMessage','Closing wallet…');
+            try{await apiRequest('/api/wallet/close',{method:'POST',body:JSON.stringify({password:$('closePassword').value,confirmation:$('closeConfirmation').value})});setMessage('closeMessage','Wallet closed. Contact customer service before using the wallet again.');await loadWallet();}
+            catch(error){setMessage('closeMessage',error.message,true);}finally{button.disabled=false;}
+        });
+        $('depositChannel').dispatchEvent(new Event('change'));$('withdrawChannel').dispatchEvent(new Event('change'));initialize();
     </script>
 </body>
 </html>

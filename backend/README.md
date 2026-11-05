@@ -29,10 +29,14 @@ All protected routes use the HTTP-only `kitui_farm_session` cookie created by si
 | `POST` | `/api/auth/password-reset/confirm` | Verify the reset code, set a new password, and revoke existing sessions |
 | `GET`, `PATCH` | `/api/profile` | Read/update profile |
 | `GET`, `PUT` | `/api/settings` | Read/save appearance and delete settings |
-| `GET` | `/api/wallet` | Read wallet balance, transactions, and top-up requests |
-| `POST` | `/api/wallet/topups` | Submit a manual top-up for administrator verification |
-| `GET` | `/api/wallet/admin/topups` | List pending top-ups for an authorized wallet administrator |
-| `POST` | `/api/wallet/admin/topups/:id/review` | Approve or reject a top-up request |
+| `GET` | `/api/wallet` | Initialize/read wallet identity, balance, ledger history, and deposit/withdrawal requests |
+| `GET` | `/api/wallet/recipient?identifier=...` | Resolve another user’s wallet ID, Kenyan phone, or exact name before transfer |
+| `POST` | `/api/wallet/transfers` | Make an atomic, idempotent wallet-to-wallet transfer |
+| `POST` | `/api/wallet/deposits` | Submit an M-Pesa simulation, Airtel, or bank deposit for manual verification |
+| `POST` | `/api/wallet/withdrawals` | Reserve funds and request an M-Pesa, Airtel, or bank payout |
+| `POST` | `/api/wallet/close` | Close a zero-balance wallet with no pending operations after password confirmation |
+| `GET` | `/api/wallet/admin/operations` | List pending deposits and withdrawal requests for authorized administrators |
+| `POST` | `/api/wallet/admin/operations/:id/review` | Credit verified deposits, mark sent withdrawals as paid, or reject/refund |
 | `GET` | `/api/listings` | Browse available listings |
 | `GET` | `/api/listings?scope=mine` | Read a farmer's listings |
 | `POST`, `PATCH`, `DELETE` | `/api/listings[/:id]` | Farmer-owned listing management |
@@ -40,7 +44,7 @@ All protected routes use the HTTP-only `kitui_farm_session` cookie created by si
 | `PATCH` | `/api/orders/:id/status` | Buyer cancellation and farmer fulfillment updates |
 | `DELETE` | `/api/orders/:id` | Hide an order and restock eligible cancellations |
 
-M-PESA, Airtel Money, and bank choices at checkout remain demo-only. Wallet payments debit a KES balance saved in the database. Customers request manual top-ups with their M-PESA receipt; an authorized administrator must verify the receipt before crediting the wallet. No mobile-money payment is initiated by the website. Signup verification, welcome email, password reset codes, and password-change notifications use the Gmail API over HTTPS. Reset codes expire after 10 minutes and are limited to five attempts; successful resets revoke existing sessions.
+M-PESA STK push, Airtel integration, and bank payments are not connected. Deposit requests require a payment reference and remain pending until an administrator verifies them. External withdrawals are manual: the administrator sends the payout, then marks it paid; rejecting the request refunds the reserved wallet balance. Wallet-to-wallet transfers and marketplace wallet payments are ledger-backed database transactions. The wallet v2 migration deliberately deletes old wallet balances, ledger rows, and top-up requests once while preserving the `wallet_admins` allowlist. Signup verification, welcome email, password reset codes, and password-change notifications use the Gmail API over HTTPS. Reset codes expire after 10 minutes and are limited to five attempts; successful resets revoke existing sessions.
 
 Accounts previously stored only in browser local storage are not imported automatically. Create a new account through the server-backed sign-up page; passwords and legacy browser hashes are not transferred.
 
@@ -58,11 +62,11 @@ Tests always use in-memory SQLite, so `npm test` needs no credentials. Both engi
 ### Set up Supabase
 
 1. Create a project at [supabase.com](https://supabase.com).
-2. In the SQL Editor, open a new query, paste `backend/supabase/schema.sql` and run it. It creates every table and index, seeds the demo listings, and enables row level security.
+2. In the SQL Editor, open a new query, paste `backend/supabase/schema.sql` and run it. It creates every table and index, seeds the demo listings, and enables row level security. For an existing installation, also apply the newest file in `backend/supabase/migrations/`; wallet v2 intentionally clears prior balances, ledger entries, and deposit requests once.
 3. In Project Settings, Database, Connection string, copy the URI into `backend/.env` as `DATABASE_URL=postgresql://...` (start from `backend/.env.example`). Replace `[YOUR-PASSWORD]` with the database password.
-4. Run `npm.cmd start`. Accounts, listings, orders, and wallet balances now live in Supabase. The backend creates the wallet tables and adds profile columns automatically when it starts with `DATABASE_URL`.
+4. Run `npm.cmd start`. Accounts, listings, orders, and wallet balances now live in Supabase. The backend applies the one-time wallet v2 reset and creates/updates wallet tables automatically when it starts with `DATABASE_URL`.
 
-To designate an administrator for manual wallet top-ups, insert the already-registered account into `wallet_admins` in the SQL Editor:
+To designate an administrator for wallet deposit and withdrawal approvals, insert the already-registered account into `wallet_admins` in the SQL Editor:
 
 ```sql
 insert into public.wallet_admins (user_id, created_at)
@@ -70,7 +74,7 @@ select id, now()::text from public.users where lower(email) = lower('ADMIN_GMAIL
 on conflict (user_id) do nothing;
 ```
 
-Only administrators in this table can approve credits. Confirm each payment outside the website before approving it in `wallet-admin.html`.
+Only administrators in this table can approve wallet operations. Confirm deposits outside the website before crediting; after sending a withdrawal payout, mark it as sent in the admin console. M-Pesa STK push, Airtel, and bank integrations are not active yet.
 
 `npm start` and `npm test` load `backend/.env` automatically through Node's `--env-file-if-exists`, so `DATABASE_URL` takes effect without exporting it in the shell. The publishable (`sb_publishable_...`) key is not used by this backend and must not be substituted for `DATABASE_URL`.
 
