@@ -884,17 +884,19 @@ function createApp(options = {}) {
 
     app.get('/api/admin/overview', auth, walletAdmin, async (req, res, next) => {
         try {
-            const [users, farmers, buyers, listings, orders, topups] = await Promise.all([
-                store.get('SELECT COUNT(*) AS total FROM users'),
-                store.get("SELECT COUNT(*) AS total FROM users WHERE role = 'farmer'"),
-                store.get("SELECT COUNT(*) AS total FROM users WHERE role = 'buyer'"),
+            const [users, farmers, buyers, listings, orders, topups, admins] = await Promise.all([
+                store.get('SELECT COUNT(*) AS total FROM users WHERE NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)'),
+                store.get("SELECT COUNT(*) AS total FROM users WHERE role = 'farmer' AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)"),
+                store.get("SELECT COUNT(*) AS total FROM users WHERE role = 'buyer' AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)"),
                 store.get('SELECT COUNT(*) AS total FROM listings WHERE quantity > 0'),
                 store.get('SELECT COUNT(*) AS total FROM orders'),
-                store.get("SELECT COUNT(*) AS total FROM wallet_topup_requests WHERE status = 'pending'")
+                store.get("SELECT COUNT(*) AS total FROM wallet_topup_requests WHERE status = 'pending'"),
+                store.get('SELECT COUNT(*) AS total FROM wallet_admins')
             ]);
             res.json({ overview: {
                 accounts: Number(users.total), farmers: Number(farmers.total), buyers: Number(buyers.total),
-                activeListings: Number(listings.total), orders: Number(orders.total), pendingTopups: Number(topups.total)
+                activeListings: Number(listings.total), orders: Number(orders.total), pendingTopups: Number(topups.total),
+                admins: Number(admins.total)
             } });
         } catch (error) { next(error); }
     });
@@ -903,9 +905,25 @@ function createApp(options = {}) {
         try {
             const rows = await store.all(`
                 SELECT id, name, email, phone, role, location, gender, profile_photo, created_at
-                FROM users ORDER BY created_at DESC LIMIT 500
+                FROM users
+                WHERE NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)
+                ORDER BY created_at DESC LIMIT 500
             `);
             res.json({ accounts: rows.map(row => ({ ...publicUser(row), createdAt: row.created_at })) });
+        } catch (error) { next(error); }
+    });
+
+    app.get('/api/admin/admins', auth, walletAdmin, async (req, res, next) => {
+        try {
+            const rows = await store.all(`
+                SELECT users.id, users.name, users.email, users.phone, users.location, wallet_admins.created_at AS enabled_at
+                FROM wallet_admins JOIN users ON users.id = wallet_admins.user_id
+                ORDER BY wallet_admins.created_at DESC LIMIT 200
+            `);
+            res.json({ admins: rows.map(row => ({
+                id: row.id, name: row.name, email: row.email, phone: row.phone, location: row.location,
+                enabledAt: row.enabled_at
+            })) });
         } catch (error) { next(error); }
     });
 

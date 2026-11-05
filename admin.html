@@ -64,16 +64,17 @@
     <script src="site-only.js" defer></script>
 </head>
 <body>
-    <header class="topbar"><div class="topbar-inner"><a class="brand" href="#dashboard">🌱 KITUI FARM · Admin</a><div class="more-menu" id="moreMenu"><button class="more-toggle" id="moreToggle" type="button" aria-label="Open admin menu" aria-haspopup="menu" aria-expanded="false" aria-controls="morePanel">⋮</button><nav class="more-panel" id="morePanel" aria-label="Admin features" role="menu" hidden><a href="admin-profile.html" role="menuitem">Admin profile</a><a href="#dashboard" role="menuitem">Dashboard overview</a><a href="#accounts" role="menuitem">Accounts</a><a href="#listings" role="menuitem">Product listings</a><a href="#orders" role="menuitem">Orders</a><a href="admin-chat.html" role="menuitem">User messages</a><a href="#topup-approvals" role="menuitem">Wallet approvals <span class="count" id="menuPendingCount">—</span></a><a href="#website-shortcuts" role="menuitem">Website shortcuts</a><div class="menu-divider" role="separator"></div><button class="menu-logout" id="logoutButton" type="button" role="menuitem">Log out</button></nav></div></div></header>
+    <header class="topbar"><div class="topbar-inner"><a class="brand" href="#dashboard">🌱 KITUI FARM · Admin</a><div class="more-menu" id="moreMenu"><button class="more-toggle" id="moreToggle" type="button" aria-label="Open admin menu" aria-haspopup="menu" aria-expanded="false" aria-controls="morePanel">⋮</button><nav class="more-panel" id="morePanel" aria-label="Admin features" role="menu" hidden><a href="admin-profile.html" role="menuitem">Admin profile</a><a href="#dashboard" role="menuitem">Dashboard overview</a><a href="#people" role="menuitem">People</a><a href="#admins" role="menuitem">Admins</a><a href="#listings" role="menuitem">Product listings</a><a href="#orders" role="menuitem">Orders</a><a href="admin-chat.html" role="menuitem">User messages</a><a href="#topup-approvals" role="menuitem">Wallet approvals <span class="count" id="menuPendingCount">—</span></a><a href="#website-shortcuts" role="menuitem">Website shortcuts</a><div class="menu-divider" role="separator"></div><button class="menu-logout" id="logoutButton" type="button" role="menuitem">Log out</button></nav></div></div></header>
     <main>
         <section id="dashboard" aria-labelledby="dashboardHeading">
         <p class="eyebrow">Control center</p>
         <h1 id="dashboardHeading">Admin dashboard</h1>
         <p class="intro">Review accounts, product listings, orders, and wallet requests from one place.</p>
         <div class="stats" aria-label="Website overview">
-            <article class="stat"><span>Total accounts</span><strong id="accountCount">—</strong></article>
+            <article class="stat"><span>People (farmers &amp; customers)</span><strong id="accountCount">—</strong></article>
             <article class="stat"><span>Farmers</span><strong id="farmerCount">—</strong></article>
             <article class="stat"><span>Buyers</span><strong id="buyerCount">—</strong></article>
+            <article class="stat"><span>Enabled admins</span><strong id="adminCount">—</strong></article>
             <article class="stat"><span>Active listings</span><strong id="listingCount">—</strong></article>
             <article class="stat"><span>Orders</span><strong id="orderCount">—</strong></article>
             <article class="stat"><span>Pending wallet approvals</span><strong id="topupCount">—</strong></article>
@@ -81,10 +82,16 @@
         <p class="status" id="dashboardStatus" role="status" aria-live="polite">Loading dashboard…</p>
         </section>
 
-        <section class="panel" id="accounts" aria-labelledby="accountsHeading">
-            <div class="panel-head"><div><h2 id="accountsHeading">User accounts</h2><p class="muted">Buyer and farmer account details.</p></div><span class="count" id="accountsCount">—</span></div>
+        <section class="panel" id="people" aria-labelledby="accountsHeading">
+            <div class="panel-head"><div><h2 id="accountsHeading">People on KITUI FARM</h2><p class="muted">Registered farmers and customers. Enabled admins are listed separately below.</p></div><span class="count" id="accountsCount">—</span></div>
             <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Location</th><th>Created</th></tr></thead><tbody id="accountsBody"></tbody></table></div>
-            <p class="empty" id="accountsEmpty" hidden>No user accounts found.</p>
+            <p class="empty" id="accountsEmpty" hidden>No farmers or customers found.</p>
+        </section>
+
+        <section class="panel" id="admins" aria-labelledby="adminsHeading">
+            <div class="panel-head"><div><h2 id="adminsHeading">Enabled admins</h2><p class="muted">Accounts currently authorized to access the admin console.</p></div><span class="count" id="adminsCount">—</span></div>
+            <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Location</th><th>Admin access enabled</th></tr></thead><tbody id="adminsBody"></tbody></table></div>
+            <p class="empty" id="adminsEmpty" hidden>No admin accounts are enabled.</p>
         </section>
 
         <section class="panel" id="listings" aria-labelledby="listingsHeading">
@@ -134,14 +141,15 @@
             return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('en-KE', { dateStyle:'medium', timeStyle:'short' });
         }
         async function loadDashboard() {
-            const [overviewData, accountData, listingData, orderData] = await Promise.all([
+            const [overviewData, accountData, adminData, listingData, orderData] = await Promise.all([
                 apiRequest('/api/admin/overview'), apiRequest('/api/admin/accounts'),
-                apiRequest('/api/admin/listings'), apiRequest('/api/admin/orders')
+                apiRequest('/api/admin/admins'), apiRequest('/api/admin/listings'), apiRequest('/api/admin/orders')
             ]);
             const overview = overviewData.overview;
             document.getElementById('accountCount').textContent = overview.accounts;
             document.getElementById('farmerCount').textContent = overview.farmers;
             document.getElementById('buyerCount').textContent = overview.buyers;
+            document.getElementById('adminCount').textContent = overview.admins;
             document.getElementById('listingCount').textContent = overview.activeListings;
             document.getElementById('orderCount').textContent = overview.orders;
             document.getElementById('topupCount').textContent = overview.pendingTopups;
@@ -153,6 +161,14 @@
             document.getElementById('accountsBody').innerHTML = accounts.map(account => `<tr>
                 <td>${escapeHtml(account.name)}</td><td>${escapeHtml(account.email)}</td><td>${escapeHtml(account.phone)}</td>
                 <td>${escapeHtml(account.role)}</td><td>${escapeHtml(account.location || '—')}</td><td>${escapeHtml(displayDate(account.createdAt))}</td>
+            </tr>`).join('');
+
+            const admins = adminData.admins || [];
+            document.getElementById('adminsCount').textContent = admins.length;
+            document.getElementById('adminsEmpty').hidden = admins.length > 0;
+            document.getElementById('adminsBody').innerHTML = admins.map(admin => `<tr>
+                <td>${escapeHtml(admin.name)}</td><td>${escapeHtml(admin.email)}</td><td>${escapeHtml(admin.phone)}</td>
+                <td>${escapeHtml(admin.location || '—')}</td><td>${escapeHtml(displayDate(admin.enabledAt))}</td>
             </tr>`).join('');
 
             const listings = listingData.listings || [];
