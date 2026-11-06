@@ -1282,6 +1282,21 @@ function createApp(options = {}) {
         }
     });
 
+    app.post('/api/admin/welcome-email/resend', auth, walletAdmin, async (req, res, next) => {
+        try {
+            const account = await store.get('SELECT name, email FROM users WHERE id = ?', [req.user.id]);
+            if (!account?.email) return res.status(404).json({ error: 'The admin account email could not be found.' });
+            await sendAdminWelcomeEmail({ email: account.email, name: account.name, baseUrl: appBaseUrl(req) });
+            res.json({ sent: true, email: account.email });
+        } catch (error) {
+            console.error('[admin-welcome-email] Resend failed', {
+                status: Number.isInteger(error.status) ? error.status : 502
+            });
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
     app.post('/api/auth/logout', auth, async (req, res) => {
         await store.run('DELETE FROM sessions WHERE token_hash = ?', [req.tokenHash]);
         res.setHeader('Set-Cookie', `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secureCookie}`);

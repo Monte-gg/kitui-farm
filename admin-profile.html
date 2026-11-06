@@ -103,6 +103,12 @@
                     <div class="info-row"><small>Access level</small><strong>Website administrator</strong></div>
                     <div class="info-row"><small>Sign-in method</small><strong>Admin access code + profile identity</strong></div>
                     <div class="info-row"><small>Account email</small><strong id="securityEmail">—</strong></div>
+                    <div class="info-row">
+                        <small>Admin Console guide</small>
+                        <p>Need the welcome guide again? We’ll send it to the admin email shown above.</p>
+                        <button class="button" id="resendWelcomeButton" type="button">Resend welcome email</button>
+                        <p class="message" id="welcomeEmailStatus" role="status" aria-live="polite"></p>
+                    </div>
                     <div class="actions"><a class="button primary" href="admin.html">Return to admin dashboard</a></div>
                 </aside>
             </div>
@@ -184,6 +190,18 @@
                 setMessage(message, 'Admin profile updated. Use the updated name and email next time you sign in.');
             } catch (error) { setMessage(message, error.message, true); }
             finally { button.disabled = false; }
+        });
+        document.getElementById('resendWelcomeButton').addEventListener('click', async event => {
+            const button = event.currentTarget;
+            const status = document.getElementById('welcomeEmailStatus');
+            button.disabled = true;
+            setMessage(status, 'Sending the Admin Console guide…');
+            try {
+                await apiRequest('/api/admin/welcome-email/resend', { method:'POST' });
+                setMessage(status, `Welcome email sent to ${adminUser.email}. Check your inbox and spam folder.`);
+            } catch (error) {
+                setMessage(status, error.message || 'The welcome email could not be sent. Please try again later.', true);
+            } finally { button.disabled = false; }
         });
         function resizePhoto(file) {
             return new Promise((resolve,reject) => {
