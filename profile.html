@@ -76,6 +76,15 @@
         label { display: block; margin-bottom: 7px; color: var(--ink); font-size: 13px; font-weight: 650; }
         input, select { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
         input:focus, select:focus { outline: 2px solid #d1e5c7; border-color: var(--green); }
+        .password-input { position: relative; }
+        .password-input input { padding-right: 52px; }
+        .toggle-password { position: absolute; top: 50%; right: 5px; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; transform: translateY(-50%); border: 0; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
+        .toggle-password:hover { background: var(--green-light); color: var(--green-dark); }
+        .toggle-password:focus-visible { outline: 2px solid var(--green); outline-offset: 1px; }
+        .toggle-password svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        .toggle-password .eye-off { display: none; }
+        .toggle-password[aria-pressed="true"] .eye-on { display: none; }
+        .toggle-password[aria-pressed="true"] .eye-off { display: block; }
         input[readonly] { background: var(--bg); color: var(--muted); }
         .hint { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
         .actions { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
@@ -138,7 +147,7 @@
             <h2 id="deleteAccountHeading">Delete account permanently</h2>
             <p>This permanently removes your account, profile, wallet balance and activity, listings, and personal order history from KITUI FARM. Buyers’ order history will no longer identify a deleted farmer. This cannot be undone.</p>
             <form id="deleteAccountForm" class="danger-form">
-                <div class="field"><label for="deletePassword">Account password</label><input id="deletePassword" type="password" autocomplete="current-password" required maxlength="128"></div>
+                <div class="field"><label for="deletePassword">Account password</label><div class="password-input"><input id="deletePassword" type="password" autocomplete="current-password" required maxlength="128"><button class="toggle-password" id="toggleDeletePassword" type="button" aria-label="Show password" aria-pressed="false" aria-controls="deletePassword"><svg class="eye-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"></path><circle cx="12" cy="12" r="3"></circle></svg><svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18"></path><path d="M10.6 5.2A10.8 10.8 0 0 1 12 5c6.4 0 10 7 10 7s-3.6 7-10 7a10 10 0 0 1-4-.8"></path><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path></svg></button></div></div>
                 <div class="field"><label for="deleteConfirmation">Type DELETE to confirm</label><input id="deleteConfirmation" autocomplete="off" autocapitalize="characters" pattern="DELETE" required title="Type DELETE in capital letters"></div>
                 <div class="actions"><button class="button delete-button" id="deleteAccountButton" type="submit">Permanently delete account</button><p class="message" id="deleteAccountMessage" role="status" aria-live="polite"></p></div>
             </form>
@@ -331,6 +340,14 @@
 
         const deleteForm = document.getElementById('deleteAccountForm');
         const deleteMessage = document.getElementById('deleteAccountMessage');
+        const deletePasswordInput = document.getElementById('deletePassword');
+        const toggleDeletePassword = document.getElementById('toggleDeletePassword');
+        toggleDeletePassword.addEventListener('click', () => {
+            const showPassword = deletePasswordInput.type === 'password';
+            deletePasswordInput.type = showPassword ? 'text' : 'password';
+            toggleDeletePassword.setAttribute('aria-pressed', String(showPassword));
+            toggleDeletePassword.setAttribute('aria-label', showPassword ? 'Hide password' : 'Show password');
+        });
         deleteForm.addEventListener('submit', async event => {
             event.preventDefault();
             const password = document.getElementById('deletePassword').value;
