@@ -54,8 +54,8 @@
         .notice { margin:20px 0; padding:14px 16px; border:1px solid #e7d8a6; border-radius:11px; background:#fff8df; color:#554515; }
         .panel { margin-top:18px; padding:22px; border:1px solid var(--line); border-radius:16px; background:var(--surface); box-shadow:0 8px 28px #20351a0a; }
         .panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
-        .account-tools { display:flex; align-items:center; gap:9px; flex-wrap:wrap; justify-content:flex-end; }
-        .account-tools small { flex-basis:100%; color:var(--muted); text-align:right; }
+        .account-tools,.admin-tools { display:flex; align-items:center; gap:9px; flex-wrap:wrap; justify-content:flex-end; }
+        .account-tools small,.admin-tools small { flex-basis:100%; color:var(--muted); text-align:right; }
         .refresh-data { min-height:34px; padding:6px 10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--dark); font:inherit; font-size:13px; font-weight:700; cursor:pointer; }
         .refresh-data:disabled { opacity:.65; cursor:wait; }
         h2 { margin:0; color:var(--dark); font-size:23px; }
@@ -148,7 +148,7 @@
 
         <section class="panel" id="admins" data-admin-view hidden aria-labelledby="adminsHeading">
             <div class="view-heading"><p class="eyebrow">Access control</p><h1>Admin access</h1><p class="intro">See accounts currently authorized to use the Admin Console.</p></div>
-            <div class="panel-head"><div><h2 id="adminsHeading">Enabled admins</h2><p class="muted">Accounts currently authorized to access the admin console.</p></div><span class="count" id="adminsCount">—</span></div>
+            <div class="panel-head"><div><h2 id="adminsHeading">Enabled admins</h2><p class="muted">Accounts currently authorized to access the admin console.</p></div><div class="admin-tools"><span class="count" id="adminsCount">—</span><button class="refresh-data" id="refreshAdminsButton" type="button">Refresh</button><small id="adminsLastUpdated">Not refreshed yet</small></div></div>
             <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Location</th><th>Admin access enabled</th></tr></thead><tbody id="adminsBody"></tbody></table></div>
             <p class="empty" id="adminsEmpty" hidden>No admin accounts are enabled.</p>
         </section>
@@ -225,7 +225,7 @@
             if (dashboardRefreshInProgress) return;
             dashboardRefreshInProgress = true;
             const dashboardStatus = document.getElementById('dashboardStatus');
-            const refreshButtons = ['refreshAccountsButton', 'refreshOverviewButton'].map(id => document.getElementById(id)).filter(Boolean);
+            const refreshButtons = ['refreshAccountsButton', 'refreshAdminsButton', 'refreshOverviewButton'].map(id => document.getElementById(id)).filter(Boolean);
             if (!options.silent) dashboardStatus.textContent = 'Refreshing current account and marketplace data…';
             refreshButtons.forEach(button => { button.disabled = true; });
             try {
@@ -278,8 +278,9 @@
                 <td>${money(order.total)}</td><td>${escapeHtml(order.paymentMethod)}</td>
                 <td>${escapeHtml(order.status)}</td><td>${escapeHtml(displayDate(order.createdAt))}</td>
             </tr>`).join('');
-            const refreshedAt = new Date().toLocaleTimeString('en-KE', { hour:'2-digit', minute:'2-digit' });
+            const refreshedAt = new Date().toLocaleString('en-KE', { dateStyle:'medium', timeStyle:'short' });
             document.getElementById('accountsLastUpdated').textContent = `Updated at ${refreshedAt}`;
+            document.getElementById('adminsLastUpdated').textContent = `Admin console data updated at ${refreshedAt}`;
             dashboardStatus.textContent = `Admin data updated at ${refreshedAt}. Automatic refresh runs every 30 seconds while this page is open.`;
             dashboardStatus.classList.remove('error');
             } catch (error) {
@@ -391,6 +392,7 @@
             }
         });
         document.getElementById('refreshAccountsButton').addEventListener('click', () => loadDashboard().catch(() => {}));
+        document.getElementById('refreshAdminsButton').addEventListener('click', () => loadDashboard().catch(() => {}));
         document.getElementById('refreshOverviewButton').addEventListener('click', () => loadDashboard().catch(() => {}));
         loadDashboard().catch(() => {});
         window.addEventListener('focus', () => loadDashboard({ silent:true }).catch(() => {}));
