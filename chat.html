@@ -75,7 +75,8 @@
         .preview { display:block; margin-top:5px; overflow:hidden; color:#657164; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
         .conversation-row { position:relative; display:flex; align-items:stretch; border-bottom:1px solid #edf0eb; }
         .conversation-row .conversation-item { min-width:0; border:0; padding-right:54px; }
-        .unread-badge { display:inline-grid; min-width:21px; height:21px; padding:0 6px; place-items:center; margin-top:6px; border-radius:20px; background:var(--green); color:white; font-size:11px; font-weight:800; }
+        .unread-badge { display:inline-grid; min-width:24px; min-height:24px; padding:2px 7px; place-items:center; margin-top:6px; border:1px solid #08723d; border-radius:20px; background:#08723d; color:#fff; font-size:12px; font-weight:850; font-variant-numeric:tabular-nums; line-height:1.2; }
+        :root[data-theme="dark"] .unread-badge { border-color:#70c98c; background:#70c98c; color:#14261a; }
         .conversation-menu { position:absolute; top:8px; right:8px; z-index:2; }
         .icon-button { display:inline-grid; width:36px; height:36px; place-items:center; border:1px solid var(--line); border-radius:9px; background:#fff; color:var(--deep); font:inherit; font-size:20px; cursor:pointer; }
         .menu-panel { position:absolute; z-index:8; top:calc(100% + 5px); right:0; min-width:170px; padding:5px; border:1px solid var(--line); border-radius:10px; background:white; box-shadow:0 12px 28px #20331c22; }

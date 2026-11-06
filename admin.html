@@ -55,7 +55,8 @@
         .panel { margin-top:18px; padding:22px; border:1px solid var(--line); border-radius:16px; background:var(--surface); box-shadow:0 8px 28px #20351a0a; }
         .panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
         h2 { margin:0; color:var(--dark); font-size:23px; }
-        .count { min-width:34px; padding:3px 10px; border-radius:99px; background:#e5f0d8; color:var(--dark); text-align:center; font-weight:750; }
+        .count { display:inline-flex; min-width:30px; min-height:24px; align-items:center; justify-content:center; padding:3px 9px; border:1px solid #08723d; border-radius:99px; background:#08723d; color:#fff; text-align:center; font-size:13px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1.2; }
+        :root[data-theme="dark"] .count { border-color:#70c98c; background:#70c98c; color:#14261a; }
         .status { margin:14px 0 0; color:var(--muted); }
         .status.error { color:var(--danger); }
         .request { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:18px; align-items:center; margin-top:12px; padding:17px; border:1px solid var(--line); border-radius:12px; }
