@@ -109,19 +109,32 @@
 </style>
     <script src="site-only.js" defer></script>
     <script defer src="update-notification.js"></script>
-    <script defer src="subpage-nav.js"></script>
+    <link rel="stylesheet" href="subpage-nav.css?v=3">
+    <script defer src="subpage-nav.js?v=3"></script>
 </head>
 <body>
     <header class="topbar">
         <div class="topbar-inner">
             <div class="brand"><span class="brand-mark" aria-hidden="true">🌱</span><strong>KITUI FARM</strong></div>
-            <nav class="nav" aria-label="Account navigation">
+            <nav class="nav kf-legacy-controls" aria-label="Account navigation">
                 <a class="button secondary" id="dashboardLink" href="farmer-dashboard.html">Dashboard</a>
                 <a class="button secondary" id="walletLink" href="wallet.html" hidden>Wallet</a>
                 <a class="button secondary" href="settings.html">Settings</a>
                 <a class="button secondary" href="about-us.html">About</a>
                 <a class="button secondary" href="customer-service.html">Customer service</a>
             </nav>
+            <button class="kf-back-button" type="button" aria-label="Go back to the previous page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 12H5"></path><path d="m12 19-7-7 7-7"></path></svg><span>Back</span></button>
+            <div class="kf-menu-wrap">
+                <button class="kf-menu-button" type="button" aria-label="Open KITUI FARM features" aria-haspopup="true" aria-expanded="false">⋮</button>
+                <nav class="kf-feature-menu" aria-label="KITUI FARM features" hidden>
+                    <a href="buyer-dashboard.html" data-dashboard-link>Customer dashboard</a>
+                    <a href="profile.html">Profile &amp; Account</a>
+                    <a href="wallet.html">Wallet &amp; Payments</a>
+                    <a href="settings.html">Settings</a>
+                    <a href="customer-service.html">Customer Support</a>
+                    <a href="about-us.html">About KITUI FARM</a>
+                </nav>
+            </div>
         </div>
     </header>
     <main>
