@@ -3,7 +3,7 @@
     if (!script) return;
     const style = document.createElement('link');
     style.rel = 'stylesheet';
-    style.href = new URL('subpage-nav.css?v=3', script.src).href;
+    style.href = new URL('subpage-nav.css?v=4', script.src).href;
     document.head.append(style);
 
     const header = document.querySelector('header');

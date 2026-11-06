@@ -3,8 +3,8 @@ header.kf-subpage-header {
     position: sticky !important;
     z-index: 1000 !important;
     top: 0;
-    background: rgba(255, 255, 255, .97);
-    border-bottom: 1px solid #e3e9df;
+    background: var(--surface, #fffdf7);
+    border-bottom: 1px solid var(--line, #e5dcc6);
     backdrop-filter: blur(10px);
 }
 
@@ -27,10 +27,10 @@ header.kf-subpage-header {
     min-width: 42px;
     min-height: 42px;
     padding: 8px 12px;
-    border: 1px solid #e3e9df;
+    border: 1px solid var(--line, #e5dcc6);
     border-radius: 10px;
-    background: #fff;
-    color: #263126;
+    background: transparent;
+    color: var(--deep, #17472c);
     font: inherit;
     font-weight: 700;
     text-decoration: none;
@@ -40,10 +40,10 @@ header.kf-subpage-header {
 .kf-back-button { gap: 7px; margin-right: 2px; }
 .kf-back-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .kf-menu-wrap { position: relative; flex: 0 0 auto; margin-left: auto; }
-.kf-menu-button { width: 44px; padding: 0; font-size: 26px; line-height: 1; }
+.kf-menu-button { width: 44px; padding: 0; font-size: 25px; line-height: 1; }
 .kf-back-button:hover,
 .kf-menu-button:hover,
-.kf-menu-button[aria-expanded="true"] { border-color: #4a8c3f; color: #234d27; }
+.kf-menu-button[aria-expanded="true"] { border-color: var(--green, #08723d); background: var(--green-light, #e5f0d8); color: var(--deep, #17472c); }
 .kf-back-button:focus-visible,
 .kf-menu-button:focus-visible,
 .kf-feature-menu a:focus-visible { outline: 2px solid #4a8c3f; outline-offset: 2px; }
@@ -55,9 +55,9 @@ header.kf-subpage-header {
     z-index: 1001;
     width: min(285px, calc(100vw - 28px));
     padding: 8px;
-    border: 1px solid #e3e9df;
+    border: 1px solid var(--line, #e5dcc6);
     border-radius: 13px;
-    background: #fff;
+    background: var(--surface, #fffdf7);
     box-shadow: 0 14px 36px rgba(25, 44, 22, .18);
 }
 
@@ -67,13 +67,13 @@ header.kf-subpage-header {
     min-height: 43px;
     padding: 9px 11px;
     border-radius: 8px;
-    color: #263126;
+    color: var(--ink, #342718);
     font-size: 14px;
     font-weight: 650;
     text-decoration: none;
 }
 
-.kf-feature-menu a:hover { background: #edf5e9; color: #234d27; }
+.kf-feature-menu a:hover { background: var(--green-light, #e5f0d8); color: var(--deep, #17472c); }
 .kf-feature-menu [hidden] { display: none !important; }
 
 @media (max-width: 560px) {
