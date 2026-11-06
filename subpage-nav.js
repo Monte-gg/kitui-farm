@@ -15,7 +15,7 @@
 
     let session = null;
     try {
-        session = JSON.parse(localStorage.getItem('kituiFarmSession') || sessionStorage.getItem('kituiFarmSession') || 'null');
+        session = JSON.parse(sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession') || 'null');
     } catch { /* use the customer dashboard as the signed-out fallback */ }
     const role = session?.role === 'farmer' ? 'farmer' : 'buyer';
     const dashboardUrl = role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';

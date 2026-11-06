@@ -80,7 +80,7 @@
         }
 
         try {
-            const session = JSON.parse(localStorage.getItem('kituiFarmSession') || sessionStorage.getItem('kituiFarmSession') || 'null');
+            const session = JSON.parse(sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession') || 'null');
             const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
             const account = Array.isArray(users) && session ? users.find(user => user.id === session.userId && user.role === session.role) : null;
             if (account) showDashboardBack(account.role);

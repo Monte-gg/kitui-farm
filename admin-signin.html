@@ -89,19 +89,21 @@
                 }
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.error || 'Admin details could not be verified.');
+                sessionStorage.setItem('kituiFarmToken', result.token);
                 localStorage.setItem('kituiFarmToken', result.token);
                 const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
                 if (!Array.isArray(users)) throw new Error('Saved account data is invalid.');
                 localStorage.setItem('kituiFarmUsers', JSON.stringify([...users.filter(account => account.id !== result.user.id), result.user]));
-                localStorage.setItem('kituiFarmSession', JSON.stringify({
+                const session = JSON.stringify({
                     userId: result.user.id,
                     name: result.user.name,
                     email: result.user.email,
                     phone: result.user.phone,
                     role: result.user.role,
                     location: result.user.location || ''
-                }));
-                sessionStorage.removeItem('kituiFarmSession');
+                });
+                sessionStorage.setItem('kituiFarmSession', session);
+                localStorage.setItem('kituiFarmSession', session);
                 window.location.assign('admin.html');
             } catch (error) {
                 status.textContent = error.message || 'Could not sign in. Please try again.';

@@ -111,7 +111,7 @@
     <script>
         const loadStatus = document.getElementById('loadStatus');
         const profileContent = document.getElementById('profileContent');
-        const token = localStorage.getItem('kituiFarmToken') || '';
+        const token = sessionStorage.getItem('kituiFarmToken') || localStorage.getItem('kituiFarmToken') || '';
         let adminUser = null;
         let profilePhoto = '';
         function escapeHtml(value) { return String(value || '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char]); }

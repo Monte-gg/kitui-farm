@@ -9,7 +9,7 @@
     <script>
         const profileSession = (() => {
             try {
-                const session = JSON.parse(localStorage.getItem('kituiFarmSession') || sessionStorage.getItem('kituiFarmSession') || 'null');
+                const session = JSON.parse(sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession') || 'null');
                 const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
                 const user = Array.isArray(users) && session ? users.find(account => account.id === session.userId) : null;
                 return user && user.role === session.role ? user : null;
@@ -416,7 +416,12 @@
                     }
                 } catch (error) { /* Continue to sign out even if browser storage is unavailable. */ }
                 try {
-                    localStorage.removeItem('kituiFarmToken');
+                    sessionStorage.removeItem('kituiFarmToken');
+                    const rememberedSession = JSON.parse(localStorage.getItem('kituiFarmSession') || 'null');
+                    if (rememberedSession?.userId === user.id) {
+                        localStorage.removeItem('kituiFarmToken');
+                        localStorage.removeItem('kituiFarmSession');
+                    }
                     const remembered = localStorage.getItem('kituiFarmRememberedLogin');
                     if (remembered && [user.email, user.phone].includes(remembered)) localStorage.removeItem('kituiFarmRememberedLogin');
                 } catch (error) { /* The server session is already revoked. */ }

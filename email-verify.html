@@ -65,17 +65,17 @@
                 const result = await response.json().catch(() => ({}));
                 if (!response.ok) throw new Error(result.error || 'Email verification failed.');
                 const user = result.user;
-                if (result.token) localStorage.setItem('kituiFarmToken', result.token);
+                if (result.token) {
+                    sessionStorage.setItem('kituiFarmToken', result.token);
+                    if (result.remember) localStorage.setItem('kituiFarmToken', result.token);
+                }
                 const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
                 localStorage.setItem('kituiFarmUsers', JSON.stringify([...users.filter(account => account.id !== user.id), user]));
                 const session = JSON.stringify({ userId:user.id, name:user.name, email:user.email, phone:user.phone, role:user.role, location:user.location || '' });
+                sessionStorage.setItem('kituiFarmSession', session);
                 if (result.remember) {
                     localStorage.setItem('kituiFarmSession', session);
                     localStorage.setItem('kituiFarmRememberedLogin', user.email);
-                } else {
-                    sessionStorage.setItem('kituiFarmSession', session);
-                    localStorage.removeItem('kituiFarmSession');
-                    localStorage.removeItem('kituiFarmRememberedLogin');
                 }
                 title.textContent = 'Email verified';
                 description.textContent = 'Your KITUI FARM account is ready. Taking you to your dashboard…';

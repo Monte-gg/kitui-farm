@@ -178,10 +178,10 @@
     <dialog class="forward-dialog" id="forwardDialog"><div class="dialog-head"><strong>Forward message</strong><button class="button" type="button" data-close-dialog="forwardDialog">Close</button></div><div class="dialog-body"><label for="forwardTarget">Choose a conversation</label><select id="forwardTarget"></select><button class="button primary" id="forwardConfirm" type="button">Forward message</button></div></dialog>
     <script>
         const adminMode = location.pathname.endsWith('/admin-chat.html') || location.search.includes('admin=1');
-        const token = localStorage.getItem('kituiFarmToken') || '';
+        const token = sessionStorage.getItem('kituiFarmToken') || localStorage.getItem('kituiFarmToken') || '';
         let userSession = null;
         try {
-            userSession = JSON.parse(localStorage.getItem('kituiFarmSession') || sessionStorage.getItem('kituiFarmSession') || 'null');
+            userSession = JSON.parse(sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession') || 'null');
         } catch { userSession = null; }
         const apiBase = adminMode ? '/api/admin/chat/conversations' : '/api/chat/conversations';
         const listNode = document.getElementById('conversationList');

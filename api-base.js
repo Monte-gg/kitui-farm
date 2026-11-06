@@ -14,19 +14,21 @@
   window.KITUI_API_BASE = base;
   window.KITUI_TOKEN_KEY = 'kituiFarmToken';
 
-  if (!base) return;
-
   var originalFetch = window.fetch.bind(window);
   window.fetch = function (input, init) {
     init = init ? Object.assign({}, init) : {};
     var url = typeof input === 'string' ? input : ((input && input.url) || '');
     if (url.indexOf('/api/') === 0 || url.indexOf('api/') === 0) {
       var path = url.charAt(0) === '/' ? url : '/' + url;
-      input = base + path;
-      init.credentials = 'omit';
+      if (base) {
+        input = base + path;
+        init.credentials = 'omit';
+      }
       var headers = new Headers(init.headers || {});
       var token = null;
-      try { token = localStorage.getItem('kituiFarmToken'); } catch (error) { token = null; }
+      // Each browser tab keeps its own signed-in identity. A remembered token is
+      // only a fallback for a new tab, never an override for its active session.
+      try { token = sessionStorage.getItem('kituiFarmToken') || localStorage.getItem('kituiFarmToken'); } catch (error) { token = null; }
       if (token) headers.set('Authorization', 'Bearer ' + token);
       init.headers = headers;
     }

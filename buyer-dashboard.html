@@ -9,7 +9,7 @@
     <script>
         const dashboardSession = (() => {
             try {
-                const session = JSON.parse(localStorage.getItem('kituiFarmSession') || sessionStorage.getItem('kituiFarmSession') || 'null');
+                const session = JSON.parse(sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession') || 'null');
                 const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
                 const account = Array.isArray(users) && session
                     ? users.find(user => user.id === session.userId)
@@ -709,9 +709,12 @@
                 marketNotice.hidden = false;
                 return;
             }
-            localStorage.removeItem('kituiFarmSession');
             sessionStorage.removeItem('kituiFarmSession');
-            localStorage.removeItem('kituiFarmToken');
+            const rememberedSession = JSON.parse(localStorage.getItem('kituiFarmSession') || 'null');
+            if (rememberedSession?.userId === buyer.userId) {
+                localStorage.removeItem('kituiFarmSession');
+                localStorage.removeItem('kituiFarmToken');
+            }
             window.location.replace('login.html');
         });
         window.addEventListener('storage', event => {

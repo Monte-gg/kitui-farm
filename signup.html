@@ -408,7 +408,10 @@
                 }
                 const user = result.user;
                 if (result.token) {
-                    try { localStorage.setItem('kituiFarmToken', result.token); } catch (error) { /* ignore */ }
+                    try {
+                        sessionStorage.setItem('kituiFarmToken', result.token);
+                        if (document.getElementById('remember').checked) localStorage.setItem('kituiFarmToken', result.token);
+                    } catch (error) { /* ignore */ }
                 }
                 const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
                 if (!Array.isArray(users)) throw new Error('Saved account data is invalid.');
@@ -423,13 +426,10 @@
                     location: user.location || ''
                 });
                 const remember = document.getElementById('remember').checked;
+                sessionStorage.setItem('kituiFarmSession', session);
                 if (remember) {
                     localStorage.setItem('kituiFarmSession', session);
                     localStorage.setItem('kituiFarmRememberedLogin', email);
-                } else {
-                    sessionStorage.setItem('kituiFarmSession', session);
-                    localStorage.removeItem('kituiFarmSession');
-                    localStorage.removeItem('kituiFarmRememberedLogin');
                 }
                 window.location.href = user.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
             } catch (error) {

@@ -9,7 +9,7 @@
     <script>
         const paymentSession = (() => {
             try {
-                const session = JSON.parse(localStorage.getItem('kituiFarmSession') || sessionStorage.getItem('kituiFarmSession') || 'null');
+                const session = JSON.parse(sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession') || 'null');
                 const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
                 const user = Array.isArray(users) && session ? users.find(account => account.id === session.userId) : null;
                 return user && user.role === 'buyer' ? user : null;
