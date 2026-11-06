@@ -2,7 +2,7 @@
   'use strict';
 
   var VERSION_KEY = 'kituiFarmSiteVersion';
-  var CHECK_INTERVAL_MS = 3 * 60 * 1000;
+  var CHECK_INTERVAL_MS = 60 * 1000;
   var latestVersion = '';
   var baselineVersion = '';
   var banner = null;
@@ -44,11 +44,11 @@
     var style = document.createElement('style');
     style.id = 'kitui-update-styles';
     style.textContent = [
-      '.kitui-update-banner{position:sticky;top:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;gap:14px;padding:10px 16px;background:#234f28;color:#fff;box-shadow:0 2px 10px rgba(20,45,24,.18);font:600 15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}',
+      '.kitui-update-banner{position:sticky;top:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;gap:14px;padding:10px 16px;background:#17472c;color:#fff2c7;box-shadow:0 2px 10px rgba(20,45,24,.18);font:600 15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}',
       '.kitui-update-banner[hidden]{display:none}',
       '.kitui-update-banner__text{margin:0}',
-      '.kitui-update-banner__button{min-height:36px;padding:7px 14px;border:0;border-radius:8px;background:#fff;color:#234f28;font:700 14px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer}',
-      '.kitui-update-banner__button:focus-visible{outline:3px solid #d9ef7b;outline-offset:2px}',
+      '.kitui-update-banner__button{min-height:36px;padding:7px 14px;border:0;border-radius:8px;background:#fff2c7;color:#17472c;font:700 14px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer}',
+      '.kitui-update-banner__button:focus-visible{outline:3px solid #d77b20;outline-offset:2px}',
       '@media(max-width:520px){.kitui-update-banner{justify-content:space-between;gap:10px;padding:9px 12px;font-size:14px}.kitui-update-banner__button{white-space:nowrap;padding:7px 10px;font-size:13px}}'
     ].join('\n');
     document.head.appendChild(style);

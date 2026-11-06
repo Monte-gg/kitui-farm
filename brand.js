@@ -1,6 +1,7 @@
 (function () {
   'use strict';
-  const iconUrl = new URL('assets/kitui-farm-emblem.png', document.currentScript.src).href;
+  const siteRoot = new URL('.', document.currentScript.src);
+  const iconUrl = new URL('assets/kitui-farm-emblem.png', siteRoot).href;
   const createIcon = (className, decorative) => {
     const image = document.createElement('img');
     image.className = className;
@@ -9,6 +10,27 @@
     image.decoding = 'async';
     return image;
   };
+
+  // Version the shared theme and emblem from the Jekyll build stamp. This
+  // prevents browsers from mixing a cached brand stylesheet with new HTML.
+  const brandStylesheet = document.querySelector('link[data-brand-theme]');
+  const versionUrl = new URL('version.json', siteRoot);
+  versionUrl.searchParams.set('_', String(Date.now()));
+  fetch(versionUrl.href, { cache: 'no-store' }).then((response) => {
+    if (!response.ok) return null;
+    return response.json();
+  }).then((data) => {
+    if (!data || typeof data.version !== 'string' || !data.version.trim()) return;
+    const version = encodeURIComponent(data.version.trim());
+    if (brandStylesheet) {
+      brandStylesheet.href = new URL('brand-theme.css?siteVersion=' + version, siteRoot).href;
+    }
+    const favicon = document.querySelector('link[rel="icon"]');
+    if (favicon) favicon.href = iconUrl + '?siteVersion=' + version;
+    document.querySelectorAll('.kitui-brand-icon, .kitui-login-emblem, .kitui-avatar-icon').forEach((image) => {
+      image.src = iconUrl + '?siteVersion=' + version;
+    });
+  }).catch(() => {});
 
   document.querySelectorAll('.brand').forEach((brand) => {
     const adminLabel = brand.querySelector('#adminLabel');

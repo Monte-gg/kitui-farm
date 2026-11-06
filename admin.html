@@ -8,7 +8,7 @@
     <meta name="robots" content="noindex,nofollow">
     <title>Admin Console - KITUI FARM</title>
     <style>
-        :root { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; --green:#4a8c3f; --dark:#234d27; --ink:#263126; --muted:#657064; --line:#e3e9df; --bg:#f5f7f2; --surface:#fff; --danger:#b42318; }
+        :root { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; --green:#08723d; --dark:#17472c; --ink:#342718; --muted:#657064; --line:#e5dcc6; --bg:#fbf8ed; --surface:#fff; --danger:#b42318; }
         * { box-sizing:border-box; }
         body { margin:0; background:var(--bg); color:var(--ink); line-height:1.55; }
         .topbar { position:sticky; z-index:5; top:0; background:rgba(255,255,255,.97); border-bottom:1px solid var(--line); backdrop-filter:blur(10px); }
@@ -20,7 +20,7 @@
         .more-toggle:hover { border-color:var(--green); color:var(--dark); }
         .more-panel { position:absolute; top:calc(100% + 9px); right:0; z-index:8; width:min(280px,calc(100vw - 28px)); padding:8px; border:1px solid var(--line); border-radius:13px; background:var(--surface); box-shadow:0 12px 34px rgba(24,40,21,.18); }
         .more-panel a,.more-panel button { display:flex; align-items:center; width:100%; min-height:42px; padding:9px 11px; border:0; border-radius:8px; background:transparent; color:var(--ink); text-align:left; text-decoration:none; font:inherit; font-size:14px; font-weight:650; cursor:pointer; }
-        .more-panel a:hover,.more-panel button:hover { background:#eaf3e6; color:var(--dark); }
+        .more-panel a:hover,.more-panel button:hover { background:#e5f0d8; color:var(--dark); }
         .more-panel button.menu-logout { color:var(--danger); }
         .menu-divider { height:1px; margin:5px 2px; background:var(--line); }
         .button { display:inline-flex; align-items:center; justify-content:center; min-height:40px; padding:8px 13px; border:1px solid var(--line); border-radius:9px; background:var(--surface); color:var(--ink); font:inherit; font-weight:650; text-decoration:none; cursor:pointer; }
@@ -35,7 +35,7 @@
         .panel { margin-top:18px; padding:22px; border:1px solid var(--line); border-radius:16px; background:var(--surface); box-shadow:0 8px 28px #20351a0a; }
         .panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
         h2 { margin:0; color:var(--dark); font-size:23px; }
-        .count { min-width:34px; padding:3px 10px; border-radius:99px; background:#eaf3e6; color:var(--dark); text-align:center; font-weight:750; }
+        .count { min-width:34px; padding:3px 10px; border-radius:99px; background:#e5f0d8; color:var(--dark); text-align:center; font-weight:750; }
         .status { margin:14px 0 0; color:var(--muted); }
         .status.error { color:var(--danger); }
         .request { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:18px; align-items:center; margin-top:12px; padding:17px; border:1px solid var(--line); border-radius:12px; }
@@ -62,10 +62,10 @@
         @media(max-width:680px) { .topbar-inner,main { width:calc(100% - 28px); } .request { grid-template-columns:1fr; } .actions .button { flex:1; } .panel { padding:17px; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .stat { padding:14px; } .stat strong { font-size:23px; } }
     </style>
     <script src="site-only.js" defer></script>
-    <script defer src="update-notification.js"></script>
+    <script defer src="update-notification.js?v=2"></script>
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
-    <link rel="stylesheet" href="brand-theme.css?v=2">
-    <script src="brand.js?v=2" defer></script>
+    <link rel="stylesheet" href="brand-theme.css?v=3" data-brand-theme>
+    <script src="brand.js?v=3" defer></script>
 </head>
 <body>
     <header class="topbar"><div class="topbar-inner"><a class="brand" href="#dashboard">🌱 KITUI FARM · Admin</a><div class="more-menu" id="moreMenu"><button class="more-toggle" id="moreToggle" type="button" aria-label="Open admin menu" aria-haspopup="menu" aria-expanded="false" aria-controls="morePanel">⋮</button><nav class="more-panel" id="morePanel" aria-label="Admin features" role="menu" hidden><a href="admin-profile.html" role="menuitem">Admin profile</a><a href="#dashboard" role="menuitem">Dashboard overview</a><a href="#people" role="menuitem">People</a><a href="#admins" role="menuitem">Admins</a><a href="#listings" role="menuitem">Product listings</a><a href="#orders" role="menuitem">Orders</a><a href="admin-chat.html" role="menuitem">User messages</a><a href="#wallet-approvals" role="menuitem">Wallet operations <span class="count" id="menuPendingCount">—</span></a><a href="#website-shortcuts" role="menuitem">Website shortcuts</a><div class="menu-divider" role="separator"></div><button class="menu-logout" id="logoutButton" type="button" role="menuitem">Log out</button></nav></div></div></header>

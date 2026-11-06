@@ -8,7 +8,7 @@
     <meta name="robots" content="noindex,nofollow">
     <title>Admin profile - KITUI FARM</title>
     <style>
-        :root { font-family:system-ui,-apple-system,"Segoe UI",sans-serif; color:#253127; background:#f3f6f1; --green:#4a8c3f; --deep:#193e25; --line:#dce5d9; --muted:#657264; --paper:#fff; --red:#b42318; }
+        :root { font-family:system-ui,-apple-system,"Segoe UI",sans-serif; color:#253127; background:#f3f6f1; --green:#08723d; --deep:#193e25; --line:#dce5d9; --muted:#657264; --paper:#fff; --red:#b42318; }
         * { box-sizing:border-box; }
         body { margin:0; min-height:100vh; }
         .topbar { background:var(--deep); color:white; }
@@ -21,7 +21,7 @@
         .sidebar { position:sticky; top:20px; padding:14px; border:1px solid var(--line); border-radius:15px; background:var(--paper); }
         .side-title { margin:4px 9px 12px; color:var(--muted); font-size:11px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
         .side-link { display:flex; align-items:center; gap:10px; min-height:43px; margin:3px 0; padding:9px 11px; border-radius:9px; color:#364437; font-size:14px; font-weight:650; text-decoration:none; }
-        .side-link:hover,.side-link.active { background:#eaf3e6; color:var(--deep); }
+        .side-link:hover,.side-link.active { background:#e5f0d8; color:var(--deep); }
         .content { min-width:0; }
         .heading { margin-bottom:18px; }
         .eyebrow { margin:0 0 5px; color:var(--green); font-size:12px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
@@ -30,7 +30,7 @@
         .columns { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(240px,.9fr); gap:16px; align-items:start; }
         .card { padding:22px; border:1px solid var(--line); border-radius:15px; background:var(--paper); box-shadow:0 5px 20px rgba(22,50,25,.035); }
         .identity { display:flex; align-items:center; gap:15px; margin-bottom:18px; padding-bottom:18px; border-bottom:1px solid var(--line); }
-        .avatar { display:grid; place-items:center; flex:0 0 70px; width:70px; height:70px; overflow:hidden; border:3px solid #eaf3e6; border-radius:50%; background:#eaf3e6; color:var(--deep); font-size:23px; font-weight:800; }
+        .avatar { display:grid; place-items:center; flex:0 0 70px; width:70px; height:70px; overflow:hidden; border:3px solid #e5f0d8; border-radius:50%; background:#e5f0d8; color:var(--deep); font-size:23px; font-weight:800; }
         .avatar img { width:100%; height:100%; object-fit:cover; }
         .identity h2 { margin:0 0 3px; color:var(--deep); font-size:20px; }
         .identity p { margin:0; color:var(--muted); font-size:13px; }
@@ -48,7 +48,7 @@
         .security { border-top:4px solid var(--green); }
         .security h2 { margin:0; color:var(--deep); font-size:19px; }
         .security p { color:var(--muted); font-size:13px; line-height:1.55; }
-        .access-badge { display:inline-flex; align-items:center; gap:7px; margin:13px 0; padding:7px 10px; border-radius:99px; background:#eaf3e6; color:#24552b; font-size:12px; font-weight:800; }
+        .access-badge { display:inline-flex; align-items:center; gap:7px; margin:13px 0; padding:7px 10px; border-radius:99px; background:#e5f0d8; color:#17472c; font-size:12px; font-weight:800; }
         .access-badge.pending { background:#fff4d8; color:#6b4e07; }
         .info-row { padding:10px 0; border-top:1px solid var(--line); }
         .info-row small { display:block; color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.05em; }
@@ -59,10 +59,10 @@
         @media(max-width:560px) { .topbar-inner,.layout { width:calc(100% - 26px); } .topbar-inner { min-height:64px; } .brand { font-size:15px; } .top-actions .button { min-height:36px; padding:6px 9px; font-size:12px; } .layout { margin-top:16px; grid-template-columns:1fr; gap:14px; } .card { padding:17px; } .fields { grid-template-columns:1fr; } }
     </style>
     <script src="site-only.js" defer></script>
-    <script defer src="update-notification.js"></script>
+    <script defer src="update-notification.js?v=2"></script>
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
-    <link rel="stylesheet" href="brand-theme.css?v=2">
-    <script src="brand.js?v=2" defer></script>
+    <link rel="stylesheet" href="brand-theme.css?v=3" data-brand-theme>
+    <script src="brand.js?v=3" defer></script>
 </head>
 <body>
     <header class="topbar"><div class="topbar-inner"><a class="brand" href="admin.html">🌱 KITUI FARM · Admin</a><div class="top-actions"><a class="button" href="admin.html">Dashboard</a><a class="button" href="admin-signin.html" id="signInLink" hidden>Admin sign-in</a></div></div></header>

@@ -43,14 +43,14 @@
     <meta name="theme-color" content="#08723d">
     <style>
         :root {
-            --green: #4a8c3f;
-            --green-dark: #2d5a27;
-            --green-light: #edf5e9;
-            --ink: #263126;
+            --green: #08723d;
+            --green-dark: #17472c;
+            --green-light: #e5f0d8;
+            --ink: #342718;
             --muted: #6d776c;
-            --line: #e4e9e1;
+            --line: #e5dcc6;
             --surface: #fff;
-            --bg: #f5f7f2;
+            --bg: #fbf8ed;
             --danger: #b42318;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
@@ -101,7 +101,7 @@
         .profile-chip-avatar img { width: 100%; height: 100%; object-fit: cover; }
         .profile-chip-name { max-width: 145px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
         .button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 9px; padding: 11px 16px; background: var(--green); color: white; font-weight: 650; cursor: pointer; text-decoration: none; transition: background .18s, transform .18s; }
-        .button:hover { background: #3a7a2a; transform: translateY(-1px); }
+        .button:hover { background: #17472c; transform: translateY(-1px); }
         .button.secondary { background: white; border: 1px solid var(--line); color: var(--ink); }
         .button.secondary:hover { border-color: var(--green); color: var(--green-dark); }
         .button.danger { background: #fff2f0; border: 1px solid #f4d0ca; color: var(--danger); }
@@ -193,10 +193,10 @@
         }
 </style>
     <script src="site-only.js" defer></script>
-    <script defer src="update-notification.js"></script>
+    <script defer src="update-notification.js?v=2"></script>
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
-    <link rel="stylesheet" href="brand-theme.css?v=2">
-    <script src="brand.js?v=2" defer></script>
+    <link rel="stylesheet" href="brand-theme.css?v=3" data-brand-theme>
+    <script src="brand.js?v=3" defer></script>
 </head>
 <body>
     <header class="topbar">

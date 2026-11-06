@@ -47,8 +47,15 @@ h1, h2, h3 { color: var(--green-dark) !important; }
   background-color: var(--green-dark) !important;
   border-color: var(--green-dark) !important;
 }
+.button:not(.secondary):not(.danger):hover, .btn:not(.secondary):not(.danger):hover, button[type="submit"]:not(.danger):hover {
+  background-color: var(--green-dark) !important;
+  border-color: var(--green-dark) !important;
+}
 .button.secondary:hover, .button:not(.primary):not(.danger):hover { border-color: var(--accent-orange) !important; }
 .product-category, .category { background-color: var(--cream) !important; color: var(--brand-brown) !important; }
+.product-image { background: linear-gradient(140deg, var(--cream), var(--green-light)) !important; }
+.cart-count { background-color: var(--accent-orange) !important; }
+.card, .panel, .metric, .search-box { background-color: var(--surface); }
 a:not(.button):not(.brand) { color: var(--green) ; }
 input:focus, select:focus, textarea:focus { border-color: var(--green) !important; }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--green); }
