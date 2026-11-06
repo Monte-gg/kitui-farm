@@ -318,6 +318,9 @@
             } else node.textContent = initials;
         }
         const buyer = dashboardSession;
+        document.querySelectorAll('a[href="profile.html"], a[href^="profile.html?"]').forEach(link => {
+            link.href = `profile.html?accountId=${encodeURIComponent(buyer.userId)}`;
+        });
         const sampleListings = [
             { id: 'demo-ndengu', farmerId: 'demo-farmer-1', sellerName: 'Samuel Mutua', name: 'Green Grams (Ndengu)', category: 'Grains & Pulses', quantity: 420, minimumOrder: 10, price: 180, location: 'Mutomo, Kitui South', image: '', createdAt: new Date().toISOString() },
             { id: 'demo-mangoes', farmerId: 'demo-farmer-2', sellerName: 'Grace Nduku', name: 'Ripe Mangoes', category: 'Fruits', quantity: 160, minimumOrder: 5, price: 90, location: 'Kitui Central', image: '', createdAt: new Date().toISOString() },

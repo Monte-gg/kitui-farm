@@ -320,6 +320,9 @@
             } else node.textContent = initials;
         }
         const farmer = dashboardSession;
+        document.querySelectorAll('a[href="profile.html"], a[href^="profile.html?"]').forEach(link => {
+            link.href = `profile.html?accountId=${encodeURIComponent(farmer.userId)}`;
+        });
         const listingPanel = document.getElementById('listingPanel');
         const listingForm = document.getElementById('listingForm');
         const listingMessage = document.getElementById('listingMessage');

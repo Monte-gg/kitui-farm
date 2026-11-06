@@ -7,9 +7,18 @@
     <meta name="theme-color" content="#4a8c3f">
     <title>My Profile - KITUI FARM</title>
     <script>
+        const requestedProfileId = new URLSearchParams(window.location.search).get('accountId') || '';
+        let profileLoginTarget = 'login.html';
         const profileSession = (() => {
             try {
-                const session = JSON.parse(sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession') || 'null');
+                // A profile must use the identity established in this tab. Falling
+                // back to localStorage can silently show another tab's account.
+                const session = JSON.parse(sessionStorage.getItem('kituiFarmSession') || 'null');
+                if (!session || (requestedProfileId && requestedProfileId !== session.userId)) {
+                    const next = `profile.html${requestedProfileId ? `?accountId=${encodeURIComponent(requestedProfileId)}` : ''}`;
+                    profileLoginTarget = `login.html?next=${encodeURIComponent(next)}`;
+                    return null;
+                }
                 const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
                 const user = Array.isArray(users) && session ? users.find(account => account.id === session.userId) : null;
                 return user && user.role === session.role ? user : null;
@@ -17,7 +26,7 @@
                 return null;
             }
         })();
-        if (!profileSession) window.location.replace('login.html');
+        if (!profileSession) window.location.replace(profileLoginTarget);
     </script>
     <script>
         try {

@@ -251,7 +251,16 @@
                     // Keep any remembered account untouched: other open tabs may use it.
                 }
                 const nextPage = new URLSearchParams(window.location.search).get('next');
-                window.location.href = nextPage === 'admin.html' ? 'admin.html' : (user.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html');
+                let safeProfileTarget = '';
+                if (nextPage) {
+                    try {
+                        const target = new URL(nextPage, window.location.href);
+                        const targetAccountId = target.searchParams.get('accountId');
+                        if (target.origin === window.location.origin && target.pathname.endsWith('/profile.html')
+                            && (!targetAccountId || targetAccountId === user.id)) safeProfileTarget = target.href;
+                    } catch (error) { /* use the role dashboard for an invalid return URL */ }
+                }
+                window.location.href = safeProfileTarget || (nextPage === 'admin.html' ? 'admin.html' : (user.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html'));
             } catch (error) {
                 formStatus.textContent = error.message || 'Sign-in failed. Please try again.';
             }

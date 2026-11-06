@@ -18,6 +18,7 @@
         session = JSON.parse(sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession') || 'null');
     } catch { /* use the customer dashboard as the signed-out fallback */ }
     const role = session?.role === 'farmer' ? 'farmer' : 'buyer';
+    const profileHref = session?.userId ? `profile.html?accountId=${encodeURIComponent(session.userId)}` : 'profile.html';
     const dashboardUrl = role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
     const dashboardLabel = role === 'farmer' ? 'Farmer dashboard' : 'Customer dashboard';
 
@@ -70,6 +71,8 @@
     }
     const dashboardLink = menu.querySelector('[data-dashboard-link]') || menu.querySelector('a');
     if (dashboardLink) { dashboardLink.href = dashboardUrl; dashboardLink.textContent = dashboardLabel; }
+    const profileLink = [...menu.querySelectorAll('a')].find(link => link.textContent.toLowerCase().includes('profile'));
+    if (profileLink) profileLink.href = profileHref;
 
     function closeMenu() {
         menu.hidden = true;
