@@ -1,0 +1,84 @@
+.topbar.kf-subpage-header,
+header.kf-subpage-header {
+    position: sticky !important;
+    z-index: 1000 !important;
+    top: 0;
+    background: rgba(255, 255, 255, .97);
+    border-bottom: 1px solid #e3e9df;
+    backdrop-filter: blur(10px);
+}
+
+.kf-subpage-header .topbar-inner,
+.kf-subpage-header .bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 68px;
+}
+
+.kf-subpage-header .kf-legacy-controls { display: none !important; }
+.kf-subpage-header .brand { flex: 0 1 auto; }
+
+.kf-back-button,
+.kf-menu-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 42px;
+    min-height: 42px;
+    padding: 8px 12px;
+    border: 1px solid #e3e9df;
+    border-radius: 10px;
+    background: #fff;
+    color: #263126;
+    font: inherit;
+    font-weight: 700;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.kf-back-button { gap: 7px; margin-right: 2px; }
+.kf-back-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.kf-menu-wrap { position: relative; flex: 0 0 auto; margin-left: auto; }
+.kf-menu-button { width: 44px; padding: 0; font-size: 26px; line-height: 1; }
+.kf-back-button:hover,
+.kf-menu-button:hover,
+.kf-menu-button[aria-expanded="true"] { border-color: #4a8c3f; color: #234d27; }
+.kf-back-button:focus-visible,
+.kf-menu-button:focus-visible,
+.kf-feature-menu a:focus-visible { outline: 2px solid #4a8c3f; outline-offset: 2px; }
+
+.kf-feature-menu {
+    position: absolute;
+    top: calc(100% + 9px);
+    right: 0;
+    z-index: 1001;
+    width: min(285px, calc(100vw - 28px));
+    padding: 8px;
+    border: 1px solid #e3e9df;
+    border-radius: 13px;
+    background: #fff;
+    box-shadow: 0 14px 36px rgba(25, 44, 22, .18);
+}
+
+.kf-feature-menu a {
+    display: flex;
+    align-items: center;
+    min-height: 43px;
+    padding: 9px 11px;
+    border-radius: 8px;
+    color: #263126;
+    font-size: 14px;
+    font-weight: 650;
+    text-decoration: none;
+}
+
+.kf-feature-menu a:hover { background: #edf5e9; color: #234d27; }
+.kf-feature-menu [hidden] { display: none !important; }
+
+@media (max-width: 560px) {
+    .kf-subpage-header .topbar-inner,
+    .kf-subpage-header .bar { min-height: 62px; gap: 7px; }
+    .kf-back-button { min-width: 40px; min-height: 40px; padding: 7px 9px; font-size: 13px; }
+    .kf-menu-button { min-width: 40px; min-height: 40px; }
+}
