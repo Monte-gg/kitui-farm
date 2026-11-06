@@ -54,6 +54,10 @@
         .notice { margin:20px 0; padding:14px 16px; border:1px solid #e7d8a6; border-radius:11px; background:#fff8df; color:#554515; }
         .panel { margin-top:18px; padding:22px; border:1px solid var(--line); border-radius:16px; background:var(--surface); box-shadow:0 8px 28px #20351a0a; }
         .panel-head { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+        .account-tools { display:flex; align-items:center; gap:9px; flex-wrap:wrap; justify-content:flex-end; }
+        .account-tools small { flex-basis:100%; color:var(--muted); text-align:right; }
+        .refresh-data { min-height:34px; padding:6px 10px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--dark); font:inherit; font-size:13px; font-weight:700; cursor:pointer; }
+        .refresh-data:disabled { opacity:.65; cursor:wait; }
         h2 { margin:0; color:var(--dark); font-size:23px; }
         .count { display:inline-flex; min-width:30px; min-height:24px; align-items:center; justify-content:center; padding:3px 9px; border:1px solid #08723d; border-radius:99px; background:#08723d; color:#fff; text-align:center; font-size:13px; font-weight:800; font-variant-numeric:tabular-nums; line-height:1.2; }
         :root[data-theme="dark"] .count { border-color:#70c98c; background:#70c98c; color:#14261a; }
@@ -132,11 +136,12 @@
             <article class="stat"><span>Pending wallet operations</span><strong id="walletOperationCount">—</strong></article>
         </div>
         <p class="status" id="dashboardStatus" role="status" aria-live="polite">Loading dashboard…</p>
+        <button class="refresh-data" id="refreshOverviewButton" type="button">Refresh admin data</button>
         </section>
 
         <section class="panel" id="people" data-admin-view hidden aria-labelledby="accountsHeading">
             <div class="view-heading"><p class="eyebrow">Account management</p><h1>People</h1><p class="intro">Review registered farmers and customers. Account deletion requires a reason and notifies the user.</p></div>
-            <div class="panel-head"><div><h2 id="accountsHeading">People on KITUI FARM</h2><p class="muted">Registered farmers and customers. Enabled admins are listed separately below.</p></div><span class="count" id="accountsCount">—</span></div>
+            <div class="panel-head"><div><h2 id="accountsHeading">People on KITUI FARM</h2><p class="muted">Registered farmers and customers. Enabled admins are listed separately below.</p></div><div class="account-tools"><span class="count" id="accountsCount">—</span><button class="refresh-data" id="refreshAccountsButton" type="button">Refresh</button><small id="accountsLastUpdated">Not refreshed yet</small></div></div>
             <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Location</th><th>Created</th><th>Action</th></tr></thead><tbody id="accountsBody"></tbody></table></div>
             <p class="empty" id="accountsEmpty" hidden>No farmers or customers found.</p>
         </section>
@@ -201,7 +206,7 @@
         showAdminView(location.hash.slice(1), false);
 
         async function apiRequest(url, options = {}) {
-            const response = await fetch(url, { ...options, credentials:'same-origin', headers: { ...(options.body ? { 'Content-Type':'application/json' } : {}), ...options.headers } });
+            const response = await fetch(url, { ...options, cache:'no-store', credentials:'same-origin', headers: { ...(options.body ? { 'Content-Type':'application/json' } : {}), ...options.headers } });
             let data = null;
             try { data = response.status === 204 ? null : await response.json(); } catch {}
             if (!response.ok) { const error = new Error(data?.error || 'The server request failed.'); error.status = response.status; throw error; }
@@ -215,7 +220,15 @@
             const date = new Date(value);
             return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('en-KE', { dateStyle:'medium', timeStyle:'short' });
         }
-        async function loadDashboard() {
+        let dashboardRefreshInProgress = false;
+        async function loadDashboard(options = {}) {
+            if (dashboardRefreshInProgress) return;
+            dashboardRefreshInProgress = true;
+            const dashboardStatus = document.getElementById('dashboardStatus');
+            const refreshButtons = ['refreshAccountsButton', 'refreshOverviewButton'].map(id => document.getElementById(id)).filter(Boolean);
+            if (!options.silent) dashboardStatus.textContent = 'Refreshing current account and marketplace data…';
+            refreshButtons.forEach(button => { button.disabled = true; });
+            try {
             const [overviewData, accountData, adminData, listingData, orderData] = await Promise.all([
                 apiRequest('/api/admin/overview'), apiRequest('/api/admin/accounts'),
                 apiRequest('/api/admin/admins'), apiRequest('/api/admin/listings'), apiRequest('/api/admin/orders')
@@ -265,9 +278,18 @@
                 <td>${money(order.total)}</td><td>${escapeHtml(order.paymentMethod)}</td>
                 <td>${escapeHtml(order.status)}</td><td>${escapeHtml(displayDate(order.createdAt))}</td>
             </tr>`).join('');
-            const dashboardStatus = document.getElementById('dashboardStatus');
-            dashboardStatus.textContent = 'Dashboard data is up to date.';
+            const refreshedAt = new Date().toLocaleTimeString('en-KE', { hour:'2-digit', minute:'2-digit' });
+            document.getElementById('accountsLastUpdated').textContent = `Updated at ${refreshedAt}`;
+            dashboardStatus.textContent = `Admin data updated at ${refreshedAt}. Automatic refresh runs every 30 seconds while this page is open.`;
             dashboardStatus.classList.remove('error');
+            } catch (error) {
+                dashboardStatus.textContent = error.message || 'Could not refresh current admin data.';
+                dashboardStatus.classList.add('error');
+                throw error;
+            } finally {
+                dashboardRefreshInProgress = false;
+                refreshButtons.forEach(button => { button.disabled = false; });
+            }
         }
         async function loadRequests() {
             const data = await apiRequest('/api/wallet/admin/operations');
@@ -368,11 +390,16 @@
                 document.getElementById('requestList').replaceChildren(link);
             }
         });
-        loadDashboard().catch(error => {
-            const dashboardStatus = document.getElementById('dashboardStatus');
-            dashboardStatus.textContent = error.message || 'Could not load the admin dashboard.';
-            dashboardStatus.classList.add('error');
+        document.getElementById('refreshAccountsButton').addEventListener('click', () => loadDashboard().catch(() => {}));
+        document.getElementById('refreshOverviewButton').addEventListener('click', () => loadDashboard().catch(() => {}));
+        loadDashboard().catch(() => {});
+        window.addEventListener('focus', () => loadDashboard({ silent:true }).catch(() => {}));
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') loadDashboard({ silent:true }).catch(() => {});
         });
+        window.setInterval(() => {
+            if (document.visibilityState === 'visible') loadDashboard({ silent:true }).catch(() => {});
+        }, 30000);
     </script>
 </body>
 </html>
