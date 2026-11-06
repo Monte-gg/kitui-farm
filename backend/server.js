@@ -622,6 +622,20 @@ function escapeEmailHtml(value) {
     }[character]));
 }
 
+function brandedEmailTemplate({ preheader, title, greeting, paragraphs = [], ctaLabel, ctaUrl, code, note }) {
+    const paragraphMarkup = paragraphs.map(paragraph =>
+        `<p style="margin:0 0 16px;color:#425244;font-size:15px;line-height:1.7">${escapeEmailHtml(paragraph).replace(/\r?\n/g, '<br>')}</p>`
+    ).join('');
+    const codeMarkup = code ? `<div style="margin:23px 0;padding:18px 16px;border:1px solid #dbe8d4;border-radius:12px;background:#f4f8f1;text-align:center"><div style="margin-bottom:7px;color:#60715f;font-size:12px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase">Your secure code</div><div style="color:#234d27;font-family:Arial,Helvetica,sans-serif;font-size:32px;font-weight:800;letter-spacing:8px">${escapeEmailHtml(code)}</div></div>` : '';
+    const buttonMarkup = ctaLabel && ctaUrl
+        ? `<table role="presentation" cellspacing="0" cellpadding="0" style="margin:24px 0 8px"><tr><td align="center" style="border-radius:9px;background:#4a8c3f"><a href="${escapeEmailHtml(ctaUrl)}" style="display:inline-block;padding:13px 22px;border:1px solid #4a8c3f;border-radius:9px;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none">${escapeEmailHtml(ctaLabel)}</a></td></tr></table>`
+        : '';
+    const noteMarkup = note
+        ? `<div style="margin-top:18px;padding:12px 14px;border-left:3px solid #8bb97e;background:#f6f9f4;color:#61705f;font-size:13px;line-height:1.6">${escapeEmailHtml(note)}</div>`
+        : '';
+    return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:0;background:#f4f7f1;font-family:Arial,Helvetica,sans-serif;color:#263126"><div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent">${escapeEmailHtml(preheader || title)}</div><table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f7f1"><tr><td align="center" style="padding:28px 14px"><table role="presentation" width="600" cellspacing="0" cellpadding="0" style="width:100%;max-width:600px;border:1px solid #e0e8dc;border-radius:16px;background:#ffffff;overflow:hidden"><tr><td style="padding:22px 28px;background:#234d27;color:#ffffff"><div style="font-size:20px;font-weight:800;letter-spacing:.4px">KITUI FARM</div><div style="margin-top:4px;color:#dcebd6;font-size:12px">Fresh from local farms</div></td></tr><tr><td style="padding:30px 28px"><h1 style="margin:0 0 20px;color:#234d27;font-size:25px;line-height:1.25">${escapeEmailHtml(title)}</h1><p style="margin:0 0 16px;color:#344236;font-size:15px;line-height:1.65">Hello ${escapeEmailHtml(greeting)},</p>${paragraphMarkup}${codeMarkup}${buttonMarkup}${noteMarkup}<div style="margin-top:26px;padding-top:18px;border-top:1px solid #e3eadf;color:#657064;font-size:13px;line-height:1.6">Need help? Contact KITUI FARM Customer Service at <a href="tel:0114583373" style="color:#397b36;font-weight:700;text-decoration:none">0114 583 373</a>.</div><p style="margin:19px 0 0;color:#657064;font-size:13px">KITUI FARM Support</p></td></tr></table><div style="padding:14px 8px 0;color:#7b8678;font-size:11px;text-align:center">You received this email because of activity on your KITUI FARM account.</div></td></tr></table></body></html>`;
+}
+
 function deletionEmailTemplate({ title, greeting, paragraphs }) {
     const body = paragraphs.map(paragraph => `<p style="margin:0 0 16px;line-height:1.65;color:#344236">${paragraph}</p>`).join('');
     return `<!doctype html><html lang="en"><body style="margin:0;background:#f4f7f1;font-family:Arial,Helvetica,sans-serif;color:#263126"><div style="max-width:620px;margin:32px auto;padding:0 16px"><div style="background:#ffffff;border:1px solid #e0e8dc;border-radius:16px;overflow:hidden"><div style="padding:24px 30px;background:#234d27;color:#ffffff;font-size:20px;font-weight:700">🌱 KITUI FARM</div><div style="padding:30px"><h1 style="margin:0 0 22px;color:#234d27;font-size:25px">${title}</h1><p style="margin:0 0 16px;line-height:1.65;color:#344236">Hello ${greeting},</p>${body}<div style="margin-top:26px;padding-top:18px;border-top:1px solid #e0e8dc;color:#657064;font-size:14px;line-height:1.6">Need help? Contact KITUI FARM Customer Service at <a href="tel:0114583373" style="color:#397b36;font-weight:700">0114 583 373</a>.</div><p style="margin:22px 0 0;color:#657064;font-size:14px">KITUI FARM Support</p></div></div></div></body></html>`;
@@ -663,7 +677,7 @@ async function sendSelfDeletionEmail({ email, name }) {
     });
 }
 
-async function sendSignupVerification({ email, name, token, baseUrl }) {
+async function sendSignupVerification({ email, name, token, baseUrl, resent = false }) {
     const configuredUrl = (process.env.PUBLIC_APP_URL || baseUrl).trim().replace(/\/$/, '');
     if (!/^https:\/\//i.test(configuredUrl) && process.env.NODE_ENV === 'production') {
         const error = new Error('Email verification needs an HTTPS PUBLIC_APP_URL in Render.');
@@ -673,8 +687,19 @@ async function sendSignupVerification({ email, name, token, baseUrl }) {
     const verifyUrl = `${configuredUrl}/email-verify.html?token=${encodeURIComponent(token)}`;
     await sendGmailMessage({
         email,
-        subject: 'Verify your KITUI FARM email',
-        body: `Hello ${name},\n\nConfirm this Gmail address to finish creating your KITUI FARM account. This link expires in 24 hours.\n\n${verifyUrl}\n\nIf you did not request this account, you can ignore this email.`
+        subject: resent ? 'Your new KITUI FARM verification link' : 'Verify your KITUI FARM email',
+        body: `Hello ${name},\n\n${resent ? 'Here is the new verification link you requested.' : 'Confirm this Gmail address to finish creating your KITUI FARM account.'}\n\nThis link expires in 24 hours and can only be used once.\n\n${verifyUrl}\n\nIf you did not request this account, you can ignore this email.\n\nKITUI FARM Support`,
+        html: brandedEmailTemplate({
+            preheader: resent ? 'Your new KITUI FARM email verification link.' : 'Confirm your email to finish creating your KITUI FARM account.',
+            title: resent ? 'Your new verification link' : 'Verify your email address',
+            greeting: name,
+            paragraphs: [resent
+                ? 'You requested a new link to verify your email address and finish setting up your KITUI FARM account.'
+                : 'Confirm this Gmail address to finish creating your KITUI FARM account.'],
+            ctaLabel: 'Verify my email',
+            ctaUrl: verifyUrl,
+            note: 'This link expires in 24 hours and can only be used once. If you did not request this account, you can ignore this email.'
+        })
     });
 }
 
@@ -686,7 +711,39 @@ async function sendWelcomeEmail({ email, name, role, baseUrl }) {
     await sendGmailMessage({
         email,
         subject: 'Welcome to KITUI FARM',
-        body: `Hello ${name},\n\nWelcome to KITUI FARM! Your email is verified and your account is ready.\n\n${roleMessage}\n\nSign in to KITUI FARM: ${configuredUrl}/login.html\n\nWe’re glad you’re here.\n\nKITUI FARM`
+        body: `Hello ${name},\n\nWelcome to KITUI FARM! Your email is verified and your account is ready.\n\n${roleMessage}\n\nSign in to KITUI FARM: ${configuredUrl}/login.html\n\nWe’re glad you’re here.\n\nKITUI FARM Support`,
+        html: brandedEmailTemplate({
+            preheader: 'Your KITUI FARM account is ready. Find fresh local produce and connect with the community.',
+            title: 'Welcome to KITUI FARM',
+            greeting: name,
+            paragraphs: [
+                'Your email is verified and your account is ready.',
+                roleMessage,
+                'We’re glad to have you as part of the KITUI FARM community.'
+            ],
+            ctaLabel: 'Sign in to KITUI FARM',
+            ctaUrl: `${configuredUrl}/login.html`,
+            note: 'Keep your account details private. KITUI FARM will never ask you to send your password by email.'
+        })
+    });
+}
+
+async function sendPasswordResetEmail({ email, name, code, baseUrl }) {
+    const configuredUrl = (process.env.PUBLIC_APP_URL || baseUrl).trim().replace(/\/$/, '');
+    await sendGmailMessage({
+        email,
+        subject: 'Your KITUI FARM password reset code',
+        body: `Hello ${name},\n\nYour KITUI FARM password reset code is: ${code}\n\nEnter this code on the password reset page to choose a new password. The code expires in 10 minutes and can only be used once. If you did not request this, ignore this email.\n\nKITUI FARM Support`,
+        html: brandedEmailTemplate({
+            preheader: 'Use your one-time KITUI FARM code to reset your password.',
+            title: 'Reset your password',
+            greeting: name,
+            paragraphs: ['Use this one-time code on the KITUI FARM password reset page to choose a new password.'],
+            code,
+            ctaLabel: 'Open password reset',
+            ctaUrl: `${configuredUrl}/forgot-password.html`,
+            note: 'This code expires in 10 minutes and can only be used once. If you did not request a password reset, ignore this email and keep your current password.'
+        })
     });
 }
 
@@ -999,7 +1056,7 @@ function createApp(options = {}) {
             const createdAt = new Date(now).toISOString();
             await store.run('UPDATE pending_signups SET token_hash = ?, expires_at = ?, created_at = ? WHERE email = ?',
                 [tokenHash, now + 24 * 60 * 60 * 1000, createdAt, email]);
-            await sendSignupVerification({ email: pending.email, name: pending.name, token: rawToken, baseUrl: appBaseUrl(req) });
+            await sendSignupVerification({ email: pending.email, name: pending.name, token: rawToken, baseUrl: appBaseUrl(req), resent: true });
             res.json({ verificationRequired: true, email });
         } catch (error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
@@ -2437,10 +2494,11 @@ function createApp(options = {}) {
                             created_at = excluded.created_at
                     `, [user.id, salt.toString('hex'), codeHash, now + 10 * 60 * 1000, createdAt]);
                     try {
-                        await sendGmailMessage({
+                        await sendPasswordResetEmail({
                             email: user.email,
-                            subject: 'Your KITUI FARM password reset code',
-                            body: `Hello ${user.name},\n\nYour KITUI FARM password reset code is: ${code}\n\nEnter this code on the password reset page to choose a new password. The code expires in 10 minutes and can only be used once. If you did not request this, ignore this email.\n\nKITUI FARM`
+                            name: user.name,
+                            code,
+                            baseUrl: appBaseUrl(req)
                         });
                     } catch (error) {
                         await store.run('DELETE FROM password_reset_codes WHERE user_id = ?', [user.id]);
