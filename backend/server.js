@@ -73,9 +73,8 @@ const SQLITE_SCHEMA = `
         category TEXT NOT NULL, quantity INTEGER NOT NULL CHECK (quantity >= 0),
         minimum_order INTEGER NOT NULL CHECK (minimum_order > 0),
         price REAL NOT NULL CHECK (price > 0), location TEXT NOT NULL, image TEXT NOT NULL DEFAULT '',
-        created_at TEXT NOT NULL, listing_status TEXT NOT NULL DEFAULT 'active' CHECK (listing_status IN ('active', 'closed'))
+        created_at TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_listings_status_farmer ON listings(listing_status, farmer_id, created_at);
     CREATE TABLE IF NOT EXISTS checkout_requests (
         checkout_key TEXT PRIMARY KEY,
         buyer_id TEXT NOT NULL REFERENCES users(id),
@@ -97,6 +96,11 @@ const SQLITE_SCHEMA = `
     );
     CREATE TABLE IF NOT EXISTS user_settings (
         user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, settings_json TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS listing_drafts (
+        farmer_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        draft_json TEXT NOT NULL,
+        updated_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS wallet_accounts (
         user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -221,9 +225,6 @@ function createSqliteStore(dbPath) {
         event_type: "TEXT NOT NULL DEFAULT 'adjustment'", status: "TEXT NOT NULL DEFAULT 'completed'",
         channel: "TEXT NOT NULL DEFAULT 'internal'", counterparty_wallet_id: 'TEXT', operation_id: 'TEXT'
     });
-    addMissingColumns('listings', {
-        listing_status: "TEXT NOT NULL DEFAULT 'active' CHECK (listing_status IN ('active', 'closed'))"
-    });
     addMissingColumns('chat_messages', {
         attachment_json: "TEXT NOT NULL DEFAULT '[]'", pinned: 'INTEGER NOT NULL DEFAULT 0',
         read_at: 'TEXT', deleted_for: "TEXT NOT NULL DEFAULT '[]'", deleted_at: 'TEXT', forwarded_from: 'TEXT'
@@ -315,8 +316,6 @@ function createPostgresStore(connectionString, options = {}) {
     const ready = options.autoMigrate
         ? (async () => {
             const statements = [
-                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS listing_status text NOT NULL DEFAULT 'active' CHECK (listing_status IN ('active', 'closed'))",
-                'CREATE INDEX IF NOT EXISTS idx_listings_status_farmer ON listings(listing_status, farmer_id, created_at)',
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_photo TEXT NOT NULL DEFAULT ''",
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS gender TEXT NOT NULL DEFAULT ''",
                 `CREATE TABLE IF NOT EXISTS pending_signups (
@@ -338,6 +337,11 @@ function createPostgresStore(connectionString, options = {}) {
                 attempts integer not null default 0,
                 expires_at bigint not null,
                 created_at text not null
+            )`,
+                `CREATE TABLE IF NOT EXISTS listing_drafts (
+                farmer_id text primary key references users(id) on delete cascade,
+                draft_json text not null,
+                updated_at text not null
             )`,
                 `CREATE TABLE IF NOT EXISTS wallet_accounts (
                 user_id text primary key references users(id) on delete cascade,
@@ -454,7 +458,8 @@ function createPostgresStore(connectionString, options = {}) {
                 'ALTER TABLE chat_conversations ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE chat_conversation_states ENABLE ROW LEVEL SECURITY',
-                'ALTER TABLE wishlist_items ENABLE ROW LEVEL SECURITY'
+                'ALTER TABLE wishlist_items ENABLE ROW LEVEL SECURITY',
+                'ALTER TABLE listing_drafts ENABLE ROW LEVEL SECURITY'
             ];
             for (const statement of statements) await pool.query(statement);
         })()
@@ -815,7 +820,7 @@ function publicListing(row) {
     return {
         id: row.id, farmerId: row.farmer_id, sellerName: row.seller_name, name: row.name,
         category: row.category, quantity: row.quantity, minimumOrder: row.minimum_order,
-        price: row.price, location: row.location, listingStatus: row.listing_status || 'active',
+        price: row.price, location: row.location,
         image: /^data:video\/(?:mp4|webm|quicktime);base64,/i.test(row.image || '') ? '' : row.image,
         videoUrl: /^data:video\/(?:mp4|webm|quicktime);base64,/i.test(row.image || '')
             ? `/api/listings/${encodeURIComponent(row.id)}/video` : '',
@@ -1782,7 +1787,7 @@ function createApp(options = {}) {
                 store.get('SELECT COUNT(*) AS total FROM users WHERE NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)'),
                 store.get("SELECT COUNT(*) AS total FROM users WHERE role = 'farmer' AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)"),
                 store.get("SELECT COUNT(*) AS total FROM users WHERE role = 'buyer' AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)"),
-                store.get("SELECT COUNT(*) AS total FROM listings WHERE quantity > 0 AND listing_status = 'active'"),
+                store.get('SELECT COUNT(*) AS total FROM listings WHERE quantity > 0'),
                 store.get('SELECT COUNT(*) AS total FROM orders'),
                 store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE status = 'pending'"),
                 store.get('SELECT COUNT(*) AS total FROM wallet_admins')
@@ -1951,7 +1956,7 @@ function createApp(options = {}) {
             const rows = await store.all(`
                 SELECT users.id, users.name, users.role, users.location, users.profile_photo,
                     users.created_at,
-                    (SELECT COUNT(*) FROM listings WHERE listings.farmer_id = users.id AND listings.quantity > 0 AND listings.listing_status = 'active') AS product_count
+                    (SELECT COUNT(*) FROM listings WHERE listings.farmer_id = users.id AND listings.quantity > 0) AS product_count
                 FROM users
                 WHERE users.id <> ? ${roleClause}
                     AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)
@@ -1977,7 +1982,7 @@ function createApp(options = {}) {
         `, [req.params.id]);
         if (!person) return res.status(404).json({ error: 'This profile is not available.' });
         const listings = person.role === 'farmer'
-            ? await store.all("SELECT * FROM listings WHERE farmer_id = ? AND quantity > 0 AND listing_status = 'active' ORDER BY created_at DESC LIMIT 100", [person.id])
+            ? await store.all('SELECT * FROM listings WHERE farmer_id = ? AND quantity > 0 ORDER BY created_at DESC LIMIT 100', [person.id])
             : [];
         res.json({ person: {
             id: person.id, name: person.name, role: person.role, location: person.location,
@@ -2006,7 +2011,7 @@ function createApp(options = {}) {
                 farmerId = req.user.role === 'farmer' ? req.user.id : person.id;
                 listingId = `direct:${buyerId}:${farmerId}`;
             } else if (req.user.role === 'buyer') {
-                const listing = await store.get("SELECT id, farmer_id FROM listings WHERE id = ? AND quantity > 0 AND listing_status = 'active'", [listingId]);
+                const listing = await store.get("SELECT id, farmer_id FROM listings WHERE id = ? AND quantity > 0", [listingId]);
                 if (!listing) return res.status(404).json({ error: 'This product is no longer available.' });
                 const farmer = await store.get("SELECT id FROM users WHERE id = ? AND role = 'farmer'", [listing.farmer_id]);
                 if (!farmer) return res.status(404).json({ error: 'This farmer is not available for chat.' });
@@ -2229,9 +2234,9 @@ function createApp(options = {}) {
 
     app.get('/api/listings/:id/video', auth, async (req, res, next) => {
         try {
-            const row = await store.get('SELECT farmer_id, quantity, image, listing_status FROM listings WHERE id = ?', [req.params.id]);
+            const row = await store.get('SELECT farmer_id, quantity, image FROM listings WHERE id = ?', [req.params.id]);
             const match = row && /^data:(video\/(?:mp4|webm|quicktime));base64,([A-Za-z0-9+/]+={0,2})$/i.exec(row.image || '');
-            if (!match || ((row.quantity <= 0 || row.listing_status === 'closed') && row.farmer_id !== req.user.id)) {
+            if (!match || (row.quantity <= 0 && row.farmer_id !== req.user.id)) {
                 return res.status(404).json({ error: 'Product video not found.' });
             }
             const video = Buffer.from(match[2], 'base64');
@@ -2249,7 +2254,7 @@ function createApp(options = {}) {
             return res.status(403).json({ error: 'A buyer account is required to view farmer stores.' });
         }
         const listings = await store.all(
-            "SELECT * FROM listings WHERE farmer_id = ? AND quantity > 0 AND listing_status = 'active' ORDER BY created_at DESC",
+            'SELECT * FROM listings WHERE farmer_id = ? AND quantity > 0 ORDER BY created_at DESC',
             [req.params.id]
         );
         const farmer = await store.get(
@@ -2269,11 +2274,72 @@ function createApp(options = {}) {
         });
     });
 
+    app.get('/api/listing-draft', auth, role('farmer'), async (req, res) => {
+        const row = await store.get('SELECT draft_json, updated_at FROM listing_drafts WHERE farmer_id = ?', [req.user.id]);
+        if (!row) return res.json({ draft: null });
+        try {
+            res.json({ draft: { ...JSON.parse(row.draft_json), updatedAt: row.updated_at } });
+        } catch {
+            await store.run('DELETE FROM listing_drafts WHERE farmer_id = ?', [req.user.id]);
+            res.json({ draft: null });
+        }
+    });
+    app.put('/api/listing-draft', auth, role('farmer'), async (req, res) => {
+        const input = req.body?.draft;
+        if (!input || typeof input !== 'object' || Array.isArray(input)) {
+            return res.status(400).json({ error: 'Listing draft details are required.' });
+        }
+        const editingId = input.editingId ? text(input.editingId, 100) : '';
+        if (editingId) {
+            const listing = await store.get('SELECT id FROM listings WHERE id = ? AND farmer_id = ?', [editingId, req.user.id]);
+            if (!listing) return res.status(404).json({ error: 'The listing being edited could not be found.' });
+        }
+        let image = typeof input.image === 'string' ? input.image : '';
+        if (!Object.prototype.hasOwnProperty.call(input, 'image') && input.photoRemoved !== true) {
+            const previousDraft = await store.get('SELECT draft_json FROM listing_drafts WHERE farmer_id = ?', [req.user.id]);
+            if (previousDraft) {
+                try {
+                    const previous = JSON.parse(previousDraft.draft_json);
+                    if ((previous.editingId || null) === (editingId || null)) image = previous.image || '';
+                } catch { /* Replace an unreadable older draft with the new fields. */ }
+            }
+        }
+        if (image) {
+            const invalidImage = validateListing({ image }, true);
+            if (typeof invalidImage === 'string') return res.status(400).json({ error: invalidImage });
+        }
+        const draft = {
+            editingId: editingId || null,
+            name: text(input.name, 60),
+            category: CATEGORIES.has(input.category) ? input.category : '',
+            quantity: text(input.quantity, 20),
+            minimumOrder: text(input.minimumOrder, 20),
+            price: text(input.price, 20),
+            location: text(input.location, 80),
+            image,
+            photoRemoved: input.photoRemoved === true
+        };
+        const encoded = JSON.stringify(draft);
+        if (Buffer.byteLength(encoded, 'utf8') > 7_500_000) {
+            return res.status(413).json({ error: 'This draft is too large to save. Remove the selected media and try again.' });
+        }
+        const updatedAt = new Date().toISOString();
+        await store.run(`
+            INSERT INTO listing_drafts (farmer_id, draft_json, updated_at) VALUES (?, ?, ?)
+            ON CONFLICT (farmer_id) DO UPDATE SET draft_json = excluded.draft_json, updated_at = excluded.updated_at
+        `, [req.user.id, encoded, updatedAt]);
+        res.json({ saved: true, updatedAt });
+    });
+    app.delete('/api/listing-draft', auth, role('farmer'), async (req, res) => {
+        await store.run('DELETE FROM listing_drafts WHERE farmer_id = ?', [req.user.id]);
+        res.status(204).end();
+    });
+
     app.get('/api/listings', auth, async (req, res) => {
         if (req.query.scope === 'mine' && req.user.role !== 'farmer') return res.status(403).json({ error: 'A farmer account is required.' });
         const rows = req.query.scope === 'mine'
             ? await store.all('SELECT * FROM listings WHERE farmer_id = ? ORDER BY created_at DESC', [req.user.id])
-            : await store.all("SELECT * FROM listings WHERE quantity > 0 AND listing_status = 'active' ORDER BY created_at DESC");
+            : await store.all('SELECT * FROM listings WHERE quantity > 0 ORDER BY created_at DESC');
         res.json({ listings: rows.map(publicListing) });
     });
     app.get('/api/wishlist', auth, role('buyer'), async (req, res) => {
@@ -2281,7 +2347,7 @@ function createApp(options = {}) {
         res.json({ listingIds: rows.map(row => row.listing_id) });
     });
     app.post('/api/wishlist/:listingId', auth, role('buyer'), async (req, res) => {
-        const listing = await store.get("SELECT id FROM listings WHERE id = ? AND quantity > 0 AND listing_status = 'active'", [req.params.listingId]);
+        const listing = await store.get('SELECT id FROM listings WHERE id = ? AND quantity > 0', [req.params.listingId]);
         if (!listing) return res.status(404).json({ error: 'This product is no longer available.' });
         await store.run(`
             INSERT INTO wishlist_items (user_id, listing_id, created_at) VALUES (?, ?, ?)
@@ -2299,19 +2365,11 @@ function createApp(options = {}) {
         if (listing.quantity < listing.minimumOrder) return res.status(400).json({ error: 'Stock must meet the minimum order quantity.' });
         const id = crypto.randomUUID();
         await store.run(`
-            INSERT INTO listings (id, farmer_id, seller_name, name, category, quantity, minimum_order, price, location, image, created_at, listing_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')
+            INSERT INTO listings (id, farmer_id, seller_name, name, category, quantity, minimum_order, price, location, image, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [id, req.user.id, req.user.name, listing.name, listing.category, listing.quantity,
             listing.minimumOrder, listing.price, listing.location, listing.image, new Date().toISOString()]);
         res.status(201).json({ listing: publicListing(await store.get('SELECT * FROM listings WHERE id = ?', [id])) });
-    });
-    app.patch('/api/listings/:id/close', auth, role('farmer'), async (req, res) => {
-        const current = await store.get('SELECT * FROM listings WHERE id = ? AND farmer_id = ?', [req.params.id, req.user.id]);
-        if (!current) return res.status(404).json({ error: 'Listing not found.' });
-        if (current.listing_status !== 'closed') {
-            await store.run("UPDATE listings SET listing_status = 'closed' WHERE id = ? AND farmer_id = ?", [req.params.id, req.user.id]);
-        }
-        res.json({ listing: publicListing(await store.get('SELECT * FROM listings WHERE id = ?', [req.params.id])) });
     });
     app.patch('/api/listings/:id', auth, role('farmer'), async (req, res) => {
         const current = await store.get('SELECT * FROM listings WHERE id = ? AND farmer_id = ?', [req.params.id, req.user.id]);
@@ -2321,11 +2379,10 @@ function createApp(options = {}) {
         const listing = { ...publicListing(current), image: current.image || '', ...patch };
         if (listing.quantity > 0 && listing.quantity < listing.minimumOrder) return res.status(400).json({ error: 'Stock must meet the minimum order quantity.' });
         await store.run(`
-            UPDATE listings SET name = ?, category = ?, quantity = ?, minimum_order = ?, price = ?, location = ?, image = ?,
-                listing_status = CASE WHEN ? > 0 THEN 'active' ELSE listing_status END
+            UPDATE listings SET name = ?, category = ?, quantity = ?, minimum_order = ?, price = ?, location = ?, image = ?
             WHERE id = ? AND farmer_id = ?
         `, [listing.name, listing.category, listing.quantity, listing.minimumOrder, listing.price,
-            listing.location, listing.image, listing.quantity, req.params.id, req.user.id]);
+            listing.location, listing.image, req.params.id, req.user.id]);
         res.json({ listing: publicListing(await store.get('SELECT * FROM listings WHERE id = ?', [req.params.id])) });
     });
     app.delete('/api/listings/:id', auth, role('farmer'), async (req, res) => {
@@ -2387,7 +2444,7 @@ function createApp(options = {}) {
                 const byFarmer = new Map();
                 for (const [productId, quantity] of uniqueLines) {
                     const listing = await store.get('SELECT * FROM listings WHERE id = ?', [productId]);
-                    if (!listing || listing.listing_status !== 'active' || listing.quantity < quantity || quantity < listing.minimum_order) {
+                    if (!listing || listing.quantity < quantity || quantity < listing.minimum_order) {
                         const error = new Error('A cart item is no longer available in the requested quantity.');
                         error.status = 409;
                         throw error;

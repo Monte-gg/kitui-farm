@@ -73,12 +73,9 @@ create table if not exists listings (
     price double precision not null check (price > 0),
     location text not null,
     image text not null default '',
-    created_at text not null,
-    listing_status text not null default 'active' check (listing_status in ('active', 'closed'))
+    created_at text not null
 );
 
-alter table listings add column if not exists listing_status text not null default 'active';
-create index if not exists idx_listings_status_farmer on listings (listing_status, farmer_id, created_at);
 create index if not exists idx_listings_farmer on listings (farmer_id);
 
 create table if not exists checkout_requests (
@@ -123,6 +120,14 @@ create table if not exists user_settings (
     user_id text primary key references users (id) on delete cascade,
     settings_json text not null
 );
+
+create table if not exists listing_drafts (
+    farmer_id text primary key references users (id) on delete cascade,
+    draft_json text not null,
+    updated_at text not null
+);
+
+alter table listing_drafts enable row level security;
 
 create table if not exists chat_conversations (
     id text primary key,

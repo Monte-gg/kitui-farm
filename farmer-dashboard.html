@@ -250,7 +250,7 @@
 
         <section class="panel" id="listingPanel" hidden>
             <div class="panel-header">
-                <div><h2 id="listingFormTitle">Add new produce</h2><p>Share what is fresh and available on your farm.</p></div>
+                <div><h2 id="listingFormTitle">Add new produce</h2><p id="listingFormHelp">Share what is fresh and available on your farm. You can save a draft and finish later.</p></div>
             </div>
             <div class="panel-body">
                 <form id="listingForm" class="listing-form">
@@ -273,7 +273,7 @@
                     </div>
                     <div class="form-actions">
                         <button class="button" type="submit" id="saveListingButton">Publish listing</button>
-                        <button class="button danger" type="button" id="closeListingButton" hidden>Close listing</button>
+                        <button class="button secondary" type="button" id="saveListingDraftButton">Save draft &amp; close</button>
                         <button class="button secondary" type="button" id="cancelEditButton" hidden>Cancel edit</button>
                         <p class="form-message" id="listingMessage" role="status" aria-live="polite"></p>
                     </div>
@@ -336,6 +336,10 @@
         let photoRemoved = false;
         let videoPreviewUrl = '';
         let editingId = null;
+        let draftImageData = '';
+        let draftImageDirty = false;
+        let draftSaveTimer = null;
+        let draftSaveInFlight = Promise.resolve();
 
         function updateFarmerHeader() {
             document.getElementById('headerName').textContent = farmer.name;
@@ -445,7 +449,7 @@
             const earnings = myOrders.filter(order => ['Paid', 'Completed'].includes(order.status))
                 .reduce((sum, order) => sum + farmerItems(order).reduce((sub, line) => sub + line.quantity * line.price, 0), 0);
             document.getElementById('earningsMetric').textContent = `KES ${earnings.toLocaleString('en-KE')}`;
-            const activeCount = listings.filter(item => item.listingStatus !== 'closed' && item.quantity > 0).length;
+            const activeCount = listings.filter(item => item.quantity > 0).length;
             const pendingCount = myOrders.filter(order => !['Dispatched', 'Completed', 'Cancelled'].includes(order.status)).length;
             document.getElementById('listingsMetric').textContent = `${activeCount} ${activeCount === 1 ? 'crop' : 'crops'}`;
             document.getElementById('ordersMetric').textContent = `${pendingCount} ${pendingCount === 1 ? 'order' : 'orders'}`;
@@ -456,7 +460,7 @@
                 <td><strong>${escapeHtml(item.name)}</strong><br><span style="color:var(--muted)">${escapeHtml(item.category)} · MOQ ${item.minimumOrder} kg</span></td>
                 <td>${Number(item.quantity).toLocaleString('en-KE')} kg</td>
                 <td>KES ${Number(item.price).toLocaleString('en-KE')}</td>
-                <td><span class="status-pill ${item.listingStatus === 'closed' || item.quantity <= 0 ? 'out' : ''}">${item.listingStatus === 'closed' ? 'Closed' : item.quantity > 0 ? 'Active' : 'Out of stock'}</span></td>
+                <td><span class="status-pill ${item.quantity > 0 ? '' : 'out'}">${item.quantity > 0 ? 'Active' : 'Out of stock'}</span></td>
                 <td><div class="actions"><button class="button secondary small" data-edit="${item.id}" type="button">Edit</button><button class="button danger small" data-delete="${item.id}" type="button">Delete</button></div></td>
             </tr>`).join('');
             document.getElementById('inventoryEmpty').hidden = visibleListings.length > 0;
@@ -491,8 +495,12 @@
             document.getElementById('cropName').focus();
         }
         function resetForm() {
+            clearTimeout(draftSaveTimer);
+            draftSaveTimer = null;
             listingForm.reset();
             photoRemoved = false;
+            draftImageData = '';
+            draftImageDirty = false;
             document.getElementById('photoPreview').hidden = true;
             document.getElementById('photoPreview').removeAttribute('src');
             const videoPreview = document.getElementById('videoPreview');
@@ -507,10 +515,131 @@
             document.getElementById('photoMessage').classList.remove('error');
             editingId = null;
             document.getElementById('listingFormTitle').textContent = 'Add new produce';
+            document.getElementById('listingFormHelp').textContent = 'Share what is fresh and available on your farm. You can save a draft and finish later.';
             document.getElementById('saveListingButton').textContent = 'Publish listing';
-            document.getElementById('closeListingButton').hidden = true;
             document.getElementById('cancelEditButton').hidden = true;
             showMessage('');
+        }
+        async function getListingDraft() {
+            const result = await apiRequest('/api/listing-draft');
+            return result.draft;
+        }
+        function showDraftMedia(image) {
+            const preview = document.getElementById('photoPreview');
+            const videoPreview = document.getElementById('videoPreview');
+            preview.hidden = true;
+            preview.removeAttribute('src');
+            videoPreview.pause();
+            videoPreview.hidden = true;
+            videoPreview.removeAttribute('src');
+            videoPreview.load();
+            if (videoPreviewUrl) URL.revokeObjectURL(videoPreviewUrl);
+            videoPreviewUrl = '';
+            if (!image) return;
+            if (image.startsWith('data:video/')) {
+                videoPreview.src = image;
+                videoPreview.hidden = false;
+            } else if (image.startsWith('data:image/')) {
+                preview.src = image;
+                preview.hidden = false;
+            }
+        }
+        async function openListingForm() {
+            if (!listingPanel.hidden) {
+                listingPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                return;
+            }
+            resetForm();
+            document.getElementById('saveListingDraftButton').disabled = false;
+            try {
+                const draft = await getListingDraft();
+                if (draft) {
+                    const fields = ['name', 'category', 'quantity', 'minimumOrder', 'price', 'location'];
+                    const inputIds = ['cropName', 'category', 'quantity', 'minimumOrder', 'price', 'location'];
+                    fields.forEach((field, index) => {
+                        document.getElementById(inputIds[index]).value = draft[field] || '';
+                    });
+                    const existing = draft.editingId
+                        ? myListings().find(item => item.id === draft.editingId && item.farmerId === farmer.userId)
+                        : null;
+                    editingId = existing ? existing.id : null;
+                    photoRemoved = draft.photoRemoved === true;
+                    const restoredMedia = photoRemoved ? '' : (draft.image || (existing && existing.image) || '');
+                    draftImageData = restoredMedia;
+                    draftImageDirty = false;
+                    showDraftMedia(restoredMedia);
+                    document.getElementById('removePhotoButton').hidden = !draftImageData || photoRemoved;
+                    document.getElementById('photoMessage').textContent = draftImageData && !photoRemoved
+                        ? 'Saved product media restored with your draft.'
+                        : 'Photos up to 700 KB; MP4, WebM, or MOV videos up to 5 MB.';
+                    document.getElementById('listingFormTitle').textContent = existing
+                        ? `Continue editing ${existing.name}`
+                        : draft.name ? `Continue draft: ${draft.name}` : 'Continue your produce draft';
+                    document.getElementById('listingFormHelp').textContent = 'Your saved draft is private to your account. Publish it when you are ready.';
+                    document.getElementById('saveListingButton').textContent = existing ? 'Save changes' : 'Publish listing';
+                    document.getElementById('cancelEditButton').hidden = !existing;
+                    showMessage('Your saved draft has been restored.');
+                }
+            } catch (error) {
+                showMessage(error.message || 'Could not load your saved draft.', true);
+            }
+            openForm();
+        }
+        async function persistListingDraft() {
+            const image = await readPhoto();
+            const fields = {
+                name: document.getElementById('cropName').value,
+                category: document.getElementById('category').value,
+                quantity: document.getElementById('quantity').value,
+                minimumOrder: document.getElementById('minimumOrder').value,
+                price: document.getElementById('price').value,
+                location: document.getElementById('location').value
+            };
+            const hasDetails = Object.values(fields).some(value => String(value).trim());
+            const media = image === undefined ? draftImageData : image;
+            if (!hasDetails && !editingId && !media && !photoRemoved) {
+                await apiRequest('/api/listing-draft', { method: 'DELETE' });
+                return false;
+            }
+            const draft = { ...fields, editingId, photoRemoved };
+            if (draftImageDirty || photoRemoved) draft.image = photoRemoved ? '' : (media || '');
+            await apiRequest('/api/listing-draft', { method: 'PUT', body: JSON.stringify({ draft }) });
+            if (draftImageDirty || photoRemoved) draftImageData = photoRemoved ? '' : (media || '');
+            draftImageDirty = false;
+            return true;
+        }
+        function scheduleDraftSave() {
+            clearTimeout(draftSaveTimer);
+            if (listingPanel.hidden) return;
+            draftSaveTimer = setTimeout(() => {
+                draftSaveInFlight = draftSaveInFlight.catch(() => {}).then(async () => {
+                try {
+                    const saved = await persistListingDraft();
+                    if (saved) showMessage('Draft saved automatically.');
+                } catch (error) {
+                    showMessage(error.message || 'Draft could not be saved yet. Use “Save draft & close” to try again.', true);
+                }
+                });
+            }, 1000);
+        }
+        async function saveListingDraft() {
+            const button = document.getElementById('saveListingDraftButton');
+            clearTimeout(draftSaveTimer);
+            button.disabled = true;
+            try {
+                await draftSaveInFlight;
+                const saved = await persistListingDraft();
+                resetForm();
+                listingPanel.hidden = true;
+                render();
+                setMessage('inventoryMessage', saved
+                    ? 'Draft saved. Choose “Add available product” whenever you are ready to continue.'
+                    : 'The empty form was closed. No draft needed saving.');
+            } catch (error) {
+                showMessage(error.message || 'Could not save your draft. The form is still open.', true);
+            } finally {
+                button.disabled = false;
+            }
         }
         async function readPhoto() {
             const file = photoInput.files[0];
@@ -548,6 +677,7 @@
                 return;
             }
             photoRemoved = false;
+            draftImageData = '';
             message.textContent = isVideo ? 'Video selected. It will be uploaded with this listing.' : 'Photo selected.';
             message.classList.remove('error');
             videoPreview.pause();
@@ -563,6 +693,8 @@
                 videoPreviewUrl = URL.createObjectURL(file);
                 videoPreview.src = videoPreviewUrl;
                 videoPreview.hidden = false;
+                draftImageDirty = true;
+                scheduleDraftSave();
                 return;
             }
             const reader = new FileReader();
@@ -576,10 +708,14 @@
                 message.classList.add('error');
             };
             reader.readAsDataURL(file);
+            draftImageDirty = true;
+            scheduleDraftSave();
         });
         document.getElementById('removePhotoButton').addEventListener('click', () => {
             photoInput.value = '';
             photoRemoved = true;
+            draftImageData = '';
+            draftImageDirty = true;
             document.getElementById('photoPreview').hidden = true;
             document.getElementById('photoPreview').removeAttribute('src');
             const videoPreview = document.getElementById('videoPreview');
@@ -592,17 +728,23 @@
             document.getElementById('removePhotoButton').hidden = true;
             document.getElementById('photoMessage').textContent = 'Product media removed. Choose a replacement if needed.';
             document.getElementById('photoMessage').classList.remove('error');
+            scheduleDraftSave();
         });
 
-        document.getElementById('addProduceButton').addEventListener('click', () => {
+        document.getElementById('addProduceButton').addEventListener('click', openListingForm);
+        document.getElementById('quickAddProduceButton').addEventListener('click', openListingForm);
+        document.getElementById('saveListingDraftButton').addEventListener('click', saveListingDraft);
+        document.getElementById('cancelEditButton').addEventListener('click', async () => {
+            clearTimeout(draftSaveTimer);
+            await draftSaveInFlight;
+            if (editingId) {
+                try { await apiRequest('/api/listing-draft', { method: 'DELETE' }); } catch { /* Keep the editor usable if draft cleanup fails. */ }
+            }
             resetForm();
-            openForm();
+            listingPanel.hidden = true;
         });
-        document.getElementById('quickAddProduceButton').addEventListener('click', () => {
-            resetForm();
-            openForm();
-        });
-        document.getElementById('cancelEditButton').addEventListener('click', resetForm);
+        listingForm.addEventListener('input', scheduleDraftSave);
+        listingForm.addEventListener('change', scheduleDraftSave);
         document.getElementById('useCurrentLocationButton').addEventListener('click', () => {
             const button = document.getElementById('useCurrentLocationButton');
             const status = document.getElementById('locationStatus');
@@ -633,6 +775,8 @@
         });
         listingForm.addEventListener('submit', async event => {
             event.preventDefault();
+            clearTimeout(draftSaveTimer);
+            await draftSaveInFlight;
             const quantity = Number(document.getElementById('quantity').value);
             const minimumOrder = Number(document.getElementById('minimumOrder').value);
             const price = Number(document.getElementById('price').value);
@@ -654,8 +798,9 @@
                     price,
                     location: document.getElementById('location').value.trim()
                 };
-                if (image === null) listingInput.image = '';
+                if (image === null || photoRemoved) listingInput.image = '';
                 else if (image) listingInput.image = image;
+                else if (draftImageData) listingInput.image = draftImageData;
                 else if (!previous) listingInput.image = '';
                 const result = await apiRequest(previous ? `/api/listings/${encodeURIComponent(previous.id)}` : '/api/listings', {
                     method: previous ? 'PATCH' : 'POST',
@@ -664,6 +809,7 @@
                 const listing = result.listing;
                 const next = previous ? listings.map(item => item.id === editingId ? listing : item) : [...listings, listing];
                 saveData('kituiFarmListings', next);
+                try { await apiRequest('/api/listing-draft', { method: 'DELETE' }); } catch { /* The published listing remains saved. */ }
                 resetForm();
                 listingPanel.hidden = true;
                 render();
@@ -681,6 +827,15 @@
                 if (editId) {
                     const item = listings.find(listing => listing.id === editId && listing.farmerId === farmer.userId);
                     if (!item) return;
+                    const savedDraft = await getListingDraft();
+                    if (savedDraft) {
+                        const continueDraft = window.confirm('You have a saved produce draft. Choose OK to continue that draft, or Cancel to discard it and edit this listing.');
+                        if (continueDraft) {
+                            await openListingForm();
+                            return;
+                        }
+                        await apiRequest('/api/listing-draft', { method: 'DELETE' });
+                    }
                     editingId = item.id;
                     document.getElementById('cropName').value = item.name;
                     document.getElementById('category').value = item.category;
@@ -689,6 +844,7 @@
                     document.getElementById('price').value = item.price;
                     document.getElementById('location').value = item.location;
                     photoRemoved = false;
+                    draftImageData = item.image || '';
                     photoInput.value = '';
                     const preview = document.getElementById('photoPreview');
                     const videoPreview = document.getElementById('videoPreview');
@@ -712,7 +868,6 @@
                     document.getElementById('removePhotoButton').hidden = !item.image && !item.videoUrl;
                     document.getElementById('listingFormTitle').textContent = `Edit ${item.name}`;
                     document.getElementById('saveListingButton').textContent = 'Save changes';
-                    document.getElementById('closeListingButton').hidden = item.listingStatus === 'closed';
                     document.getElementById('cancelEditButton').hidden = false;
                     openForm();
                 } else if (!getFarmerSettings().confirmDeletes || window.confirm('Delete this produce listing?')) {
@@ -723,32 +878,6 @@
                 }
             } catch (error) {
                 setMessage('inventoryMessage', error.message || 'Could not update inventory.', true);
-            }
-        });
-
-        document.getElementById('closeListingButton').addEventListener('click', async event => {
-            if (!editingId) return;
-            const listing = myListings().find(item => item.id === editingId);
-            if (!listing || listing.listingStatus === 'closed') return;
-            const confirmed = window.confirm(
-                `Close the listing for ${listing.name}? Buyers will no longer see or order this product. You can reopen it later by editing the listing and saving your changes.`
-            );
-            if (!confirmed) return;
-
-            const button = event.currentTarget;
-            button.disabled = true;
-            try {
-                const result = await apiRequest(`/api/listings/${encodeURIComponent(listing.id)}/close`, { method: 'PATCH' });
-                const listings = loadData('kituiFarmListings');
-                saveData('kituiFarmListings', listings.map(item => item.id === listing.id ? result.listing : item));
-                resetForm();
-                listingPanel.hidden = true;
-                render();
-                setMessage('inventoryMessage', `${listing.name} was closed and is no longer visible to buyers.`);
-            } catch (error) {
-                showMessage(error.message || 'Could not close this listing. Please try again.', true);
-            } finally {
-                button.disabled = false;
             }
         });
 
