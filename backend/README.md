@@ -74,6 +74,10 @@ select id, now()::text from public.users where lower(email) = lower('ADMIN_GMAIL
 on conflict (user_id) do nothing;
 ```
 
+To reset admin-console access to the primary admin previously designated for KITUI FARM, review and run `backend/supabase/reset_admin_access.sql` in the Supabase SQL Editor. It removes other rows from the admin allowlist but deliberately preserves the underlying user accounts and their data. The script stops with an error if `nzungasamuel@gmail.com` is not registered.
+
+The admin sign-in compares trimmed names without regard to capitalization. Admin access can also be enabled through `admin-register.html`: first register and verify a normal KITUI FARM account, then enter the 4-digit registration gate code (`0987` by default; set `ADMIN_REGISTRATION_CODE` in Render to change it) and verify the account password. The gate grant expires in 10 minutes and failed code attempts are rate-limited. Admin sign-in still uses the separately configured `ADMIN_ACCESS_CODE` plus the enabled admin's name and email.
+
 Only administrators in this table can approve wallet operations. Confirm deposits outside the website before crediting; after sending a withdrawal payout, mark it as sent in the admin console. M-Pesa STK push, Airtel, and bank integrations are not active yet.
 
 `npm start` and `npm test` load `backend/.env` automatically through Node's `--env-file-if-exists`, so `DATABASE_URL` takes effect without exporting it in the shell. The publishable (`sb_publishable_...`) key is not used by this backend and must not be substituted for `DATABASE_URL`.

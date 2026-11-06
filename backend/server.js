@@ -19,7 +19,7 @@ const PAYMENT_METHODS = new Set([
     'Cash on delivery', 'M-PESA (demo)', 'Airtel Money (demo)', 'Bank transfer (demo)', 'KITUI FARM Wallet'
 ]);
 const PAGES = [
-    'about-us.html', 'admin-signin.html', 'buyer-dashboard.html', 'chat.html', 'customer-service.html', 'email-verify.html', 'farmer-dashboard.html', 'farmer-store.html',
+    'about-us.html', 'admin-register.html', 'admin-signin.html', 'buyer-dashboard.html', 'chat.html', 'customer-service.html', 'email-verify.html', 'farmer-dashboard.html', 'farmer-store.html',
     'forgot-password.html', 'index.html', 'login.html', 'payment.html', 'profile.html',
     'settings.html', 'signup.html', 'wallet.html'
 ];
@@ -746,6 +746,8 @@ function createApp(options = {}) {
     const app = express();
     const attempts = new Map();
     const adminAttempts = new Map();
+    const adminRegistrationAttempts = new Map();
+    const adminRegistrationGrants = new Map();
     const signupAttempts = new Map();
     const passwordResetAttempts = new Map();
     const secureCookie = process.env.NODE_ENV === 'production' ? '; Secure' : '';
@@ -1043,6 +1045,56 @@ function createApp(options = {}) {
         }
     });
 
+    app.post('/api/admin/registration/start', (req, res) => {
+        const now = Date.now();
+        const attempt = adminRegistrationAttempts.get(req.ip) || { count: 0, resetAt: now + 15 * 60 * 1000 };
+        if (attempt.resetAt <= now) { attempt.count = 0; attempt.resetAt = now + 15 * 60 * 1000; }
+        if (attempt.count >= 5) return res.status(429).json({ error: 'Too many registration-code attempts. Try again in 15 minutes.' });
+        const configuredCode = text(process.env.ADMIN_REGISTRATION_CODE || '0987', 4);
+        const provided = Buffer.from(text(req.body?.code, 4));
+        const expected = Buffer.from(configuredCode);
+        const codeMatches = /^[0-9]{4}$/.test(configuredCode)
+            && provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
+        if (!codeMatches) {
+            attempt.count++;
+            adminRegistrationAttempts.set(req.ip, attempt);
+            return res.status(401).json({ error: 'The security code is incorrect.' });
+        }
+        adminRegistrationAttempts.delete(req.ip);
+        const grant = crypto.randomBytes(32).toString('hex');
+        adminRegistrationGrants.set(crypto.createHash('sha256').update(grant).digest('hex'), now + 10 * 60 * 1000);
+        res.json({ registrationToken: grant, expiresInSeconds: 600 });
+    });
+
+    app.post('/api/admin/registration/complete', async (req, res, next) => {
+        const grant = text(req.body?.registrationToken, 128);
+        const grantHash = /^[a-f0-9]{64}$/i.test(grant) ? crypto.createHash('sha256').update(grant).digest('hex') : '';
+        const expiresAt = grantHash ? adminRegistrationGrants.get(grantHash) : 0;
+        if (!expiresAt || expiresAt <= Date.now()) {
+            if (grantHash) adminRegistrationGrants.delete(grantHash);
+            return res.status(401).json({ error: 'Admin registration access expired. Enter the security code again.' });
+        }
+        const email = text(req.body?.email, 254).toLowerCase();
+        const password = req.body?.password;
+        if (!emailIsValid(email) || typeof password !== 'string' || !password || password.length > 128) {
+            return res.status(400).json({ error: 'Enter the Gmail address and password of your KITUI FARM account.' });
+        }
+        try {
+            const user = await store.get('SELECT * FROM users WHERE lower(trim(email)) = lower(?)', [email]);
+            if (!user) return res.status(404).json({ error: 'No KITUI FARM account was found. Create a user account first.' });
+            const actual = crypto.scryptSync(password, Buffer.from(user.password_salt, 'hex'), 64,
+                { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+            const expected = Buffer.from(user.password_hash, 'hex');
+            if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {
+                return res.status(401).json({ error: 'The account password is incorrect.' });
+            }
+            await store.run('INSERT INTO wallet_admins (user_id, created_at) VALUES (?, ?) ON CONFLICT(user_id) DO NOTHING',
+                [user.id, new Date().toISOString()]);
+            adminRegistrationGrants.delete(grantHash);
+            res.json({ registered: true });
+        } catch (error) { next(error); }
+    });
+
     app.post('/api/admin/login', async (req, res, next) => {
         const now = Date.now();
         const attempt = adminAttempts.get(req.ip) || { count: 0, resetAt: now + 15 * 60 * 1000 };
@@ -1054,11 +1106,11 @@ function createApp(options = {}) {
         const configuredCode = process.env.ADMIN_ACCESS_CODE || '';
         if (!configuredCode) return res.status(503).json({ error: 'Admin sign-in is not configured. Contact the site administrator.' });
         try {
-            const name = text(req.body?.name, 100).trim();
+            const name = text(req.body?.name, 100).trim().toLowerCase();
             const email = text(req.body?.email, 254).trim().toLowerCase();
             const code = text(req.body?.code, 32);
             const user = name.length >= 2 && emailIsValid(email)
-                ? await store.get('SELECT * FROM users WHERE lower(name) = lower(?) AND lower(email) = ?', [name, email])
+                ? await store.get('SELECT * FROM users WHERE lower(trim(name)) = ? AND lower(trim(email)) = ?', [name, email])
                 : null;
             const admin = user ? await store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [user.id]) : null;
             const provided = Buffer.from(code);

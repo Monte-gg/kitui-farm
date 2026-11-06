@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <script src="api-base.js"></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#4a8c3f">
+    <meta name="robots" content="noindex,nofollow">
+    <title>Admin account setup - KITUI FARM</title>
+    <style>
+        :root { font-family:system-ui,-apple-system,"Segoe UI",sans-serif; color:#263126; background:#f5f7f2; }
+        * { box-sizing:border-box; }
+        body { min-height:100vh; margin:0; padding:22px; display:grid; place-items:center; }
+        .card { width:min(100%,480px); padding:clamp(24px,6vw,40px); border:1px solid #e2e9de; border-radius:18px; background:#fff; box-shadow:0 12px 36px rgba(34,54,29,.08); }
+        .brand { display:block; margin-bottom:26px; color:#2d5a27; text-align:center; font-size:22px; font-weight:850; text-decoration:none; }
+        .eyebrow { margin:0 0 7px; color:#4a8c3f; text-align:center; font-size:12px; font-weight:800; letter-spacing:.09em; text-transform:uppercase; }
+        h1 { margin:0; color:#2d5a27; text-align:center; font-size:clamp(27px,5vw,34px); }
+        .intro { margin:10px 0 25px; color:#687366; text-align:center; line-height:1.55; }
+        .note { margin:0 0 18px; padding:12px; border:1px solid #e7d8a6; border-radius:9px; background:#fff9e8; color:#594916; font-size:14px; line-height:1.5; }
+        .field { margin:0 0 17px; }
+        label { display:block; margin-bottom:7px; font-weight:700; }
+        input { width:100%; min-height:48px; padding:11px 13px; border:1px solid #d8e1d4; border-radius:9px; background:white; color:#263126; font:inherit; }
+        input:focus { outline:2px solid #d8ebd1; border-color:#4a8c3f; }
+        .button { width:100%; min-height:48px; border:0; border-radius:9px; background:#4a8c3f; color:white; font:inherit; font-weight:750; cursor:pointer; }
+        .button:disabled { opacity:.65; cursor:wait; }
+        .status { min-height:24px; margin:14px 0 0; color:#2d5a27; text-align:center; font-size:14px; }
+        .status.error { color:#b42318; }
+        .back { display:block; margin-top:19px; color:#4a8c3f; text-align:center; font-weight:650; text-decoration:none; }
+        .back:hover { text-decoration:underline; }
+        [hidden] { display:none !important; }
+    </style>
+    <script defer src="update-notification.js"></script>
+</head>
+<body>
+    <main class="card">
+        <a class="brand" href="login.html">🌱 KITUI FARM</a>
+        <p class="eyebrow">Restricted access</p>
+        <h1>Create admin access</h1>
+        <p class="intro">Verify the registration security code, then enable admin access for your existing KITUI FARM account.</p>
+        <p class="note">First create a KITUI FARM user account and verify its Gmail address. This form enables admin access for that account.</p>
+        <form id="gateForm">
+            <div class="field"><label for="securityCode">4-digit security code</label><input id="securityCode" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="one-time-code" placeholder="4-digit code" required></div>
+            <button class="button" id="gateButton" type="submit">Continue to admin registration</button>
+        </form>
+        <form id="registrationForm" hidden>
+            <div class="field"><label for="adminEmail">Verified KITUI FARM Gmail</label><input id="adminEmail" type="email" autocomplete="username" maxlength="254" required></div>
+            <div class="field"><label for="accountPassword">KITUI FARM account password</label><input id="accountPassword" type="password" autocomplete="current-password" maxlength="128" required></div>
+            <button class="button" id="registerButton" type="submit">Enable admin access</button>
+        </form>
+        <p class="status" id="status" role="status" aria-live="polite"></p>
+        <a class="back" href="admin-signin.html">← Back to admin sign-in</a>
+        <a class="back" href="signup.html">Create a KITUI FARM user account</a>
+    </main>
+    <script>
+        const gateForm = document.getElementById('gateForm');
+        const registrationForm = document.getElementById('registrationForm');
+        const status = document.getElementById('status');
+        let registrationToken = '';
+        async function postJson(url, body) {
+            const response = await fetch(url, { method:'POST', headers:{ 'Content-Type':'application/json' }, body:JSON.stringify(body) });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.error || 'The request could not be completed.');
+            return result;
+        }
+        gateForm.addEventListener('submit', async event => {
+            event.preventDefault();
+            const button = document.getElementById('gateButton');
+            button.disabled = true;
+            status.classList.remove('error');
+            status.textContent = 'Checking security code…';
+            try {
+                const result = await postJson('/api/admin/registration/start', { code:document.getElementById('securityCode').value });
+                registrationToken = result.registrationToken;
+                gateForm.hidden = true;
+                registrationForm.hidden = false;
+                status.textContent = 'Code accepted. Enter the details of your verified account.';
+                document.getElementById('adminEmail').focus();
+            } catch (error) {
+                status.textContent = error.message;
+                status.classList.add('error');
+                button.disabled = false;
+            }
+        });
+        registrationForm.addEventListener('submit', async event => {
+            event.preventDefault();
+            const button = document.getElementById('registerButton');
+            button.disabled = true;
+            status.classList.remove('error');
+            status.textContent = 'Verifying account and enabling admin access…';
+            try {
+                await postJson('/api/admin/registration/complete', {
+                    registrationToken,
+                    email:document.getElementById('adminEmail').value.trim().toLowerCase(),
+                    password:document.getElementById('accountPassword').value
+                });
+                window.location.replace('admin-signin.html?registered=1');
+            } catch (error) {
+                status.textContent = error.message;
+                status.classList.add('error');
+                button.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

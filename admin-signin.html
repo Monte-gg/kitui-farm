@@ -26,6 +26,7 @@
         .status.error { color:#b42318; }
         .back { display:block; margin-top:19px; color:#4a8c3f; text-align:center; font-weight:650; text-decoration:none; }
         .back:hover { text-decoration:underline; }
+        .back + .back { margin-top:12px; }
     </style>
     <script defer src="update-notification.js"></script>
 </head>
@@ -43,11 +44,15 @@
             <p class="status" id="adminLoginStatus" role="status" aria-live="polite"></p>
         </form>
         <a class="back" href="login.html">← Back to user sign-in</a>
+        <a class="back" href="admin-register.html">Create or enable an admin account</a>
     </main>
     <script>
         const form = document.getElementById('adminLoginForm');
         const button = document.getElementById('adminLoginButton');
         const status = document.getElementById('adminLoginStatus');
+        if (new URLSearchParams(location.search).get('registered') === '1') {
+            status.textContent = 'Admin access is enabled. Sign in with the account name and email you registered.';
+        }
         form.addEventListener('submit', async event => {
             event.preventDefault();
             button.disabled = true;
