@@ -4,6 +4,8 @@
     <script src="api-base.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="theme-init.js?v=1"></script>
+
     <meta name="theme-color" content="#08723d">
     <title>App Settings - KITUI FARM</title>
     <script>
@@ -177,6 +179,7 @@
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.error || 'Could not load account settings.');
                 localStorage.setItem(storageKey, JSON.stringify(result.settings));
+                localStorage.setItem('kituiFarmTheme', result.settings.theme);
                 showSettings(result.settings);
                 applyTheme(result.settings.theme);
                 document.documentElement.dataset.density = result.settings.density;
@@ -206,6 +209,7 @@
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.error || 'Could not save settings.');
                 localStorage.setItem(storageKey, JSON.stringify(settings));
+                localStorage.setItem('kituiFarmTheme', settings.theme);
                 applyTheme(settings.theme);
                 document.documentElement.dataset.density = settings.density;
                 message.textContent = 'Settings saved for this account.';
@@ -218,6 +222,7 @@
         document.getElementById('resetSettings').addEventListener('click', async () => {
             const defaults = { theme: 'system', density: 'comfortable', confirmDeletes: true };
             showSettings(defaults);
+            localStorage.setItem('kituiFarmTheme', defaults.theme);
             applyTheme(defaults.theme);
             document.documentElement.dataset.density = defaults.density;
             try {

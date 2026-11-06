@@ -31,6 +31,9 @@
   --ink: #f1eddf !important;
   --line: #3d493c !important;
   --muted: #b5b29f !important;
+  --accent-orange: #f0a34b;
+  --cream: #3d3423;
+  --brand-brown: #f2ddb3;
 }
 
 body { background-color: var(--bg) !important; color: var(--ink) !important; }
@@ -59,6 +62,75 @@ h1, h2, h3 { color: var(--green-dark) !important; }
 a:not(.button):not(.brand) { color: var(--green) ; }
 input:focus, select:focus, textarea:focus { border-color: var(--green) !important; }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--green); }
+
+/* Keep common page surfaces in sync with the account theme, including pages
+   whose local styles use literal white backgrounds. */
+:root[data-theme="dark"] body,
+:root[data-theme="dark"] main { background-color: var(--bg) !important; color: var(--ink) !important; }
+:root[data-theme="dark"] .topbar,
+:root[data-theme="dark"] header,
+:root[data-theme="dark"] .card,
+:root[data-theme="dark"] .panel,
+:root[data-theme="dark"] .metric,
+:root[data-theme="dark"] .search-box,
+:root[data-theme="dark"] .contact,
+:root[data-theme="dark"] details,
+:root[data-theme="dark"] .chat-layout,
+:root[data-theme="dark"] .conversation-pane,
+:root[data-theme="dark"] .conversation-item,
+:root[data-theme="dark"] .thread-head,
+:root[data-theme="dark"] .profile-product,
+:root[data-theme="dark"] .menu-panel,
+:root[data-theme="dark"] .menu-panel button,
+:root[data-theme="dark"] .emoji-panel,
+:root[data-theme="dark"] .emoji-panel button,
+:root[data-theme="dark"] .profile-dialog-head,
+:root[data-theme="dark"] dialog,
+:root[data-theme="dark"] .field input,
+:root[data-theme="dark"] .field select,
+:root[data-theme="dark"] .field textarea,
+:root[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]),
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] textarea {
+  background-color: var(--surface) !important;
+  color: var(--ink) !important;
+  border-color: var(--line) !important;
+}
+:root[data-theme="dark"] .hero,
+:root[data-theme="dark"] .balance-card,
+:root[data-theme="dark"] .closing,
+:root[data-theme="dark"] .messages,
+:root[data-theme="dark"] .message,
+:root[data-theme="dark"] .message-attachment,
+:root[data-theme="dark"] .preview-file {
+  background: var(--surface) !important;
+  color: var(--ink) !important;
+  border-color: var(--line) !important;
+}
+:root[data-theme="dark"] .message.mine,
+:root[data-theme="dark"] .conversation-item:hover,
+:root[data-theme="dark"] .conversation-item.active,
+:root[data-theme="dark"] .pinned-banner,
+:root[data-theme="dark"] .pane-tab.active,
+:root[data-theme="dark"] .directory-filter.active,
+:root[data-theme="dark"] .step {
+  background: var(--green-light) !important;
+  color: var(--ink) !important;
+  border-color: var(--line) !important;
+}
+:root[data-theme="dark"] .message.support { background: #292b3b !important; }
+:root[data-theme="dark"] .notice { background: #3a3020 !important; color: #f2ddb3 !important; border-color: #66512f !important; }
+:root[data-theme="dark"] .button:not(.primary):not(.danger),
+:root[data-theme="dark"] .icon-button,
+:root[data-theme="dark"] .pane-tab,
+:root[data-theme="dark"] .directory-filter { background-color: var(--surface) !important; color: var(--ink) !important; border-color: var(--line) !important; }
+:root[data-theme="dark"] .lead,
+:root[data-theme="dark"] .intro,
+:root[data-theme="dark"] .muted,
+:root[data-theme="dark"] .hint,
+:root[data-theme="dark"] .empty,
+:root[data-theme="dark"] .preview,
+:root[data-theme="dark"] small { color: var(--muted) !important; }
 
 .brand.kitui-brand {
   display: inline-flex !important;
