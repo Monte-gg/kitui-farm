@@ -747,6 +747,47 @@ async function sendPasswordResetEmail({ email, name, code, baseUrl }) {
     });
 }
 
+async function sendPasswordChangedEmail({ email, name, baseUrl }) {
+    const configuredUrl = (process.env.PUBLIC_APP_URL || baseUrl).trim().replace(/\/$/, '');
+    await sendGmailMessage({
+        email,
+        subject: 'Your KITUI FARM password was changed',
+        body: `Hello ${name},\n\nThe password for your KITUI FARM account was changed successfully. You can now sign in with your new password.\n\nIf you did not make this change, contact KITUI FARM Customer Service immediately at 0114 583 373.\n\nKITUI FARM Support`,
+        html: brandedEmailTemplate({
+            preheader: 'Your KITUI FARM account password was changed.',
+            title: 'Your password was changed',
+            greeting: name,
+            paragraphs: ['The password for your KITUI FARM account was changed successfully. You can now sign in with your new password.'],
+            ctaLabel: 'Sign in to KITUI FARM',
+            ctaUrl: `${configuredUrl}/login.html`,
+            note: 'If you did not make this change, contact KITUI FARM Customer Service immediately at 0114 583 373.'
+        })
+    });
+}
+
+async function sendAdminWelcomeEmail({ email, name, baseUrl }) {
+    const configuredUrl = (process.env.PUBLIC_APP_URL || baseUrl).trim().replace(/\/$/, '');
+    const adminSignInUrl = `${configuredUrl}/admin-signin.html`;
+    await sendGmailMessage({
+        email,
+        subject: 'Welcome to the KITUI FARM Admin Console',
+        body: `Hello ${name},\n\nWelcome to the KITUI FARM Admin Console. Your administrator account has been created.\n\nThe Admin Console is the secure management area for overseeing KITUI FARM. Depending on your assigned permissions, you can review user accounts, farmer listings, buyer orders, support conversations, wallet requests, and other marketplace activity. Use these tools only to support the safe and fair operation of KITUI FARM.\n\nSign in to the Admin Console: ${adminSignInUrl}\n\nKeep your password and admin access details private. Never share them by email or with another user.\n\nKITUI FARM Support`,
+        html: brandedEmailTemplate({
+            preheader: 'Your administrator account is ready. Learn what the KITUI FARM Admin Console is for.',
+            title: 'Welcome to the Admin Console',
+            greeting: name,
+            paragraphs: [
+                'Your KITUI FARM administrator account has been created.',
+                'The Admin Console is the secure management area for overseeing KITUI FARM. Depending on your assigned permissions, you can review user accounts, farmer listings, buyer orders, support conversations, wallet requests, and other marketplace activity.',
+                'Use these tools only to support the safe and fair operation of KITUI FARM.'
+            ],
+            ctaLabel: 'Sign in to the Admin Console',
+            ctaUrl: adminSignInUrl,
+            note: 'Keep your password and admin access details private. Never share them by email or with another user.'
+        })
+    });
+}
+
 function normalizedPhone(value) {
     const digits = String(value || '').replace(/\D/g, '');
     const local = digits.startsWith('254') ? digits.slice(3) : digits.startsWith('0') ? digits.slice(1) : digits;
@@ -1188,6 +1229,13 @@ function createApp(options = {}) {
                 await store.run('INSERT INTO wallet_admins (user_id, created_at) VALUES (?, ?)', [id, createdAt]);
             });
             adminRegistrationGrants.delete(grantHash);
+            try {
+                await sendAdminWelcomeEmail({ email, name, baseUrl: appBaseUrl(req) });
+            } catch (emailError) {
+                console.error('[admin-welcome-email] Delivery failed after admin account creation', {
+                    status: Number.isInteger(emailError.status) ? emailError.status : 502
+                });
+            }
             res.status(201).json({ registered: true });
         } catch (error) {
             if (error.errcode === 2067 || error.code === '23505') {
@@ -2559,10 +2607,10 @@ function createApp(options = {}) {
             let confirmationEmailSent = false;
             try {
                 const account = await store.get('SELECT name, email FROM users WHERE id = ?', [user.id]);
-                await sendGmailMessage({
+                await sendPasswordChangedEmail({
                     email: account.email,
-                    subject: 'Your KITUI FARM password was changed',
-                    body: `Hello ${account.name},\n\nThe password for your KITUI FARM account was changed successfully. You can now sign in with your new password.\n\nIf you did not make this change, contact KITUI FARM customer service immediately at 0114583373.\n\nKITUI FARM`
+                    name: account.name,
+                    baseUrl: appBaseUrl(req)
                 });
                 confirmationEmailSent = true;
             } catch (emailError) {
