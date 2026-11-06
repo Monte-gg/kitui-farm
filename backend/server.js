@@ -1074,25 +1074,35 @@ function createApp(options = {}) {
             if (grantHash) adminRegistrationGrants.delete(grantHash);
             return res.status(401).json({ error: 'Admin registration access expired. Enter the security code again.' });
         }
+        const name = text(req.body?.name, 100);
         const email = text(req.body?.email, 254).toLowerCase();
         const password = req.body?.password;
-        if (!emailIsValid(email) || typeof password !== 'string' || !password || password.length > 128) {
-            return res.status(400).json({ error: 'Enter the Gmail address and password of your KITUI FARM account.' });
+        if (name.length < 2 || !emailIsValid(email) || typeof password !== 'string' || password.length < 8 || password.length > 128) {
+            return res.status(400).json({ error: 'Enter your name, a valid Gmail address, and a password of at least 8 characters.' });
         }
         try {
-            const user = await store.get('SELECT * FROM users WHERE lower(trim(email)) = lower(?)', [email]);
-            if (!user) return res.status(404).json({ error: 'No KITUI FARM account was found. Create a user account first.' });
-            const actual = crypto.scryptSync(password, Buffer.from(user.password_salt, 'hex'), 64,
+            const existing = await store.get('SELECT id FROM users WHERE lower(trim(email)) = lower(?)', [email]);
+            if (existing) return res.status(409).json({ error: 'An account already uses this Gmail. Sign in to it or register with a different email.' });
+            const id = crypto.randomUUID();
+            const phone = `ADMIN-${crypto.randomUUID()}`;
+            const salt = crypto.randomBytes(16);
+            const passwordHash = crypto.scryptSync(password, salt, 64,
                 { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
-            const expected = Buffer.from(user.password_hash, 'hex');
-            if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) {
-                return res.status(401).json({ error: 'The account password is incorrect.' });
-            }
-            await store.run('INSERT INTO wallet_admins (user_id, created_at) VALUES (?, ?) ON CONFLICT(user_id) DO NOTHING',
-                [user.id, new Date().toISOString()]);
+            const createdAt = new Date().toISOString();
+            await store.transaction(async () => {
+                await store.run(`INSERT INTO users (id, name, email, phone, role, password_salt, password_hash, created_at)
+                    VALUES (?, ?, ?, ?, 'buyer', ?, ?, ?)`,
+                [id, name, email, phone, salt.toString('hex'), passwordHash.toString('hex'), createdAt]);
+                await store.run('INSERT INTO wallet_admins (user_id, created_at) VALUES (?, ?)', [id, createdAt]);
+            });
             adminRegistrationGrants.delete(grantHash);
-            res.json({ registered: true });
-        } catch (error) { next(error); }
+            res.status(201).json({ registered: true });
+        } catch (error) {
+            if (error.errcode === 2067 || error.code === '23505') {
+                return res.status(409).json({ error: 'An account already uses this Gmail. Sign in to it or register with a different email.' });
+            }
+            next(error);
+        }
     });
 
     app.post('/api/admin/login', async (req, res, next) => {
@@ -1103,27 +1113,30 @@ function createApp(options = {}) {
             attempt.resetAt = now + 15 * 60 * 1000;
         }
         if (attempt.count >= 5) return res.status(429).json({ error: 'Too many admin sign-in attempts. Try again in 15 minutes.' });
-        const configuredCode = process.env.ADMIN_ACCESS_CODE || '';
-        if (!configuredCode) return res.status(503).json({ error: 'Admin sign-in is not configured. Contact the site administrator.' });
         try {
             const name = text(req.body?.name, 100).trim().toLowerCase();
             const email = text(req.body?.email, 254).trim().toLowerCase();
-            const code = text(req.body?.code, 32);
-            const user = name.length >= 2 && emailIsValid(email)
-                ? await store.get('SELECT * FROM users WHERE lower(trim(name)) = ? AND lower(trim(email)) = ?', [name, email])
+            const password = req.body?.password;
+            const user = name.length >= 2 && emailIsValid(email) && typeof password === 'string' && password.length <= 128
+                ? await store.get('SELECT * FROM users WHERE lower(trim(email)) = ?', [email])
                 : null;
             const admin = user ? await store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [user.id]) : null;
-            const provided = Buffer.from(code);
-            const expected = Buffer.from(configuredCode);
-            const codeMatches = provided.length === expected.length && crypto.timingSafeEqual(provided, expected);
-            if (!user || !admin || !codeMatches) {
+            const nameMatches = Boolean(user && user.name.trim().toLowerCase() === name);
+            let passwordMatches = false;
+            if (user && typeof password === 'string') {
+                const actual = crypto.scryptSync(password, Buffer.from(user.password_salt, 'hex'), 64,
+                    { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+                const expected = Buffer.from(user.password_hash, 'hex');
+                passwordMatches = actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+            }
+            if (!user || !admin || !nameMatches || !passwordMatches) {
                 attempt.count++;
                 adminAttempts.set(req.ip, attempt);
                 return res.status(401).json({ error: 'The details could not be verified for an enabled admin account.' });
             }
             adminAttempts.delete(req.ip);
             const token = await createSession(user, res, true);
-            res.json({ user: publicUser(user), token });
+            res.json({ user: { ...publicUser(user), role: 'admin' }, token });
         } catch (error) {
             next(error);
         }

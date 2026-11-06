@@ -20,6 +20,14 @@
         label { display:block; margin-bottom:7px; font-weight:700; }
         input { width:100%; min-height:48px; padding:11px 13px; border:1px solid #d8e1d4; border-radius:9px; background:white; color:#263126; font:inherit; }
         input:focus { outline:2px solid #d8ebd1; border-color:#4a8c3f; }
+        .password-wrap { position:relative; }
+        .password-wrap input { padding-right:54px; }
+        .toggle-password { position:absolute; top:50%; right:5px; display:grid; place-items:center; width:40px; height:40px; padding:0; transform:translateY(-50%); border:0; border-radius:8px; background:transparent; color:#687366; cursor:pointer; }
+        .toggle-password:hover { background:#edf5e9; color:#2d5a27; }
+        .toggle-password svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+        .toggle-password .eye-off { display:none; }
+        .toggle-password[aria-pressed="true"] .eye-on { display:none; }
+        .toggle-password[aria-pressed="true"] .eye-off { display:block; }
         .button { width:100%; min-height:48px; border:0; border-radius:9px; background:#4a8c3f; color:white; font:inherit; font-weight:750; cursor:pointer; }
         .button:disabled { opacity:.65; cursor:wait; }
         .status { min-height:24px; margin:14px 0 0; color:#2d5a27; text-align:center; font-size:14px; }
@@ -35,11 +43,11 @@
         <a class="brand" href="login.html">🌱 KITUI FARM</a>
         <p class="eyebrow">Restricted access</p>
         <h1>Admin sign-in</h1>
-        <p class="intro">Enter your admin access code and account details. Access is granted only if the server has enabled your name and email for the admin console.</p>
+        <p class="intro">Sign in with the name, Gmail, and password you used to create your admin account.</p>
         <form id="adminLoginForm">
-            <div class="field"><label for="adminCode">Admin access code</label><input id="adminCode" name="code" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="one-time-code" placeholder="4-digit code" required></div>
             <div class="field"><label for="adminName">Full name</label><input id="adminName" name="name" autocomplete="name" maxlength="100" required></div>
             <div class="field"><label for="adminEmail">Admin email</label><input id="adminEmail" name="email" type="email" autocomplete="username" maxlength="254" required></div>
+            <div class="field"><label for="adminPassword">Password</label><div class="password-wrap"><input id="adminPassword" name="password" type="password" autocomplete="current-password" maxlength="128" required><button class="toggle-password" type="button" aria-label="Show password" aria-pressed="false" aria-controls="adminPassword"><svg class="eye-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"></path><circle cx="12" cy="12" r="3"></circle></svg><svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18"></path><path d="M10.6 5.2A10.8 10.8 0 0 1 12 5c6.4 0 10 7 10 7s-3.6 7-10 7a10 10 0 0 1-4-.8"></path><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path></svg></button></div></div>
             <button class="button" id="adminLoginButton" type="submit">Continue to admin console</button>
             <p class="status" id="adminLoginStatus" role="status" aria-live="polite"></p>
         </form>
@@ -51,8 +59,16 @@
         const button = document.getElementById('adminLoginButton');
         const status = document.getElementById('adminLoginStatus');
         if (new URLSearchParams(location.search).get('registered') === '1') {
-            status.textContent = 'Admin access is enabled. Sign in with the account name and email you registered.';
+            status.textContent = 'Admin account created. Sign in with your name, Gmail, and password.';
         }
+        document.querySelector('.toggle-password').addEventListener('click', event => {
+            const toggle = event.currentTarget;
+            const input = document.getElementById('adminPassword');
+            const show = input.type === 'password';
+            input.type = show ? 'text' : 'password';
+            toggle.setAttribute('aria-pressed', String(show));
+            toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+        });
         form.addEventListener('submit', async event => {
             event.preventDefault();
             button.disabled = true;
@@ -63,9 +79,9 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        code: document.getElementById('adminCode').value,
                         name: document.getElementById('adminName').value.trim(),
-                        email: document.getElementById('adminEmail').value.trim().toLowerCase()
+                        email: document.getElementById('adminEmail').value.trim().toLowerCase(),
+                        password: document.getElementById('adminPassword').value
                     })
                 });
                 if (!(response.headers.get('content-type') || '').includes('application/json')) {

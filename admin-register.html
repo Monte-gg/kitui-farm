@@ -20,6 +20,15 @@
         .field { margin:0 0 17px; }
         label { display:block; margin-bottom:7px; font-weight:700; }
         input { width:100%; min-height:48px; padding:11px 13px; border:1px solid #d8e1d4; border-radius:9px; background:white; color:#263126; font:inherit; }
+        .password-wrap { position:relative; }
+        .password-wrap input { padding-right:54px; }
+        .toggle-password { position:absolute; top:50%; right:5px; display:grid; place-items:center; width:40px; height:40px; padding:0; transform:translateY(-50%); border:0; border-radius:8px; background:transparent; color:#687366; cursor:pointer; }
+        .toggle-password:hover { background:#edf5e9; color:#2d5a27; }
+        .toggle-password svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+        .toggle-password .eye-off { display:none; }
+        .toggle-password[aria-pressed="true"] .eye-on { display:none; }
+        .toggle-password[aria-pressed="true"] .eye-off { display:block; }
+        .hint { display:block; margin-top:5px; color:#687366; font-size:12px; }
         input:focus { outline:2px solid #d8ebd1; border-color:#4a8c3f; }
         .button { width:100%; min-height:48px; border:0; border-radius:9px; background:#4a8c3f; color:white; font:inherit; font-weight:750; cursor:pointer; }
         .button:disabled { opacity:.65; cursor:wait; }
@@ -36,16 +45,17 @@
         <a class="brand" href="login.html">🌱 KITUI FARM</a>
         <p class="eyebrow">Restricted access</p>
         <h1>Create admin access</h1>
-        <p class="intro">Verify the registration security code, then enable admin access for your existing KITUI FARM account.</p>
-        <p class="note">First create a KITUI FARM user account and verify its Gmail address. This form enables admin access for that account.</p>
+        <p class="intro">Enter the registration security code, then create a separate admin account for the console.</p>
+        <p class="note">Admin accounts use their own name, Gmail address, and password for admin console sign-in.</p>
         <form id="gateForm">
             <div class="field"><label for="securityCode">4-digit security code</label><input id="securityCode" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="one-time-code" placeholder="4-digit code" required></div>
             <button class="button" id="gateButton" type="submit">Continue to admin registration</button>
         </form>
         <form id="registrationForm" hidden>
-            <div class="field"><label for="adminEmail">Verified KITUI FARM Gmail</label><input id="adminEmail" type="email" autocomplete="username" maxlength="254" required></div>
-            <div class="field"><label for="accountPassword">KITUI FARM account password</label><input id="accountPassword" type="password" autocomplete="current-password" maxlength="128" required></div>
-            <button class="button" id="registerButton" type="submit">Enable admin access</button>
+            <div class="field"><label for="adminName">Full name</label><input id="adminName" type="text" autocomplete="name" maxlength="100" required></div>
+            <div class="field"><label for="adminEmail">Admin Gmail</label><input id="adminEmail" type="email" autocomplete="email" maxlength="254" required></div>
+            <div class="field"><label for="adminPassword">Create password</label><div class="password-wrap"><input id="adminPassword" type="password" autocomplete="new-password" minlength="8" maxlength="128" required><button class="toggle-password" type="button" aria-label="Show password" aria-pressed="false" aria-controls="adminPassword"><svg class="eye-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"></path><circle cx="12" cy="12" r="3"></circle></svg><svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18"></path><path d="M10.6 5.2A10.8 10.8 0 0 1 12 5c6.4 0 10 7 10 7s-3.6 7-10 7a10 10 0 0 1-4-.8"></path><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path></svg></button></div><small class="hint">Use at least 8 characters.</small></div>
+            <button class="button" id="registerButton" type="submit">Create admin account</button>
         </form>
         <p class="status" id="status" role="status" aria-live="polite"></p>
         <a class="back" href="admin-signin.html">← Back to admin sign-in</a>
@@ -73,8 +83,8 @@
                 registrationToken = result.registrationToken;
                 gateForm.hidden = true;
                 registrationForm.hidden = false;
-                status.textContent = 'Code accepted. Enter the details of your verified account.';
-                document.getElementById('adminEmail').focus();
+                status.textContent = 'Code accepted. Enter your name, Gmail, and new password.';
+                document.getElementById('adminName').focus();
             } catch (error) {
                 status.textContent = error.message;
                 status.classList.add('error');
@@ -86,12 +96,13 @@
             const button = document.getElementById('registerButton');
             button.disabled = true;
             status.classList.remove('error');
-            status.textContent = 'Verifying account and enabling admin access…';
+            status.textContent = 'Creating your admin account…';
             try {
                 await postJson('/api/admin/registration/complete', {
                     registrationToken,
+                    name:document.getElementById('adminName').value.trim(),
                     email:document.getElementById('adminEmail').value.trim().toLowerCase(),
-                    password:document.getElementById('accountPassword').value
+                    password:document.getElementById('adminPassword').value
                 });
                 window.location.replace('admin-signin.html?registered=1');
             } catch (error) {
@@ -99,6 +110,14 @@
                 status.classList.add('error');
                 button.disabled = false;
             }
+        });
+        document.querySelector('.toggle-password').addEventListener('click', event => {
+            const toggle = event.currentTarget;
+            const input = document.getElementById('adminPassword');
+            const show = input.type === 'password';
+            input.type = show ? 'text' : 'password';
+            toggle.setAttribute('aria-pressed', String(show));
+            toggle.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
         });
     </script>
 </body>

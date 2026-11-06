@@ -74,9 +74,9 @@ select id, now()::text from public.users where lower(email) = lower('ADMIN_GMAIL
 on conflict (user_id) do nothing;
 ```
 
-To reset admin-console access to the primary admin previously designated for KITUI FARM, review and run `backend/supabase/reset_admin_access.sql` in the Supabase SQL Editor. It removes other rows from the admin allowlist but deliberately preserves the underlying user accounts and their data. The script stops with an error if `nzungasamuel@gmail.com` is not registered.
+To clear all current admin-console access and start fresh, run `backend/supabase/reset_admin_access.sql` in the Supabase SQL Editor. It deletes all rows from the admin allowlist but preserves user accounts and other application data. It succeeds even if the allowlist is already empty.
 
-The admin sign-in compares trimmed names without regard to capitalization. Admin access can also be enabled through `admin-register.html`: first register and verify a normal KITUI FARM account, then enter the 4-digit registration gate code (`0987` by default; set `ADMIN_REGISTRATION_CODE` in Render to change it) and verify the account password. The gate grant expires in 10 minutes and failed code attempts are rate-limited. Admin sign-in still uses the separately configured `ADMIN_ACCESS_CODE` plus the enabled admin's name and email.
+Admin sign-up is available from the admin sign-in page. Enter the 4-digit registration gate code (`0987` by default; set `ADMIN_REGISTRATION_CODE` in Render to change it), then create an admin account with a name, Gmail address, and password. The gate grant expires in 10 minutes and failed code attempts are rate-limited. Admin sign-in checks the name without regard to capitalization and verifies the email and password; it does not use the normal user sign-in flow.
 
 Only administrators in this table can approve wallet operations. Confirm deposits outside the website before crediting; after sending a withdrawal payout, mark it as sent in the admin console. M-Pesa STK push, Airtel, and bank integrations are not active yet.
 
