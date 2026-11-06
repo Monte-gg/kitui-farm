@@ -121,6 +121,44 @@ create table if not exists user_settings (
     settings_json text not null
 );
 
+create table if not exists chat_conversations (
+    id text primary key,
+    buyer_id text not null references users(id) on delete cascade,
+    farmer_id text not null references users(id) on delete cascade,
+    listing_id text,
+    created_at text not null,
+    last_message_at text not null,
+    unique (buyer_id, farmer_id, listing_id)
+);
+
+create table if not exists chat_messages (
+    id text primary key,
+    conversation_id text not null references chat_conversations(id) on delete cascade,
+    sender_id text not null references users(id) on delete cascade,
+    body text not null,
+    created_at text not null,
+    attachment_json text not null default '[]',
+    pinned integer not null default 0,
+    read_at text,
+    deleted_for text not null default '[]',
+    deleted_at text,
+    forwarded_from text
+);
+
+create table if not exists chat_conversation_states (
+    conversation_id text not null references chat_conversations(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    cleared_at text,
+    deleted_at text,
+    primary key (conversation_id, user_id)
+);
+
+create index if not exists idx_chat_conversations_buyer on chat_conversations(buyer_id, last_message_at);
+create index if not exists idx_chat_conversations_farmer on chat_conversations(farmer_id, last_message_at);
+create index if not exists idx_chat_messages_conversation on chat_messages(conversation_id, created_at);
+create index if not exists idx_chat_messages_unread on chat_messages(conversation_id, sender_id, read_at);
+create index if not exists idx_chat_conversation_states_user on chat_conversation_states(user_id, deleted_at);
+
 create table if not exists wallet_accounts (
     user_id text primary key references users (id) on delete cascade,
     wallet_id text not null unique,
@@ -189,6 +227,9 @@ alter table checkout_requests enable row level security;
 alter table orders enable row level security;
 alter table order_items enable row level security;
 alter table user_settings enable row level security;
+alter table chat_conversations enable row level security;
+alter table chat_messages enable row level security;
+alter table chat_conversation_states enable row level security;
 alter table wallet_accounts enable row level security;
 alter table wallet_transactions enable row level security;
 alter table wallet_operations enable row level security;

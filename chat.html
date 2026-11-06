@@ -64,22 +64,61 @@
         .conversation-item strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .conversation-item small { display:block; margin-top:3px; color:var(--muted); }
         .preview { display:block; margin-top:5px; overflow:hidden; color:#657164; font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
+        .conversation-row { position:relative; display:flex; align-items:stretch; border-bottom:1px solid #edf0eb; }
+        .conversation-row .conversation-item { min-width:0; border:0; padding-right:54px; }
+        .unread-badge { display:inline-grid; min-width:21px; height:21px; padding:0 6px; place-items:center; margin-top:6px; border-radius:20px; background:var(--green); color:white; font-size:11px; font-weight:800; }
+        .conversation-menu { position:absolute; top:8px; right:8px; z-index:2; }
+        .icon-button { display:inline-grid; width:36px; height:36px; place-items:center; border:1px solid var(--line); border-radius:9px; background:#fff; color:var(--deep); font:inherit; font-size:20px; cursor:pointer; }
+        .menu-panel { position:absolute; z-index:8; top:calc(100% + 5px); right:0; min-width:170px; padding:5px; border:1px solid var(--line); border-radius:10px; background:white; box-shadow:0 12px 28px #20331c22; }
+        .menu-panel button { display:block; width:100%; padding:9px 10px; border:0; border-radius:7px; background:white; color:var(--ink); text-align:left; font:inherit; font-size:13px; cursor:pointer; }
+        .menu-panel button:hover { background:var(--pale); }
+        summary.icon-button { list-style:none; }
+        summary.icon-button::-webkit-details-marker { display:none; }
         .empty-list { padding:20px 16px; color:var(--muted); font-size:13px; }
         .message-pane { display:flex; min-width:0; min-height:0; flex-direction:column; }
-        .thread-head { min-height:68px; padding:13px 18px; border-bottom:1px solid var(--line); }
+        .thread-head { position:relative; display:flex; min-height:68px; align-items:center; justify-content:space-between; gap:12px; padding:13px 18px; border-bottom:1px solid var(--line); }
+        .thread-identity { min-width:0; }
         .thread-head strong { display:block; color:var(--deep); }
         .thread-head small { color:var(--muted); }
+        .pinned-banner { padding:8px 15px; border-bottom:1px solid #d5e6ce; background:#f1f8ed; color:var(--deep); font-size:12px; cursor:pointer; }
         .messages { display:flex; flex:1; min-height:220px; flex-direction:column; gap:10px; overflow:auto; padding:18px; background:#fbfcfa; }
         .message { max-width:min(78%,600px); align-self:flex-start; padding:10px 12px; border:1px solid var(--line); border-radius:13px 13px 13px 4px; background:white; overflow-wrap:anywhere; white-space:pre-wrap; }
         .message.mine { align-self:flex-end; border-color:#cfe2c8; border-radius:13px 13px 4px 13px; background:#eaf4e6; }
         .message.support { border-color:#d8def3; background:#f0f2fb; }
+        .message.pinned { box-shadow:0 0 0 2px #b4d7a8; }
+        .message-content { white-space:pre-wrap; }
+        .message-attachment { display:flex; align-items:center; gap:8px; max-width:100%; margin-top:7px; padding:8px; border:1px solid #dce8d7; border-radius:9px; background:#fff; color:var(--deep); text-align:left; cursor:pointer; }
+        .message-attachment img { width:48px; height:48px; object-fit:cover; border-radius:5px; }
+        .message-attachment span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .message strong { display:block; margin-bottom:3px; color:#52604f; font-size:11px; }
-        .message time { display:block; margin-top:5px; color:#778174; font-size:10px; text-align:right; }
+        .message-meta { display:flex; align-items:center; justify-content:flex-end; gap:5px; margin-top:5px; }
+        .message time { color:#778174; font-size:10px; text-align:right; }
+        .read-ticks { color:#778174; font-size:12px; }
+        .read-ticks.read { color:#1685d4; }
+        .message-actions { position:relative; display:flex; justify-content:flex-end; margin-top:4px; }
+        .message-menu { position:relative; display:flex; justify-content:flex-end; margin-top:4px; }
+        .message-actions .icon-button { width:28px; height:26px; border:0; background:transparent; font-size:17px; }
+        .message-actions .menu-panel { top:auto; bottom:100%; }
         .thread-empty { align-self:center; max-width:400px; margin:auto; color:var(--muted); text-align:center; }
-        .composer { display:flex; align-items:flex-end; gap:9px; padding:13px; border-top:1px solid var(--line); }
-        .composer textarea { flex:1; min-height:46px; max-height:130px; resize:vertical; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font:inherit; }
+        .composer { display:flex; align-items:flex-end; gap:8px; padding:12px; border-top:1px solid var(--line); }
+        .composer textarea { flex:1; min-width:0; min-height:46px; max-height:130px; resize:vertical; padding:11px 12px; border:1px solid var(--line); border-radius:10px; font:inherit; }
         .composer textarea:focus { outline:2px solid #d8ebd1; border-color:var(--green); }
         .composer .button { min-height:46px; }
+        .composer-tools { position:relative; display:flex; gap:6px; }
+        .composer-tools .icon-button { width:44px; height:46px; font-size:21px; }
+        .emoji-panel { position:absolute; bottom:calc(100% + 8px); left:0; z-index:6; display:grid; width:260px; grid-template-columns:repeat(7,1fr); gap:3px; padding:9px; border:1px solid var(--line); border-radius:12px; background:white; box-shadow:0 12px 28px #20331c22; }
+        .emoji-panel button { padding:6px 2px; border:0; border-radius:6px; background:white; font-size:21px; cursor:pointer; }
+        .emoji-panel button:hover { background:var(--pale); }
+        .attachment-preview { display:flex; gap:8px; overflow:auto; padding:8px 12px 0; }
+        .preview-file { position:relative; flex:0 0 90px; width:90px; height:72px; display:grid; place-items:center; overflow:hidden; border:1px solid var(--line); border-radius:8px; background:#f8faf7; color:var(--deep); font-size:11px; text-align:center; }
+        .preview-file img,.preview-file video { width:100%; height:100%; object-fit:cover; }
+        .preview-file button { position:absolute; top:2px; right:2px; width:22px; height:22px; border:0; border-radius:50%; background:#fff; color:#a52b22; cursor:pointer; }
+        dialog.media-dialog,dialog.forward-dialog { width:min(650px,calc(100% - 24px)); max-height:85vh; padding:0; border:1px solid var(--line); border-radius:14px; background:#fff; color:var(--ink); }
+        dialog.media-dialog::backdrop,dialog.forward-dialog::backdrop { background:#1a281899; }
+        .dialog-head { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 15px; border-bottom:1px solid var(--line); }
+        .dialog-body { max-height:calc(85vh - 62px); overflow:auto; padding:15px; }
+        .dialog-body img,.dialog-body video { display:block; max-width:100%; max-height:68vh; margin:auto; }
+        .forward-dialog select { width:100%; margin:14px 0; padding:11px; border:1px solid var(--line); border-radius:8px; font:inherit; }
         .send-status { padding:0 14px 8px; color:var(--muted); font-size:12px; }
         [hidden] { display:none !important; }
         @media(max-width:760px) {
@@ -118,9 +157,15 @@
                 </div>
             </aside>
             <section class="message-pane" aria-label="Chat thread">
-                <div class="thread-head"><strong id="threadTitle">Select a conversation</strong><small id="threadSubtitle">Your messages stay between the participants and authorized KITUI FARM administrators.</small></div>
+                <div class="thread-head"><div class="thread-identity"><strong id="threadTitle">Select a conversation</strong><small id="threadSubtitle">Your messages stay between the participants and authorized KITUI FARM administrators.</small></div><details class="conversation-menu" id="activeConversationMenu"><summary class="icon-button" aria-label="Conversation options">⋮</summary><div class="menu-panel"><button type="button" data-conversation-action="clear">Clear chat history</button><button type="button" data-conversation-action="delete">Delete conversation</button></div></details></div>
+                <div id="pinnedBanner" class="pinned-banner" hidden></div>
                 <div class="messages" id="messages" aria-live="polite"><p class="thread-empty">Choose a conversation to view its messages.</p></div>
-                <form class="composer" id="composer" hidden><textarea id="messageBody" maxlength="2000" rows="2" placeholder="Write a message…" aria-label="Write a message" required></textarea><button class="button primary" id="sendButton" type="submit">Send</button></form>
+                <div id="attachmentPreview" class="attachment-preview" hidden></div>
+                <form class="composer" id="composer" hidden>
+                    <input id="attachmentInput" type="file" hidden multiple accept="image/*,video/mp4,video/webm,video/quicktime,.pdf,.doc,.docx,.xls,.xlsx,.txt">
+                    <div class="composer-tools"><button class="icon-button" id="attachButton" type="button" aria-label="Attach photos, videos, or files">＋</button><button class="icon-button" id="emojiButton" type="button" aria-label="Choose emoji">☺</button><div class="emoji-panel" id="emojiPanel" hidden aria-label="Emoji picker"></div></div>
+                    <textarea id="messageBody" maxlength="2000" rows="2" placeholder="Write a message…" aria-label="Write a message"></textarea><button class="button primary" id="sendButton" type="submit">Send</button>
+                </form>
                 <p class="send-status" id="sendStatus" role="status" aria-live="polite"></p>
             </section>
         </section>
@@ -129,6 +174,8 @@
         <div class="profile-dialog-head"><button class="button" id="closeProfileButton" type="button">Close</button></div>
         <div class="profile-content" id="personProfileContent"></div>
     </dialog>
+    <dialog class="media-dialog" id="mediaDialog"><div class="dialog-head"><strong id="mediaTitle">Attachment</strong><button class="button" type="button" data-close-dialog="mediaDialog">Close</button></div><div class="dialog-body" id="mediaBody"></div></dialog>
+    <dialog class="forward-dialog" id="forwardDialog"><div class="dialog-head"><strong>Forward message</strong><button class="button" type="button" data-close-dialog="forwardDialog">Close</button></div><div class="dialog-body"><label for="forwardTarget">Choose a conversation</label><select id="forwardTarget"></select><button class="button primary" id="forwardConfirm" type="button">Forward message</button></div></dialog>
     <script>
         const adminMode = location.pathname.endsWith('/admin-chat.html') || location.search.includes('admin=1');
         const token = localStorage.getItem('kituiFarmToken') || '';
@@ -145,6 +192,9 @@
         let peopleRole = 'farmer';
         let activeConversationId = '';
         let loadingMessages = false;
+        let activeMessages = [];
+        let pendingAttachments = [];
+        let forwardingMessageId = '';
         const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char]);
         const showNotice = value => { noticeNode.textContent = value; noticeNode.hidden = !value; };
         async function apiRequest(url, options = {}) {
@@ -158,22 +208,32 @@
             return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('en-KE', withTime ? { dateStyle:'medium', timeStyle:'short' } : { dateStyle:'medium' });
         }
         function renderConversations() {
-            listNode.innerHTML = conversations.map(item => `<button class="conversation-item ${item.id === activeConversationId ? 'active' : ''}" type="button" data-conversation="${escapeHtml(item.id)}">
+            listNode.innerHTML = conversations.map(item => `<article class="conversation-row"><button class="conversation-item ${item.id === activeConversationId ? 'active' : ''}" type="button" data-conversation="${escapeHtml(item.id)}">
                 <strong>${escapeHtml(item.peerName)}</strong><small>${escapeHtml(item.listingName)} · ${escapeHtml(dateLabel(item.updatedAt))}</small>
-                <span class="preview">${escapeHtml(item.lastMessage || 'No messages yet. Start the conversation.')}</span>
-            </button>`).join('');
+                <span class="preview">${escapeHtml(item.lastMessage || 'No messages yet. Start the conversation.')}</span>${item.unreadCount ? `<span class="unread-badge" aria-label="${item.unreadCount} unread messages">${item.unreadCount > 99 ? '99+' : item.unreadCount}</span>` : ''}
+            </button><details class="conversation-menu"><summary class="icon-button" aria-label="Chat options">⋮</summary><div class="menu-panel"><button type="button" data-list-action="clear" data-id="${escapeHtml(item.id)}">Clear chat history</button><button type="button" data-list-action="delete" data-id="${escapeHtml(item.id)}">Delete conversation</button></div></details></article>`).join('');
             if (!conversations.length) listNode.innerHTML = '<p class="empty-list">No conversations yet. Start a chat from a product listing or an order.</p>';
-            listNode.querySelectorAll('[data-conversation]').forEach(button => button.addEventListener('click', () => selectConversation(button.dataset.conversation)));
         }
         function renderMessages(messages) {
+            activeMessages = messages;
             if (!messages.length) {
                 messageNode.innerHTML = '<p class="thread-empty">No messages yet. Send a message to start this conversation.</p>';
+                document.getElementById('pinnedBanner').hidden = true;
                 return;
             }
             messageNode.innerHTML = messages.map(message => {
                 const mine = message.senderId === userSession?.userId;
-                return `<article class="message ${mine ? 'mine' : ''} ${message.senderRole === 'admin' ? 'support' : ''}"><strong>${escapeHtml(message.senderName)}${message.senderRole === 'admin' ? ' · Support' : ''}</strong>${escapeHtml(message.body)}<time>${escapeHtml(dateLabel(message.createdAt, true))}</time></article>`;
+                const attachments = (message.attachments || []).map(file => `<button class="message-attachment" type="button" data-open-attachment="${escapeHtml(message.id)}" data-index="${file.index}"><span aria-hidden="true">${file.type.startsWith('image/') ? '🖼️' : file.type.startsWith('video/') ? '▶️' : '📎'}</span><span>${escapeHtml(file.name)}</span><small>${(file.size / 1024 / 1024).toFixed(2)} MB</small></button>`).join('');
+                const deleted = message.deleted ? '<em>This message was deleted.</em>' : escapeHtml(message.body);
+                const readTick = mine ? `<span class="read-ticks ${message.isRead ? 'read' : ''}" title="${message.isRead ? 'Read' : 'Sent'}">${message.isRead ? '✓✓' : '✓'}</span>` : '';
+                const menu = message.deleted ? '' : `<details class="message-menu"><summary class="icon-button" aria-label="Message options">⋮</summary><div class="menu-panel"><button type="button" data-message-action="copy" data-id="${escapeHtml(message.id)}">Copy message text</button><button type="button" data-message-action="pin" data-id="${escapeHtml(message.id)}">${message.pinned ? 'Unpin message' : 'Pin message'}</button><button type="button" data-message-action="forward" data-id="${escapeHtml(message.id)}">Forward message</button><button type="button" data-message-action="info" data-id="${escapeHtml(message.id)}">Message info</button><button type="button" data-message-action="me" data-id="${escapeHtml(message.id)}">Delete for me</button>${mine || adminMode ? `<button type="button" data-message-action="everyone" data-id="${escapeHtml(message.id)}">Delete for everyone</button>` : ''}</div></details>`;
+                return `<article class="message ${mine ? 'mine' : ''} ${message.senderRole === 'admin' ? 'support' : ''} ${message.pinned ? 'pinned' : ''}" id="message-${escapeHtml(message.id)}"><strong>${escapeHtml(message.senderName)}${message.senderRole === 'admin' ? ' · Support' : ''}${message.forwarded ? ' · Forwarded' : ''}</strong><div class="message-content">${deleted}</div>${attachments}<div class="message-meta"><time>${escapeHtml(dateLabel(message.createdAt, true))}</time>${readTick}</div>${menu}</article>`;
             }).join('');
+            const pinned = messages.filter(message => message.pinned && !message.deleted);
+            const pinnedBanner = document.getElementById('pinnedBanner');
+            pinnedBanner.hidden = !pinned.length;
+            pinnedBanner.textContent = pinned.length ? `📌 ${pinned.length} pinned message${pinned.length === 1 ? '' : 's'} · ${pinned[0].body || (pinned[0].attachments?.length ? pinned[0].attachments[0].name : 'Attachment')}` : '';
+            pinnedBanner.onclick = () => document.getElementById(`message-${pinned[0]?.id}`)?.scrollIntoView({ behavior:'smooth', block:'center' });
             messageNode.scrollTop = messageNode.scrollHeight;
         }
         async function loadMessages() {
@@ -190,6 +250,7 @@
             const item = conversations.find(conversation => conversation.id === id);
             document.getElementById('threadTitle').textContent = item ? item.peerName : 'Conversation';
             document.getElementById('threadSubtitle').textContent = item ? `About: ${item.listingName}` : '';
+            document.getElementById('activeConversationMenu').hidden = !item;
             document.getElementById('composer').hidden = false;
             document.getElementById('messageBody').focus();
             renderConversations();
@@ -276,17 +337,145 @@
             await loadConversations();
             if (result.conversation?.id) await selectConversation(result.conversation.id);
         }
+        function fileToDataUrl(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(String(reader.result || ''));
+                reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+                reader.readAsDataURL(file);
+            });
+        }
+        function renderAttachmentPreview() {
+            const preview = document.getElementById('attachmentPreview');
+            preview.hidden = !pendingAttachments.length;
+            preview.innerHTML = pendingAttachments.map((file, index) => {
+                const visual = file.type.startsWith('image/') ? `<img src="${file.dataUrl}" alt="">` : file.type.startsWith('video/') ? `<video src="${file.dataUrl}" muted></video>` : `<span>${escapeHtml(file.name)}</span>`;
+                return `<div class="preview-file">${visual}<button type="button" data-remove-file="${index}" aria-label="Remove ${escapeHtml(file.name)}">×</button></div>`;
+            }).join('');
+        }
+        const allowedUploadTypes = new Set(['image/jpeg','image/png','image/gif','image/webp','video/mp4','video/webm','video/quicktime','application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document','application/vnd.ms-excel','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','text/plain']);
+        document.getElementById('attachButton').addEventListener('click', () => document.getElementById('attachmentInput').click());
+        document.getElementById('attachmentInput').addEventListener('change', async event => {
+            const files = [...(event.target.files || [])];
+            event.target.value = '';
+            if (pendingAttachments.length + files.length > 5) { showNotice('Attach up to five files per message.'); return; }
+            try {
+                const added = [];
+                for (const file of files) {
+                    if (!allowedUploadTypes.has(file.type)) throw new Error(`${file.name}: choose an image, MP4/WebM video, PDF, Word, Excel, or text file.`);
+                    if (file.size > 5 * 1024 * 1024) throw new Error(`${file.name} is larger than the 5 MB total attachment limit.`);
+                    added.push({ name:file.name, type:file.type, size:file.size, dataUrl:await fileToDataUrl(file) });
+                }
+                if ([...pendingAttachments, ...added].reduce((sum, file) => sum + file.size, 0) > 5 * 1024 * 1024) throw new Error('Attachments must total 5 MB or less per message.');
+                pendingAttachments.push(...added);
+                showNotice(''); renderAttachmentPreview();
+            } catch (error) { showNotice(error.message); }
+        });
+        document.getElementById('attachmentPreview').addEventListener('click', event => {
+            const button = event.target.closest('[data-remove-file]');
+            if (!button) return;
+            pendingAttachments.splice(Number(button.dataset.removeFile), 1);
+            renderAttachmentPreview();
+        });
+        const emojis = ['😀','😃','😄','😁','😆','🥹','😂','🤣','😊','😍','🥰','😘','😎','🤔','👍','👎','👏','🙏','🤝','❤️','💚','🔥','✨','🎉','🌱','🌽','🥑','🍅','🥕','🧺','🐄','🐓','💰','✅','👋'];
+        const emojiPanel = document.getElementById('emojiPanel');
+        emojiPanel.innerHTML = emojis.map(emoji => `<button type="button" data-emoji="${emoji}" aria-label="${emoji}">${emoji}</button>`).join('');
+        document.getElementById('emojiButton').addEventListener('click', () => { emojiPanel.hidden = !emojiPanel.hidden; });
+        emojiPanel.addEventListener('click', event => {
+            const button = event.target.closest('[data-emoji]'); if (!button) return;
+            const textarea = document.getElementById('messageBody'); const start = textarea.selectionStart; const end = textarea.selectionEnd;
+            textarea.setRangeText(button.dataset.emoji, start, end, 'end'); textarea.focus(); emojiPanel.hidden = true;
+        });
+        document.addEventListener('click', event => {
+            if (!event.target.closest('.composer-tools')) emojiPanel.hidden = true;
+            if (!event.target.closest('details')) document.querySelectorAll('details[open]').forEach(details => details.open = false);
+        });
+        async function openAttachment(messageId, index) {
+            try {
+                const result = await apiRequest(`/api/chat/conversations/${encodeURIComponent(activeConversationId)}/messages/${encodeURIComponent(messageId)}/attachments/${index}`);
+                const file = result.attachment; const body = document.getElementById('mediaBody');
+                document.getElementById('mediaTitle').textContent = file.name;
+                if (file.type.startsWith('image/')) body.innerHTML = `<img src="${file.dataUrl}" alt="${escapeHtml(file.name)}">`;
+                else if (file.type.startsWith('video/')) body.innerHTML = `<video src="${file.dataUrl}" controls playsinline></video>`;
+                else body.innerHTML = `<p>${escapeHtml(file.name)}</p><a class="button primary" href="${file.dataUrl}" download="${escapeHtml(file.name)}">Download file</a>`;
+                document.getElementById('mediaDialog').showModal();
+            } catch (error) { showNotice(error.message || 'Could not open this attachment.'); }
+        }
+        async function conversationAction(conversationId, action) {
+            const verb = action === 'clear' ? 'Clear this chat history for your account?' : 'Remove this conversation from your chat list?';
+            if (!window.confirm(verb)) return;
+            try {
+                await apiRequest(`/api/chat/conversations/${encodeURIComponent(conversationId)}`, { method:'DELETE', body:JSON.stringify({ action }) });
+                if (conversationId === activeConversationId && action === 'delete') {
+                    activeConversationId = ''; document.getElementById('composer').hidden = true;
+                    document.getElementById('threadTitle').textContent = 'Select a conversation';
+                    document.getElementById('threadSubtitle').textContent = 'Your messages stay between the participants and authorized KITUI FARM administrators.';
+                    messageNode.innerHTML = '<p class="thread-empty">Choose a conversation to view its messages.</p>';
+                }
+                await loadConversations();
+            } catch (error) { showNotice(error.message || 'Could not update this conversation.'); }
+        }
+        async function handleMessageAction(button) {
+            const message = activeMessages.find(item => item.id === button.dataset.id); if (!message) return;
+            const action = button.dataset.messageAction;
+            const endpoint = `/api/chat/conversations/${encodeURIComponent(activeConversationId)}/messages/${encodeURIComponent(message.id)}`;
+            try {
+                if (action === 'copy') { await navigator.clipboard.writeText(message.body || ''); showNotice('Message text copied.'); return; }
+                if (action === 'info') { const sent = new Date(message.createdAt); window.alert(`Date sent: ${sent.toLocaleDateString('en-KE')}\nTime sent: ${sent.toLocaleTimeString('en-KE')}${message.isRead ? '\nRead receipt: Read' : ''}`); return; }
+                if (action === 'forward') {
+                    forwardingMessageId = message.id;
+                    const select = document.getElementById('forwardTarget');
+                    select.innerHTML = conversations.filter(item => item.id !== activeConversationId).map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.peerName)} · ${escapeHtml(item.listingName)}</option>`).join('');
+                    if (!select.options.length) { showNotice('Open or start another conversation before forwarding.'); return; }
+                    document.getElementById('forwardDialog').showModal(); return;
+                }
+                if (action === 'me' || action === 'everyone') {
+                    const scope = action === 'me' ? 'me' : 'everyone';
+                    if (!window.confirm(scope === 'me' ? 'Delete this message from your view?' : 'Delete this message for everyone in the chat?')) return;
+                    await apiRequest(`${endpoint}/delete`, { method:'PATCH', body:JSON.stringify({ scope }) });
+                } else if (action === 'pin') {
+                    await apiRequest(`${endpoint}/pin`, { method:'PATCH', body:JSON.stringify({ pinned:!message.pinned }) });
+                }
+                await Promise.all([loadMessages(), loadConversations()]);
+            } catch (error) { showNotice(error.message || 'Could not update this message.'); }
+        }
+        messageNode.addEventListener('click', async event => {
+            const attachment = event.target.closest('[data-open-attachment]');
+            if (attachment) { await openAttachment(attachment.dataset.openAttachment, attachment.dataset.index); return; }
+            const actionButton = event.target.closest('[data-message-action]');
+            if (actionButton) await handleMessageAction(actionButton);
+        });
+        listNode.addEventListener('click', async event => {
+            const conversationButton = event.target.closest('[data-conversation]');
+            if (conversationButton) { await selectConversation(conversationButton.dataset.conversation); return; }
+            const actionButton = event.target.closest('[data-list-action]');
+            if (actionButton) await conversationAction(actionButton.dataset.id, actionButton.dataset.listAction);
+        });
+        document.getElementById('activeConversationMenu').addEventListener('click', event => {
+            const button = event.target.closest('[data-conversation-action]');
+            if (button && activeConversationId) conversationAction(activeConversationId, button.dataset.conversationAction);
+        });
+        document.getElementById('forwardConfirm').addEventListener('click', async () => {
+            const targetId = document.getElementById('forwardTarget').value;
+            if (!forwardingMessageId || !targetId) return;
+            try {
+                await apiRequest(`/api/chat/messages/${encodeURIComponent(forwardingMessageId)}/forward`, { method:'POST', body:JSON.stringify({ conversationId:targetId }) });
+                document.getElementById('forwardDialog').close(); showNotice('Message forwarded.'); await loadConversations();
+            } catch (error) { showNotice(error.message || 'Could not forward this message.'); }
+        });
+        document.querySelectorAll('[data-close-dialog]').forEach(button => button.addEventListener('click', () => document.getElementById(button.dataset.closeDialog).close()));
         document.getElementById('composer').addEventListener('submit', async event => {
             event.preventDefault();
             const textarea = document.getElementById('messageBody');
             const button = document.getElementById('sendButton');
             const body = textarea.value.trim();
-            if (!body || !activeConversationId) return;
+            if ((!body && !pendingAttachments.length) || !activeConversationId) return;
             button.disabled = true;
             document.getElementById('sendStatus').textContent = 'Sending…';
             try {
-                await apiRequest(`/api/chat/conversations/${encodeURIComponent(activeConversationId)}/messages`, { method:'POST', body:JSON.stringify({ body }) });
+                await apiRequest(`/api/chat/conversations/${encodeURIComponent(activeConversationId)}/messages`, { method:'POST', body:JSON.stringify({ body, attachments:pendingAttachments }) });
                 textarea.value = '';
+                pendingAttachments = []; renderAttachmentPreview();
                 document.getElementById('sendStatus').textContent = '';
                 await Promise.all([loadConversations(), loadMessages()]);
             } catch (error) { document.getElementById('sendStatus').textContent = error.message || 'Could not send your message.'; }

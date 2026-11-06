@@ -145,7 +145,20 @@ const SQLITE_SCHEMA = `
         conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
         sender_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         body TEXT NOT NULL,
-        created_at TEXT NOT NULL
+        created_at TEXT NOT NULL,
+        attachment_json TEXT NOT NULL DEFAULT '[]',
+        pinned INTEGER NOT NULL DEFAULT 0,
+        read_at TEXT,
+        deleted_for TEXT NOT NULL DEFAULT '[]',
+        deleted_at TEXT,
+        forwarded_from TEXT
+    );
+    CREATE TABLE IF NOT EXISTS chat_conversation_states (
+        conversation_id TEXT NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        cleared_at TEXT,
+        deleted_at TEXT,
+        PRIMARY KEY (conversation_id, user_id)
     );
     CREATE TABLE IF NOT EXISTS wishlist_items (
         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -165,6 +178,8 @@ const SQLITE_SCHEMA = `
     CREATE INDEX IF NOT EXISTS idx_chat_conversations_buyer ON chat_conversations(buyer_id, last_message_at);
     CREATE INDEX IF NOT EXISTS idx_chat_conversations_farmer ON chat_conversations(farmer_id, last_message_at);
     CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_chat_messages_unread ON chat_messages(conversation_id, sender_id, read_at);
+    CREATE INDEX IF NOT EXISTS idx_chat_conversation_states_user ON chat_conversation_states(user_id, deleted_at);
     CREATE INDEX IF NOT EXISTS idx_wishlist_items_user ON wishlist_items(user_id, created_at);
 `;
 
@@ -204,6 +219,10 @@ function createSqliteStore(dbPath) {
     addMissingColumns('wallet_transactions', {
         event_type: "TEXT NOT NULL DEFAULT 'adjustment'", status: "TEXT NOT NULL DEFAULT 'completed'",
         channel: "TEXT NOT NULL DEFAULT 'internal'", counterparty_wallet_id: 'TEXT', operation_id: 'TEXT'
+    });
+    addMissingColumns('chat_messages', {
+        attachment_json: "TEXT NOT NULL DEFAULT '[]'", pinned: 'INTEGER NOT NULL DEFAULT 0',
+        read_at: 'TEXT', deleted_for: "TEXT NOT NULL DEFAULT '[]'", deleted_at: 'TEXT', forwarded_from: 'TEXT'
     });
     if (!db.prepare('SELECT version FROM wallet_schema_migrations WHERE version = 2').get()) {
         db.exec('BEGIN IMMEDIATE');
@@ -386,8 +405,21 @@ function createPostgresStore(connectionString, options = {}) {
                 conversation_id text not null references chat_conversations(id) on delete cascade,
                 sender_id text not null references users(id) on delete cascade,
                 body text not null,
-                created_at text not null
+                created_at text not null,
+                attachment_json text not null default '[]', pinned integer not null default 0,
+                read_at text, deleted_for text not null default '[]', deleted_at text, forwarded_from text
             )`,
+                `CREATE TABLE IF NOT EXISTS chat_conversation_states (
+                conversation_id text not null references chat_conversations(id) on delete cascade,
+                user_id text not null references users(id) on delete cascade,
+                cleared_at text, deleted_at text, primary key (conversation_id, user_id)
+            )`,
+                'ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS attachment_json text NOT NULL DEFAULT \'[]\'',
+                'ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS pinned integer NOT NULL DEFAULT 0',
+                'ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS read_at text',
+                'ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS deleted_for text NOT NULL DEFAULT \'[]\'',
+                'ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS deleted_at text',
+                'ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS forwarded_from text',
                 `CREATE TABLE IF NOT EXISTS wishlist_items (
                 user_id text not null references users(id) on delete cascade,
                 listing_id text not null,
@@ -403,6 +435,8 @@ function createPostgresStore(connectionString, options = {}) {
                 'CREATE INDEX IF NOT EXISTS idx_chat_conversations_buyer ON chat_conversations(buyer_id, last_message_at)',
                 'CREATE INDEX IF NOT EXISTS idx_chat_conversations_farmer ON chat_conversations(farmer_id, last_message_at)',
                 'CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation ON chat_messages(conversation_id, created_at)',
+                'CREATE INDEX IF NOT EXISTS idx_chat_messages_unread ON chat_messages(conversation_id, sender_id, read_at)',
+                'CREATE INDEX IF NOT EXISTS idx_chat_conversation_states_user ON chat_conversation_states(user_id, deleted_at)',
                 'CREATE INDEX IF NOT EXISTS idx_wishlist_items_user ON wishlist_items(user_id, created_at)',
                 'ALTER TABLE wallet_accounts ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE wallet_transactions ENABLE ROW LEVEL SECURITY',
@@ -413,6 +447,7 @@ function createPostgresStore(connectionString, options = {}) {
                 'ALTER TABLE password_reset_codes ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE chat_conversations ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE chat_messages ENABLE ROW LEVEL SECURITY',
+                'ALTER TABLE chat_conversation_states ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE wishlist_items ENABLE ROW LEVEL SECURITY'
             ];
             for (const statement of statements) await pool.query(statement);
@@ -1727,21 +1762,25 @@ function createApp(options = {}) {
     }
 
     async function chatConversationRows(scope, userId) {
-        const where = scope === 'admin' ? ''
-            : scope === 'farmer' ? 'WHERE chat_conversations.farmer_id = ?'
-                : 'WHERE chat_conversations.buyer_id = ?';
-        const params = scope === 'admin' ? [] : [userId];
+        const participantWhere = scope === 'admin' ? ''
+            : scope === 'farmer' ? 'AND chat_conversations.farmer_id = ?'
+                : 'AND chat_conversations.buyer_id = ?';
+        const params = scope === 'admin' ? [userId, userId] : [userId, userId, userId];
         return store.all(`
             SELECT chat_conversations.id, chat_conversations.buyer_id, chat_conversations.farmer_id,
                 chat_conversations.listing_id, chat_conversations.created_at, chat_conversations.last_message_at,
                 buyers.name AS buyer_name, farmers.name AS farmer_name, listings.name AS listing_name,
                 (SELECT body FROM chat_messages WHERE conversation_id = chat_conversations.id
-                    ORDER BY created_at DESC LIMIT 1) AS last_message
+                    AND created_at > COALESCE(cs.cleared_at, '') ORDER BY created_at DESC LIMIT 1) AS last_message,
+                (SELECT COUNT(*) FROM chat_messages unread WHERE unread.conversation_id = chat_conversations.id
+                    AND unread.sender_id <> ? AND unread.read_at IS NULL AND unread.deleted_at IS NULL
+                    AND unread.created_at > COALESCE(cs.cleared_at, '')) AS unread_count
             FROM chat_conversations
             JOIN users AS buyers ON buyers.id = chat_conversations.buyer_id
             JOIN users AS farmers ON farmers.id = chat_conversations.farmer_id
             LEFT JOIN listings ON listings.id = chat_conversations.listing_id
-            ${where}
+            LEFT JOIN chat_conversation_states cs ON cs.conversation_id = chat_conversations.id AND cs.user_id = ?
+            WHERE (cs.deleted_at IS NULL) ${participantWhere}
             ORDER BY chat_conversations.last_message_at DESC LIMIT 200
         `, params);
     }
@@ -1760,6 +1799,7 @@ function createApp(options = {}) {
             farmerName: row.farmer_name,
             peerName,
             lastMessage: row.last_message || '',
+            unreadCount: Number(row.unread_count) || 0,
             updatedAt: row.last_message_at,
             createdAt: row.created_at
         };
@@ -1893,48 +1933,172 @@ function createApp(options = {}) {
     app.get('/api/chat/conversations/:id/messages', auth, async (req, res) => {
         const conversation = await store.get('SELECT * FROM chat_conversations WHERE id = ?', [req.params.id]);
         if (!await canReadConversation(req.user, conversation)) return res.status(404).json({ error: 'Conversation not found.' });
+        const now = new Date().toISOString();
+        await store.run(`UPDATE chat_messages SET read_at = ? WHERE conversation_id = ? AND sender_id <> ? AND read_at IS NULL`,
+            [now, conversation.id, req.user.id]);
+        const state = await store.get('SELECT cleared_at FROM chat_conversation_states WHERE conversation_id = ? AND user_id = ?',
+            [conversation.id, req.user.id]);
         const rows = await store.all(`
-            SELECT recent.id, recent.sender_id, recent.body, recent.created_at,
+            SELECT recent.id, recent.sender_id, recent.body, recent.created_at, recent.read_at,
+                recent.attachment_json, recent.pinned, recent.deleted_for, recent.deleted_at, recent.forwarded_from,
                 users.name AS sender_name, users.role AS sender_role, wallet_admins.user_id AS admin_id
             FROM (
-                SELECT id, sender_id, body, created_at FROM chat_messages
-                WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 200
+                SELECT id, sender_id, body, created_at, read_at, attachment_json, pinned, deleted_for, deleted_at, forwarded_from
+                FROM chat_messages WHERE conversation_id = ? AND created_at > ? ORDER BY created_at DESC LIMIT 200
             ) AS recent
             JOIN users ON users.id = recent.sender_id
             LEFT JOIN wallet_admins ON wallet_admins.user_id = users.id
             ORDER BY recent.created_at ASC
-        `, [req.params.id]);
-        res.json({ messages: rows.map(row => ({
+        `, [req.params.id, state?.cleared_at || '']);
+        const messages = rows.filter(row => {
+            try { return !JSON.parse(row.deleted_for || '[]').includes(req.user.id); } catch { return true; }
+        }).map(row => ({
             id: row.id,
             senderId: row.sender_id,
             senderName: row.admin_id ? 'KITUI FARM Support' : row.sender_name,
             senderRole: row.admin_id ? 'admin' : row.sender_role,
-            body: row.body,
-            createdAt: row.created_at
-        })) });
+            body: row.deleted_at ? '' : row.body,
+            createdAt: row.created_at,
+            isRead: Boolean(row.read_at),
+            pinned: Boolean(row.pinned),
+            deleted: Boolean(row.deleted_at),
+            forwarded: Boolean(row.forwarded_from),
+            attachments: row.deleted_at ? [] : (() => {
+                try { return JSON.parse(row.attachment_json || '[]').map(({ name, type, size }, index) => ({ name, type, size, index })); }
+                catch { return []; }
+            })()
+        }));
+        res.json({ messages });
     });
 
     app.post('/api/chat/conversations/:id/messages', auth, async (req, res, next) => {
         const conversation = await store.get('SELECT * FROM chat_conversations WHERE id = ?', [req.params.id]);
         if (!await canReadConversation(req.user, conversation)) return res.status(404).json({ error: 'Conversation not found.' });
         const body = text(req.body?.body, 2000);
-        if (!body) return res.status(400).json({ error: 'Enter a message before sending.' });
+        const incomingAttachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
+        if (!body && !incomingAttachments.length) return res.status(400).json({ error: 'Write a message or attach a file before sending.' });
+        if (incomingAttachments.length > 5) return res.status(400).json({ error: 'Attach up to five files per message.' });
+        let attachments;
+        try {
+            attachments = incomingAttachments.map(file => {
+                const name = text(file?.name, 180) || 'Attachment';
+                const type = text(file?.type, 100).toLowerCase();
+                const dataUrl = typeof file?.dataUrl === 'string' ? file.dataUrl : '';
+                const match = /^data:(image\/(?:jpeg|png|gif|webp)|video\/(?:mp4|webm|quicktime)|application\/(?:pdf|msword|vnd\.openxmlformats-officedocument\.wordprocessingml\.document|vnd\.ms-excel|vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet)|text\/plain);base64,([A-Za-z0-9+/]+={0,2})$/i.exec(dataUrl);
+                if (!match || match[1].toLowerCase() !== type) throw new Error('Use images, MP4/WebM videos, PDF, Word, Excel, or text files.');
+                const size = Buffer.from(match[2], 'base64').length;
+                return { name, type, size, dataUrl };
+            });
+            if (attachments.reduce((sum, file) => sum + file.size, 0) > 5 * 1024 * 1024) {
+                return res.status(413).json({ error: 'Attachments must total 5 MB or less per message.' });
+            }
+        } catch (error) { return res.status(400).json({ error: error.message || 'One of the attachments is not supported.' }); }
         try {
             const id = crypto.randomUUID();
             const createdAt = new Date().toISOString();
             await store.transaction(async () => {
                 await store.run(`
-                    INSERT INTO chat_messages (id, conversation_id, sender_id, body, created_at)
-                    VALUES (?, ?, ?, ?, ?)
-                `, [id, conversation.id, req.user.id, body, createdAt]);
+                    INSERT INTO chat_messages (id, conversation_id, sender_id, body, created_at, attachment_json)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                `, [id, conversation.id, req.user.id, body, createdAt, JSON.stringify(attachments)]);
                 await store.run('UPDATE chat_conversations SET last_message_at = ? WHERE id = ?', [createdAt, conversation.id]);
+                await store.run('UPDATE chat_conversation_states SET deleted_at = NULL WHERE conversation_id = ? AND user_id <> ?',
+                    [conversation.id, req.user.id]);
+                for (const userId of [conversation.buyer_id, conversation.farmer_id]) {
+                    if (userId !== req.user.id) {
+                        await store.run(`INSERT INTO chat_conversation_states (conversation_id, user_id, deleted_at)
+                            VALUES (?, ?, NULL) ON CONFLICT (conversation_id, user_id) DO UPDATE SET deleted_at = NULL`,
+                        [conversation.id, userId]);
+                    }
+                }
             });
             const admin = await chatIsAdmin(req.user.id);
             res.status(201).json({ message: {
                 id, senderId: req.user.id, senderName: admin ? 'KITUI FARM Support' : req.user.name,
-                senderRole: admin ? 'admin' : req.user.role, body, createdAt
+                senderRole: admin ? 'admin' : req.user.role, body, createdAt, isRead: false,
+                attachments: attachments.map(({ name, type, size }, index) => ({ name, type, size, index }))
             } });
         } catch (error) { next(error); }
+    });
+
+    app.get('/api/chat/conversations/:id/messages/:messageId/attachments/:index', auth, async (req, res) => {
+        const conversation = await store.get('SELECT * FROM chat_conversations WHERE id = ?', [req.params.id]);
+        if (!await canReadConversation(req.user, conversation)) return res.status(404).json({ error: 'Conversation not found.' });
+        const message = await store.get('SELECT attachment_json, deleted_at, deleted_for FROM chat_messages WHERE id = ? AND conversation_id = ?',
+            [req.params.messageId, conversation.id]);
+        if (!message || message.deleted_at) return res.status(404).json({ error: 'Attachment not found.' });
+        try {
+            if (JSON.parse(message.deleted_for || '[]').includes(req.user.id)) return res.status(404).json({ error: 'Attachment not found.' });
+            const file = JSON.parse(message.attachment_json || '[]')[Number(req.params.index)];
+            if (!file) return res.status(404).json({ error: 'Attachment not found.' });
+            res.json({ attachment: file });
+        } catch { res.status(404).json({ error: 'Attachment not found.' }); }
+    });
+
+    app.patch('/api/chat/conversations/:id/messages/:messageId/pin', auth, async (req, res) => {
+        const conversation = await store.get('SELECT * FROM chat_conversations WHERE id = ?', [req.params.id]);
+        if (!await canReadConversation(req.user, conversation)) return res.status(404).json({ error: 'Conversation not found.' });
+        const message = await store.get('SELECT id, deleted_at FROM chat_messages WHERE id = ? AND conversation_id = ?', [req.params.messageId, conversation.id]);
+        if (!message || message.deleted_at) return res.status(404).json({ error: 'Message not found.' });
+        const pinned = req.body?.pinned === true;
+        await store.run('UPDATE chat_messages SET pinned = ? WHERE id = ?', [pinned ? 1 : 0, message.id]);
+        res.json({ pinned });
+    });
+
+    app.patch('/api/chat/conversations/:id/messages/:messageId/delete', auth, async (req, res) => {
+        const conversation = await store.get('SELECT * FROM chat_conversations WHERE id = ?', [req.params.id]);
+        if (!await canReadConversation(req.user, conversation)) return res.status(404).json({ error: 'Conversation not found.' });
+        const message = await store.get('SELECT id, sender_id, deleted_for FROM chat_messages WHERE id = ? AND conversation_id = ?', [req.params.messageId, conversation.id]);
+        if (!message) return res.status(404).json({ error: 'Message not found.' });
+        if (req.body?.scope === 'everyone') {
+            if (message.sender_id !== req.user.id && !await chatIsAdmin(req.user.id)) return res.status(403).json({ error: 'Only the sender or an administrator can delete this message for everyone.' });
+            await store.run("UPDATE chat_messages SET body = '', attachment_json = '[]', pinned = 0, deleted_at = ? WHERE id = ?", [new Date().toISOString(), message.id]);
+        } else if (req.body?.scope === 'me') {
+            let deletedFor = [];
+            try { deletedFor = JSON.parse(message.deleted_for || '[]'); } catch { deletedFor = []; }
+            if (!deletedFor.includes(req.user.id)) deletedFor.push(req.user.id);
+            await store.run('UPDATE chat_messages SET deleted_for = ? WHERE id = ?', [JSON.stringify(deletedFor), message.id]);
+        } else return res.status(400).json({ error: 'Choose delete for me or delete for everyone.' });
+        res.json({ deleted: true });
+    });
+
+    app.post('/api/chat/messages/:id/forward', auth, async (req, res, next) => {
+        const source = await store.get('SELECT * FROM chat_messages WHERE id = ?', [req.params.id]);
+        const sourceConversation = source && await store.get('SELECT * FROM chat_conversations WHERE id = ?', [source.conversation_id]);
+        if (!source || !await canReadConversation(req.user, sourceConversation) || source.deleted_at) return res.status(404).json({ error: 'Message not available to forward.' });
+        let deletedFor = [];
+        try { deletedFor = JSON.parse(source.deleted_for || '[]'); } catch { deletedFor = []; }
+        if (deletedFor.includes(req.user.id)) return res.status(404).json({ error: 'Message not available to forward.' });
+        const target = await store.get('SELECT * FROM chat_conversations WHERE id = ?', [text(req.body?.conversationId, 100)]);
+        if (!await canReadConversation(req.user, target)) return res.status(404).json({ error: 'Destination chat not found.' });
+        try {
+            const id = crypto.randomUUID(); const createdAt = new Date().toISOString();
+            await store.transaction(async () => {
+                await store.run(`INSERT INTO chat_messages (id, conversation_id, sender_id, body, created_at, attachment_json, forwarded_from)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)`, [id, target.id, req.user.id, source.body, createdAt, source.attachment_json || '[]', source.id]);
+                await store.run('UPDATE chat_conversations SET last_message_at = ? WHERE id = ?', [createdAt, target.id]);
+                await store.run('UPDATE chat_conversation_states SET deleted_at = NULL WHERE conversation_id = ? AND user_id <> ?',
+                    [target.id, req.user.id]);
+                for (const userId of [target.buyer_id, target.farmer_id]) if (userId !== req.user.id) {
+                    await store.run(`INSERT INTO chat_conversation_states (conversation_id, user_id, deleted_at) VALUES (?, ?, NULL)
+                        ON CONFLICT (conversation_id, user_id) DO UPDATE SET deleted_at = NULL`, [target.id, userId]);
+                }
+            });
+            res.status(201).json({ messageId: id });
+        } catch (error) { next(error); }
+    });
+
+    app.delete('/api/chat/conversations/:id', auth, async (req, res) => {
+        const conversation = await store.get('SELECT * FROM chat_conversations WHERE id = ?', [req.params.id]);
+        if (!await canReadConversation(req.user, conversation)) return res.status(404).json({ error: 'Conversation not found.' });
+        const action = req.body?.action;
+        if (!['clear', 'delete'].includes(action)) return res.status(400).json({ error: 'Choose clear or delete.' });
+        const now = new Date().toISOString();
+        const column = action === 'clear' ? 'cleared_at' : 'deleted_at';
+        await store.run(`INSERT INTO chat_conversation_states (conversation_id, user_id, ${column}) VALUES (?, ?, ?)
+            ON CONFLICT (conversation_id, user_id) DO UPDATE SET ${column} = excluded.${column}`,
+        [conversation.id, req.user.id, now]);
+        res.json({ success: true, action });
     });
 
     app.get('/api/listings/:id/video', auth, async (req, res, next) => {
