@@ -85,7 +85,7 @@
 
         <section class="panel" id="people" aria-labelledby="accountsHeading">
             <div class="panel-head"><div><h2 id="accountsHeading">People on KITUI FARM</h2><p class="muted">Registered farmers and customers. Enabled admins are listed separately below.</p></div><span class="count" id="accountsCount">—</span></div>
-            <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Location</th><th>Created</th></tr></thead><tbody id="accountsBody"></tbody></table></div>
+            <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Location</th><th>Created</th><th>Action</th></tr></thead><tbody id="accountsBody"></tbody></table></div>
             <p class="empty" id="accountsEmpty" hidden>No farmers or customers found.</p>
         </section>
 
@@ -162,6 +162,7 @@
             document.getElementById('accountsBody').innerHTML = accounts.map(account => `<tr>
                 <td>${escapeHtml(account.name)}</td><td>${escapeHtml(account.email)}</td><td>${escapeHtml(account.phone)}</td>
                 <td>${escapeHtml(account.role)}</td><td>${escapeHtml(account.location || '—')}</td><td>${escapeHtml(displayDate(account.createdAt))}</td>
+                <td><button class="button reject" type="button" data-delete-account="${escapeHtml(account.id)}" data-account-name="${escapeHtml(account.name)}">Delete</button></td>
             </tr>`).join('');
 
             const admins = adminData.admins || [];
@@ -244,6 +245,30 @@
             sessionStorage.removeItem('kituiFarmSession');
             localStorage.removeItem('kituiFarmToken');
             window.location.replace('login.html');
+        });
+        document.getElementById('accountsBody').addEventListener('click', async event => {
+            const button = event.target.closest('button[data-delete-account]');
+            if (!button) return;
+            const reason = window.prompt(`Enter the reason for deleting ${button.dataset.accountName}'s account (required):`);
+            if (reason === null) return;
+            if (reason.trim().length < 5) {
+                setStatus('Enter a clear deletion reason with at least 5 characters.', true);
+                return;
+            }
+            if (!window.confirm(`Permanently delete ${button.dataset.accountName}'s account and related account data? This cannot be undone.`)) return;
+            button.disabled = true;
+            try {
+                const result = await apiRequest(`/api/admin/accounts/${encodeURIComponent(button.dataset.deleteAccount)}`, {
+                    method:'DELETE', body:JSON.stringify({ reason:reason.trim() })
+                });
+                setStatus(result.emailSent
+                    ? 'Account deleted and the user was notified by email.'
+                    : 'Account deleted, but the notice email could not be sent. Check Gmail API settings in Render.');
+                await loadDashboard();
+            } catch (error) {
+                setStatus(error.message || 'Could not delete the account.', true);
+                button.disabled = false;
+            }
         });
         document.getElementById('requestList').addEventListener('click', async event => {
             const button = event.target.closest('button[data-review]'); if (!button) return;

@@ -507,7 +507,7 @@ function appBaseUrl(req) {
     return (process.env.PUBLIC_APP_URL || defaultBase).trim().replace(/\/$/, '');
 }
 
-async function sendGmailMessage({ email, subject, body }) {
+async function sendGmailMessage({ email, subject, body, html }) {
     const gmailUser = (process.env.GMAIL_USER || '').trim().toLowerCase();
     const oauthClientId = (process.env.GMAIL_OAUTH_CLIENT_ID || '').trim();
     const oauthClientSecret = (process.env.GMAIL_OAUTH_CLIENT_SECRET || '').trim();
@@ -522,10 +522,10 @@ async function sendGmailMessage({ email, subject, body }) {
         `To: ${email}`,
         `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`,
         'MIME-Version: 1.0',
-        'Content-Type: text/plain; charset=UTF-8',
+        `Content-Type: ${html ? 'text/html' : 'text/plain'}; charset=UTF-8`,
         'Content-Transfer-Encoding: 8bit',
         '',
-        body
+        html || body
     ].join('\r\n');
     try {
         const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
@@ -579,6 +579,53 @@ async function sendGmailMessage({ email, subject, body }) {
         error.status = 502;
         throw error;
     }
+}
+
+function escapeEmailHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, character => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[character]));
+}
+
+function deletionEmailTemplate({ title, greeting, paragraphs }) {
+    const body = paragraphs.map(paragraph => `<p style="margin:0 0 16px;line-height:1.65;color:#344236">${paragraph}</p>`).join('');
+    return `<!doctype html><html lang="en"><body style="margin:0;background:#f4f7f1;font-family:Arial,Helvetica,sans-serif;color:#263126"><div style="max-width:620px;margin:32px auto;padding:0 16px"><div style="background:#ffffff;border:1px solid #e0e8dc;border-radius:16px;overflow:hidden"><div style="padding:24px 30px;background:#234d27;color:#ffffff;font-size:20px;font-weight:700">🌱 KITUI FARM</div><div style="padding:30px"><h1 style="margin:0 0 22px;color:#234d27;font-size:25px">${title}</h1><p style="margin:0 0 16px;line-height:1.65;color:#344236">Hello ${greeting},</p>${body}<div style="margin-top:26px;padding-top:18px;border-top:1px solid #e0e8dc;color:#657064;font-size:14px;line-height:1.6">Need help? Contact KITUI FARM Customer Service at <a href="tel:0114583373" style="color:#397b36;font-weight:700">0114 583 373</a>.</div><p style="margin:22px 0 0;color:#657064;font-size:14px">KITUI FARM Support</p></div></div></div></body></html>`;
+}
+
+async function sendAdminDeletionEmail({ email, name, reason }) {
+    const escapedReason = escapeEmailHtml(reason).replace(/\r?\n/g, '<br>');
+    await sendGmailMessage({
+        email,
+        subject: 'Your KITUI FARM account has been closed',
+        body: `Hello ${name},\n\nYour KITUI FARM account has been closed by an administrator. Reason: ${reason}\n\nAccess to your account and its data has been revoked. For support, contact Customer Service at 0114 583 373.\n\nKITUI FARM Support`,
+        html: deletionEmailTemplate({
+            title: 'Your account has been closed',
+            greeting: escapeEmailHtml(name),
+            paragraphs: [
+                'Your KITUI FARM account has been closed by an administrator.',
+                `<strong>Reason provided:</strong><br>${escapedReason}`,
+                'Access to your account and its data has been revoked.'
+            ]
+        })
+    });
+}
+
+async function sendSelfDeletionEmail({ email, name }) {
+    await sendGmailMessage({
+        email,
+        subject: 'Your KITUI FARM account has been deleted',
+        body: `Hello ${name},\n\nYour KITUI FARM account has been permanently deleted at your request. It can no longer be accessed or recovered. Any remaining wallet balance and wallet records were cleared as part of account deletion, according to KITUI FARM policy. To use KITUI FARM again, you will need to register a brand new account.\n\nFor support, contact Customer Service at 0114 583 373.\n\nKITUI FARM Support`,
+        html: deletionEmailTemplate({
+            title: 'Your account has been deleted',
+            greeting: escapeEmailHtml(name),
+            paragraphs: [
+                'Your KITUI FARM account has been permanently deleted at your request.',
+                '<strong>This account can no longer be accessed or recovered.</strong>',
+                'Any remaining wallet balance and wallet records were cleared as part of account deletion, according to KITUI FARM policy.',
+                'If you wish to use KITUI FARM in the future, you will need to register a brand new account.'
+            ]
+        })
+    });
 }
 
 async function sendSignupVerification({ email, name, token, baseUrl }) {
@@ -1077,8 +1124,18 @@ function createApp(options = {}) {
                 if (!deleted.changes) throw new Error('The account could not be deleted.');
             });
 
+            let emailSent = true;
+            try {
+                await sendSelfDeletionEmail({ email: account.email, name: account.name });
+            } catch (emailError) {
+                emailSent = false;
+                console.error('[account-deletion-email] Self-deletion notice could not be sent', {
+                    name: emailError.name || 'Error', status: emailError.status || 0
+                });
+            }
+
             res.setHeader('Set-Cookie', `${COOKIE}=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${secureCookie}`);
-            res.status(204).end();
+            res.json({ deleted: true, emailSent });
         } catch (error) {
             next(error);
         }
@@ -1521,6 +1578,45 @@ function createApp(options = {}) {
                 ORDER BY created_at DESC LIMIT 500
             `);
             res.json({ accounts: rows.map(row => ({ ...publicUser(row), createdAt: row.created_at })) });
+        } catch (error) { next(error); }
+    });
+
+    app.delete('/api/admin/accounts/:id', auth, walletAdmin, async (req, res, next) => {
+        const reason = text(req.body?.reason, 1000);
+        if (reason.length < 5) return res.status(400).json({ error: 'Provide a deletion reason of at least 5 characters.' });
+        try {
+            const account = await store.get(`SELECT users.* FROM users
+                WHERE users.id = ? AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)`, [req.params.id]);
+            if (!account) return res.status(404).json({ error: 'That farmer or customer account could not be found.' });
+
+            await store.transaction(async () => {
+                await store.run('UPDATE wallet_operations SET reviewed_by = NULL WHERE reviewed_by = ?', [account.id]);
+                await store.run('UPDATE wallet_transactions SET created_by = NULL WHERE created_by = ?', [account.id]);
+                if (account.role === 'buyer') {
+                    await store.run(`DELETE FROM order_items WHERE order_id IN
+                        (SELECT id FROM orders WHERE buyer_id = ?)`, [account.id]);
+                    await store.run('DELETE FROM orders WHERE buyer_id = ?', [account.id]);
+                    await store.run('DELETE FROM checkout_requests WHERE buyer_id = ?', [account.id]);
+                } else {
+                    await store.run('DELETE FROM listings WHERE farmer_id = ?', [account.id]);
+                    await store.run(`UPDATE order_items SET farmer_id = '', seller_name = 'Deleted farmer', location = ''
+                        WHERE farmer_id = ?`, [account.id]);
+                }
+                await store.run('DELETE FROM sessions WHERE user_id = ?', [account.id]);
+                const deleted = await store.run('DELETE FROM users WHERE id = ?', [account.id]);
+                if (!deleted.changes) throw new Error('The account could not be deleted.');
+            });
+
+            let emailSent = true;
+            try {
+                await sendAdminDeletionEmail({ email: account.email, name: account.name, reason });
+            } catch (emailError) {
+                emailSent = false;
+                console.error('[account-deletion-email] Admin-deletion notice could not be sent', {
+                    name: emailError.name || 'Error', status: emailError.status || 0
+                });
+            }
+            res.json({ deleted: true, emailSent });
         } catch (error) { next(error); }
     });
 

@@ -145,8 +145,11 @@
         const rememberCheckbox = document.getElementById('remember');
         const formStatus = document.getElementById('formStatus');
 
-        if (new URLSearchParams(window.location.search).get('accountDeleted') === '1') {
-            formStatus.textContent = 'Your account and associated personal data have been deleted.';
+        const loginNotice = new URLSearchParams(window.location.search);
+        if (loginNotice.get('accountDeleted') === '1') {
+            formStatus.textContent = loginNotice.get('emailSent') === '1'
+                ? 'Your account was permanently deleted. A confirmation email has been sent.'
+                : 'Your account was permanently deleted, but the confirmation email could not be sent. Contact Customer Service at 0114 583 373 if you need help.';
         }
 
         if (rememberedLogin) {

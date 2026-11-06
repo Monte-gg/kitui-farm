@@ -354,6 +354,7 @@
                     const result = await response.json().catch(() => ({}));
                     throw new Error(result.error || 'Could not delete your account.');
                 }
+                const deletionResult = await response.json().catch(() => ({}));
 
                 try {
                     const localListings = readArray('kituiFarmListings');
@@ -388,7 +389,7 @@
                     const remembered = localStorage.getItem('kituiFarmRememberedLogin');
                     if (remembered && [user.email, user.phone].includes(remembered)) localStorage.removeItem('kituiFarmRememberedLogin');
                 } catch (error) { /* The server session is already revoked. */ }
-                window.location.replace('login.html?accountDeleted=1');
+                window.location.replace(`login.html?accountDeleted=1&emailSent=${deletionResult.emailSent ? '1' : '0'}`);
             } catch (error) {
                 deleteMessage.textContent = error.message || 'Could not delete your account.';
                 deleteMessage.classList.add('error');
