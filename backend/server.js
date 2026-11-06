@@ -1787,7 +1787,8 @@ function createApp(options = {}) {
                 store.get('SELECT COUNT(*) AS total FROM users WHERE NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)'),
                 store.get("SELECT COUNT(*) AS total FROM users WHERE role = 'farmer' AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)"),
                 store.get("SELECT COUNT(*) AS total FROM users WHERE role = 'buyer' AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)"),
-                store.get('SELECT COUNT(*) AS total FROM listings WHERE quantity > 0'),
+                store.get(`SELECT COUNT(*) AS total FROM listings
+                    WHERE quantity > 0 AND EXISTS (SELECT 1 FROM users WHERE users.id = listings.farmer_id AND users.role = 'farmer')`),
                 store.get('SELECT COUNT(*) AS total FROM orders'),
                 store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE status = 'pending'"),
                 store.get('SELECT COUNT(*) AS total FROM wallet_admins')
@@ -1868,8 +1869,11 @@ function createApp(options = {}) {
     app.get('/api/admin/listings', auth, walletAdmin, async (req, res, next) => {
         try {
             const rows = await store.all(`
-                SELECT id, farmer_id, seller_name, name, category, quantity, minimum_order, price, location, created_at
-                FROM listings ORDER BY created_at DESC LIMIT 500
+                SELECT listings.id, listings.farmer_id, listings.seller_name, listings.name, listings.category,
+                    listings.quantity, listings.minimum_order, listings.price, listings.location, listings.created_at
+                FROM listings WHERE EXISTS (
+                    SELECT 1 FROM users WHERE users.id = listings.farmer_id AND users.role = 'farmer'
+                ) ORDER BY listings.created_at DESC LIMIT 500
             `);
             res.json({ listings: rows.map(publicListing) });
         } catch (error) { next(error); }
@@ -2260,22 +2264,21 @@ function createApp(options = {}) {
         if (req.user.role !== 'buyer' && !(req.user.role === 'farmer' && req.user.id === req.params.id)) {
             return res.status(403).json({ error: 'A buyer account is required to view farmer stores.' });
         }
-        const listings = await store.all(
-            'SELECT * FROM listings WHERE farmer_id = ? AND quantity > 0 ORDER BY created_at DESC',
-            [req.params.id]
-        );
         const farmer = await store.get(
             "SELECT id, name, location, profile_photo FROM users WHERE id = ? AND role = 'farmer'",
             [req.params.id]
         );
-        if (!farmer && listings.length === 0) return res.status(404).json({ error: 'Farmer or available products not found.' });
-        const firstListing = listings[0];
+        if (!farmer) return res.status(404).json({ error: 'This farmer account is no longer active.' });
+        const listings = await store.all(
+            'SELECT * FROM listings WHERE farmer_id = ? AND quantity > 0 ORDER BY created_at DESC',
+            [req.params.id]
+        );
         res.json({
             farmer: {
                 id: req.params.id,
-                name: farmer?.name || firstListing?.seller_name || 'KITUI FARM farmer',
-                location: farmer?.location || firstListing?.location || '',
-                profilePhoto: farmer?.profile_photo || ''
+                name: farmer.name,
+                location: farmer.location || '',
+                profilePhoto: farmer.profile_photo || ''
             },
             listings: listings.map(publicListing)
         });
@@ -2346,7 +2349,10 @@ function createApp(options = {}) {
         if (req.query.scope === 'mine' && req.user.role !== 'farmer') return res.status(403).json({ error: 'A farmer account is required.' });
         const rows = req.query.scope === 'mine'
             ? await store.all('SELECT * FROM listings WHERE farmer_id = ? ORDER BY created_at DESC', [req.user.id])
-            : await store.all('SELECT * FROM listings WHERE quantity > 0 ORDER BY created_at DESC');
+            : await store.all(`SELECT listings.* FROM listings
+                WHERE listings.quantity > 0 AND EXISTS (
+                    SELECT 1 FROM users WHERE users.id = listings.farmer_id AND users.role = 'farmer'
+                ) ORDER BY listings.created_at DESC`);
         res.json({ listings: rows.map(publicListing) });
     });
     app.get('/api/wishlist', auth, role('buyer'), async (req, res) => {
@@ -2354,7 +2360,8 @@ function createApp(options = {}) {
         res.json({ listingIds: rows.map(row => row.listing_id) });
     });
     app.post('/api/wishlist/:listingId', auth, role('buyer'), async (req, res) => {
-        const listing = await store.get('SELECT id FROM listings WHERE id = ? AND quantity > 0', [req.params.listingId]);
+        const listing = await store.get(`SELECT listings.id FROM listings WHERE listings.id = ? AND listings.quantity > 0
+            AND EXISTS (SELECT 1 FROM users WHERE users.id = listings.farmer_id AND users.role = 'farmer')`, [req.params.listingId]);
         if (!listing) return res.status(404).json({ error: 'This product is no longer available.' });
         await store.run(`
             INSERT INTO wishlist_items (user_id, listing_id, created_at) VALUES (?, ?, ?)
@@ -2450,7 +2457,8 @@ function createApp(options = {}) {
                 `, [checkoutKey, req.user.id, payloadHash, new Date().toISOString()]);
                 const byFarmer = new Map();
                 for (const [productId, quantity] of uniqueLines) {
-                    const listing = await store.get('SELECT * FROM listings WHERE id = ?', [productId]);
+                    const listing = await store.get(`SELECT listings.* FROM listings WHERE listings.id = ?
+                        AND EXISTS (SELECT 1 FROM users WHERE users.id = listings.farmer_id AND users.role = 'farmer')`, [productId]);
                     if (!listing || listing.quantity < quantity || quantity < listing.minimum_order) {
                         const error = new Error('A cart item is no longer available in the requested quantity.');
                         error.status = 409;
