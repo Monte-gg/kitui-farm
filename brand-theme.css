@@ -82,6 +82,9 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--green); }
 :root[data-theme="dark"] .profile-product,
 :root[data-theme="dark"] .menu-panel,
 :root[data-theme="dark"] .menu-panel button,
+:root[data-theme="dark"] .more-panel,
+:root[data-theme="dark"] .more-panel a,
+:root[data-theme="dark"] .more-panel button,
 :root[data-theme="dark"] .emoji-panel,
 :root[data-theme="dark"] .emoji-panel button,
 :root[data-theme="dark"] .profile-dialog-head,
@@ -120,7 +123,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--green); }
 }
 :root[data-theme="dark"] .message.support { background: #292b3b !important; }
 :root[data-theme="dark"] .notice { background: #3a3020 !important; color: #f2ddb3 !important; border-color: #66512f !important; }
-:root[data-theme="dark"] .button:not(.primary):not(.danger),
+:root[data-theme="dark"] .button.secondary,
 :root[data-theme="dark"] .icon-button,
 :root[data-theme="dark"] .pane-tab,
 :root[data-theme="dark"] .directory-filter { background-color: var(--surface) !important; color: var(--ink) !important; border-color: var(--line) !important; }
