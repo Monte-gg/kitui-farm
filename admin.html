@@ -92,7 +92,7 @@
     <script src="brand.js?v=3" defer></script>
 </head>
 <body>
-    <header class="topbar"><div class="topbar-inner"><a class="brand" href="#dashboard">🌱 KITUI FARM · Admin</a><div class="more-menu" id="moreMenu"><button class="more-toggle" id="moreToggle" type="button" aria-label="Open admin menu" aria-haspopup="menu" aria-expanded="false" aria-controls="morePanel">⋮</button><nav class="more-panel" id="morePanel" aria-label="Admin features" role="menu" hidden><a href="admin-profile.html" role="menuitem">Admin profile</a><a href="#dashboard" role="menuitem">Dashboard overview</a><a href="#people" role="menuitem">People</a><a href="#admins" role="menuitem">Admins</a><a href="#listings" role="menuitem">Product listings</a><a href="#orders" role="menuitem">Orders</a><a href="admin-chat.html" role="menuitem">User messages</a><a href="#wallet-approvals" role="menuitem">Wallet operations <span class="count" id="menuPendingCount">—</span></a><a href="#website-shortcuts" role="menuitem">Website shortcuts</a><div class="menu-divider" role="separator"></div><button class="menu-logout" id="logoutButton" type="button" role="menuitem">Log out</button></nav></div></div></header>
+    <header class="topbar"><div class="topbar-inner"><a class="brand" href="#dashboard">🌱 KITUI FARM · Admin</a><div class="more-menu" id="moreMenu"><button class="more-toggle" id="moreToggle" type="button" aria-label="Open admin menu" aria-haspopup="menu" aria-expanded="false" aria-controls="morePanel">⋮</button><nav class="more-panel" id="morePanel" aria-label="Admin features" role="menu" hidden><a href="admin-profile.html" role="menuitem">Admin profile</a><a href="#dashboard" role="menuitem">Dashboard overview</a><a href="#people" role="menuitem">People</a><a href="#admins" role="menuitem">Admins</a><a href="#listings" role="menuitem">Product listings</a><a href="#orders" role="menuitem">Orders</a><a href="chat.html?admin=1" role="menuitem">User messages</a><a href="#wallet-approvals" role="menuitem">Wallet operations <span class="count" id="menuPendingCount">—</span></a><a href="#website-shortcuts" role="menuitem">Monitoring links</a><div class="menu-divider" role="separator"></div><button class="menu-logout" id="logoutButton" type="button" role="menuitem">Log out</button></nav></div></div></header>
     <main class="admin-layout">
         <aside class="admin-sidebar" aria-label="Admin console sections">
             <p class="sidebar-label">Workspace</p>
@@ -102,8 +102,8 @@
             <a class="admin-nav-link" href="#listings" data-admin-link="listings"><span class="nav-icon" aria-hidden="true">▤</span>Product listings</a>
             <a class="admin-nav-link" href="#orders" data-admin-link="orders"><span class="nav-icon" aria-hidden="true">▣</span>Orders</a>
             <a class="admin-nav-link" href="#wallet-approvals" data-admin-link="wallet-approvals"><span class="nav-icon" aria-hidden="true">◎</span>Wallet operations <span class="count" id="sidebarPendingCount">—</span></a>
-            <a class="admin-nav-link" href="admin-chat.html"><span class="nav-icon" aria-hidden="true">✉</span>User messages</a>
-            <a class="admin-nav-link" href="#website-shortcuts" data-admin-link="website-shortcuts"><span class="nav-icon" aria-hidden="true">↗</span>Website shortcuts</a>
+            <a class="admin-nav-link" href="chat.html?admin=1"><span class="nav-icon" aria-hidden="true">✉</span>User messages</a>
+            <a class="admin-nav-link" href="#website-shortcuts" data-admin-link="website-shortcuts"><span class="nav-icon" aria-hidden="true">↗</span>Monitoring links</a>
             <a class="admin-nav-link" href="admin-profile.html"><span class="nav-icon" aria-hidden="true">⚙</span>Admin profile</a>
         </aside>
         <div class="admin-content">
@@ -117,9 +117,9 @@
             <a class="module-card" href="#listings" data-admin-link="listings"><span class="module-icon" aria-hidden="true">▤</span><span><strong>Product listings</strong><small>Review products, farmers, prices, and availability.</small></span></a>
             <a class="module-card" href="#orders" data-admin-link="orders"><span class="module-icon" aria-hidden="true">▣</span><span><strong>Orders</strong><small>Review recent customer orders and their status.</small></span></a>
             <a class="module-card" href="#wallet-approvals" data-admin-link="wallet-approvals"><span class="module-icon" aria-hidden="true">◎</span><span><strong>Wallet operations</strong><small>Verify top-ups and review withdrawal requests.</small></span></a>
-            <a class="module-card" href="admin-chat.html"><span class="module-icon" aria-hidden="true">✉</span><span><strong>User messages</strong><small>Respond to conversations between farmers and customers.</small></span></a>
+            <a class="module-card" href="chat.html?admin=1"><span class="module-icon" aria-hidden="true">✉</span><span><strong>User messages</strong><small>Review conversations and reply as KITUI FARM Support.</small></span></a>
             <a class="module-card" href="admin-profile.html"><span class="module-icon" aria-hidden="true">⚙</span><span><strong>Admin profile</strong><small>View and update your administrator profile.</small></span></a>
-            <a class="module-card" href="#website-shortcuts" data-admin-link="website-shortcuts"><span class="module-icon" aria-hidden="true">↗</span><span><strong>Website shortcuts</strong><small>Open the marketplace, farmer dashboard, and support pages.</small></span></a>
+            <a class="module-card" href="#website-shortcuts" data-admin-link="website-shortcuts"><span class="module-icon" aria-hidden="true">↗</span><span><strong>Monitoring links</strong><small>Review marketplace activity from admin monitoring sections.</small></span></a>
         </div>
         <div class="stats" aria-label="Website overview">
             <article class="stat"><span>People (farmers &amp; customers)</span><strong id="accountCount">—</strong></article>
@@ -170,15 +170,15 @@
         </section>
 
         <section class="panel" id="website-shortcuts" data-admin-view hidden aria-labelledby="quickLinksHeading">
-            <div class="view-heading"><p class="eyebrow">Navigation</p><h1>Website shortcuts</h1><p class="intro">Open the main KITUI FARM user-facing pages.</p></div>
-            <h2 id="quickLinksHeading">Website shortcuts</h2>
+            <div class="view-heading"><p class="eyebrow">Monitoring</p><h1>Marketplace monitoring</h1><p class="intro">Admins review marketplace activity here without entering a customer or farmer dashboard.</p></div>
+            <h2 id="quickLinksHeading">Monitoring sections</h2>
             <div class="links">
-                <a class="link-card" href="wallet.html"><strong>Customer wallet</strong><span>View your wallet and wallet activity.</span></a>
-                <a class="link-card" href="buyer-dashboard.html"><strong>Marketplace</strong><span>Open the buyer-facing website.</span></a>
-                <a class="link-card" href="farmer-dashboard.html"><strong>Farmer dashboard</strong><span>Open the farmer-facing website.</span></a>
-                <a class="link-card" href="customer-service.html"><strong>Customer service</strong><span>Review the support contact page.</span></a>
-                <a class="link-card" href="admin-chat.html"><strong>User messages</strong><span>Reply to conversations between farmers and customers.</span></a>
+                <a class="link-card" href="#people" data-admin-link="people"><strong>Farmers and customers</strong><span>Review account types, profile details, and account status.</span></a>
+                <a class="link-card" href="#listings" data-admin-link="listings"><strong>Farmer listings</strong><span>Monitor produce, seller, price, and stock from the admin console.</span></a>
+                <a class="link-card" href="#orders" data-admin-link="orders"><strong>Customer orders</strong><span>Monitor order and payment status from the admin console.</span></a>
+                <a class="link-card" href="chat.html?admin=1"><strong>User conversations</strong><span>Review threads and send a support reply when users need help.</span></a>
             </div>
+            <p class="notice">Farmer and customer dashboards are for their account owners. Use the sections above to monitor activity without switching into another user's dashboard.</p>
         </section>
         </div>
     </main>

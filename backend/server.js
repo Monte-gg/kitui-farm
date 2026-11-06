@@ -2065,8 +2065,11 @@ function createApp(options = {}) {
         const conversation = await store.get('SELECT * FROM chat_conversations WHERE id = ?', [req.params.id]);
         if (!await canReadConversation(req.user, conversation)) return res.status(404).json({ error: 'Conversation not found.' });
         const now = new Date().toISOString();
-        await store.run(`UPDATE chat_messages SET read_at = ? WHERE conversation_id = ? AND sender_id <> ? AND read_at IS NULL`,
-            [now, conversation.id, req.user.id]);
+        // Admin monitoring must not mark a buyer/farmer message as read on their behalf.
+        if (!await chatIsAdmin(req.user.id)) {
+            await store.run(`UPDATE chat_messages SET read_at = ? WHERE conversation_id = ? AND sender_id <> ? AND read_at IS NULL`,
+                [now, conversation.id, req.user.id]);
+        }
         const state = await store.get('SELECT cleared_at FROM chat_conversation_states WHERE conversation_id = ? AND user_id = ?',
             [conversation.id, req.user.id]);
         const rows = await store.all(`
@@ -2167,6 +2170,7 @@ function createApp(options = {}) {
     });
 
     app.patch('/api/chat/conversations/:id/messages/:messageId/pin', auth, async (req, res) => {
+        if (await chatIsAdmin(req.user.id)) return res.status(403).json({ error: 'Admin monitoring accounts cannot alter user messages.' });
         const conversation = await store.get('SELECT * FROM chat_conversations WHERE id = ?', [req.params.id]);
         if (!await canReadConversation(req.user, conversation)) return res.status(404).json({ error: 'Conversation not found.' });
         const message = await store.get('SELECT id, deleted_at FROM chat_messages WHERE id = ? AND conversation_id = ?', [req.params.messageId, conversation.id]);
@@ -2177,6 +2181,7 @@ function createApp(options = {}) {
     });
 
     app.patch('/api/chat/conversations/:id/messages/:messageId/delete', auth, async (req, res) => {
+        if (await chatIsAdmin(req.user.id)) return res.status(403).json({ error: 'Admin monitoring accounts cannot delete user messages.' });
         const conversation = await store.get('SELECT * FROM chat_conversations WHERE id = ?', [req.params.id]);
         if (!await canReadConversation(req.user, conversation)) return res.status(404).json({ error: 'Conversation not found.' });
         const message = await store.get('SELECT id, sender_id, deleted_for FROM chat_messages WHERE id = ? AND conversation_id = ?', [req.params.messageId, conversation.id]);
@@ -2194,6 +2199,7 @@ function createApp(options = {}) {
     });
 
     app.post('/api/chat/messages/:id/forward', auth, async (req, res, next) => {
+        if (await chatIsAdmin(req.user.id)) return res.status(403).json({ error: 'Admin monitoring accounts cannot forward user messages.' });
         const source = await store.get('SELECT * FROM chat_messages WHERE id = ?', [req.params.id]);
         const sourceConversation = source && await store.get('SELECT * FROM chat_conversations WHERE id = ?', [source.conversation_id]);
         if (!source || !await canReadConversation(req.user, sourceConversation) || source.deleted_at) return res.status(404).json({ error: 'Message not available to forward.' });
@@ -2220,6 +2226,7 @@ function createApp(options = {}) {
     });
 
     app.delete('/api/chat/conversations/:id', auth, async (req, res) => {
+        if (await chatIsAdmin(req.user.id)) return res.status(403).json({ error: 'Admin monitoring accounts cannot clear or delete user conversations.' });
         const conversation = await store.get('SELECT * FROM chat_conversations WHERE id = ?', [req.params.id]);
         if (!await canReadConversation(req.user, conversation)) return res.status(404).json({ error: 'Conversation not found.' });
         const action = req.body?.action;

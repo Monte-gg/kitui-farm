@@ -26,7 +26,7 @@
         if (!dashboardSession || !dashboardSession.userId) {
             window.location.replace('login.html');
         } else if (dashboardSession.role !== 'farmer') {
-            window.location.replace(dashboardSession.role === 'buyer' ? 'buyer-dashboard.html' : 'login.html');
+            window.location.replace(dashboardSession.role === 'admin' ? 'admin.html' : dashboardSession.role === 'buyer' ? 'buyer-dashboard.html' : 'login.html');
         }
     </script>
     <script>

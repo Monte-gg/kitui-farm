@@ -26,7 +26,14 @@
         .notice { margin:0 0 14px; padding:11px 13px; border:1px solid #f2ceca; border-radius:9px; background:#fff3f1; color:#a52b22; }
         .chat-layout { display:grid; grid-template-columns:330px minmax(0,1fr); min-height:min(690px,calc(100vh - 190px)); overflow:hidden; border:1px solid var(--line); border-radius:15px; background:var(--surface); box-shadow:0 5px 24px rgba(34,54,29,.05); }
         .conversation-pane { display:flex; min-height:0; flex-direction:column; border-right:1px solid var(--line); }
-        .pane-head { padding:17px; border-bottom:1px solid var(--line); }
+        .pane-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:17px; border-bottom:1px solid var(--line); }
+        .pane-head-copy { min-width:0; }
+        .refresh-button { flex:0 0 auto; min-height:34px; padding:6px 9px; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--deep); font:inherit; font-size:12px; font-weight:650; cursor:pointer; }
+        .notice { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+        .notice button { flex:0 0 auto; padding:6px 10px; border:1px solid currentColor; border-radius:7px; background:transparent; color:inherit; font:inherit; font-weight:650; cursor:pointer; }
+        body.admin-mode .conversation-menu, body.admin-mode .message-menu { display:none; }
+        .admin-help { margin:0 0 14px; padding:13px 16px; border:1px solid var(--line); border-radius:11px; background:var(--surface); color:var(--muted); font-size:13px; }
+        .admin-help strong { display:block; margin-bottom:4px; color:var(--deep); }
         .pane-head h2 { margin:0; font-size:18px; }
         .pane-head p { margin:4px 0 0; color:var(--muted); font-size:12px; }
         .conversation-list { flex:1; overflow:auto; }
@@ -144,10 +151,11 @@
     <header class="topbar"><div class="bar"><a class="brand" id="brandLink" href="buyer-dashboard.html">🌱 KITUI FARM <span id="adminLabel" hidden>· Admin support</span></a><a class="button" id="backButton" href="buyer-dashboard.html">← Back</a></div></header>
     <main>
         <div class="heading"><h1 id="pageTitle">Messages</h1><p class="intro" id="pageIntro">Chat with farmers about products and orders.</p></div>
-        <p class="notice" id="notice" role="alert" hidden></p>
+        <aside class="admin-help" id="adminHelp" hidden><strong>How to resolve a messaging issue</strong>Refresh the inbox to reload conversations. Select the affected thread and use <b>Retry messages</b> if it fails to load. If the issue is resolved by clarification, reply as KITUI FARM Support. Admins can monitor and respond without deleting or changing the participants’ original messages.</aside>
+        <div class="notice" id="notice" role="alert" hidden></div>
         <section class="chat-layout" aria-label="Messages">
             <aside class="conversation-pane">
-                <div class="pane-head"><h2 id="listTitle">Your conversations</h2><p id="listSubtitle">Choose a chat to read and reply.</p></div>
+                <div class="pane-head"><div class="pane-head-copy"><h2 id="listTitle">Your conversations</h2><p id="listSubtitle">Choose a chat to read and reply.</p></div><button class="refresh-button" id="refreshInboxButton" type="button" aria-label="Refresh conversations" hidden>Refresh</button></div>
                 <div class="pane-tabs" id="paneTabs" role="tablist" aria-label="Messages and people">
                     <button class="pane-tab active" id="chatsTab" type="button" role="tab" aria-selected="true" aria-controls="conversationList">Chats</button>
                     <button class="pane-tab" id="peopleTab" type="button" role="tab" aria-selected="false" aria-controls="peopleView">Farmers &amp; Customers</button>
@@ -162,7 +170,7 @@
                 </div>
             </aside>
             <section class="message-pane" aria-label="Chat thread">
-                <div class="thread-head"><div class="thread-identity"><strong id="threadTitle">Select a conversation</strong><small id="threadSubtitle">Your messages stay between the participants and authorized KITUI FARM administrators.</small></div><details class="conversation-menu" id="activeConversationMenu"><summary class="icon-button" aria-label="Conversation options">⋮</summary><div class="menu-panel"><button type="button" data-conversation-action="clear">Clear chat history</button><button type="button" data-conversation-action="delete">Delete conversation</button></div></details></div>
+                <div class="thread-head"><div class="thread-identity"><strong id="threadTitle">Select a conversation</strong><small id="threadSubtitle">Your messages stay between the participants and authorized KITUI FARM administrators.</small></div><div class="thread-actions"><button class="refresh-button" id="refreshThreadButton" type="button" hidden>Retry messages</button><details class="conversation-menu" id="activeConversationMenu"><summary class="icon-button" aria-label="Conversation options">⋮</summary><div class="menu-panel"><button type="button" data-conversation-action="clear">Clear chat history</button><button type="button" data-conversation-action="delete">Delete conversation</button></div></details></div></div>
                 <div id="pinnedBanner" class="pinned-banner" hidden></div>
                 <div class="messages" id="messages" aria-live="polite"><p class="thread-empty">Choose a conversation to view its messages.</p></div>
                 <div id="attachmentPreview" class="attachment-preview" hidden></div>
@@ -201,7 +209,15 @@
         let pendingAttachments = [];
         let forwardingMessageId = '';
         const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char]);
-        const showNotice = value => { noticeNode.textContent = value; noticeNode.hidden = !value; };
+        const showNotice = (value, canRetry = false) => {
+            noticeNode.replaceChildren(document.createTextNode(value || ''));
+            if (canRetry) {
+                const retry = document.createElement('button');
+                retry.type = 'button'; retry.textContent = 'Retry'; retry.addEventListener('click', retryAdminLoad);
+                noticeNode.append(retry);
+            }
+            noticeNode.hidden = !value;
+        };
         async function apiRequest(url, options = {}) {
             const response = await fetch(url, { ...options, headers: { ...(options.body ? { 'Content-Type':'application/json' } : {}), ...(token ? { Authorization:`Bearer ${token}` } : {}), ...options.headers } });
             const result = await response.json().catch(() => ({}));
@@ -215,9 +231,9 @@
         function renderConversations() {
             listNode.innerHTML = conversations.map(item => `<article class="conversation-row"><button class="conversation-item ${item.id === activeConversationId ? 'active' : ''}" type="button" data-conversation="${escapeHtml(item.id)}">
                 <strong>${escapeHtml(item.peerName)}</strong><small>${escapeHtml(item.listingName)} · ${escapeHtml(dateLabel(item.updatedAt))}</small>
-                <span class="preview">${escapeHtml(item.lastMessage || 'No messages yet. Start the conversation.')}</span>${item.unreadCount ? `<span class="unread-badge" aria-label="${item.unreadCount} unread messages">${item.unreadCount > 99 ? '99+' : item.unreadCount}</span>` : ''}
-            </button><details class="conversation-menu"><summary class="icon-button" aria-label="Chat options">⋮</summary><div class="menu-panel"><button type="button" data-list-action="clear" data-id="${escapeHtml(item.id)}">Clear chat history</button><button type="button" data-list-action="delete" data-id="${escapeHtml(item.id)}">Delete conversation</button></div></details></article>`).join('');
-            if (!conversations.length) listNode.innerHTML = '<p class="empty-list">No conversations yet. Start a chat from a product listing or an order.</p>';
+                <span class="preview">${escapeHtml(item.lastMessage || 'No messages yet. Start the conversation.')}</span>${!adminMode && item.unreadCount ? `<span class="unread-badge" aria-label="${item.unreadCount} unread messages">${item.unreadCount > 99 ? '99+' : item.unreadCount}</span>` : ''}
+            </button>${adminMode ? '' : `<details class="conversation-menu"><summary class="icon-button" aria-label="Chat options">⋮</summary><div class="menu-panel"><button type="button" data-list-action="clear" data-id="${escapeHtml(item.id)}">Clear chat history</button><button type="button" data-list-action="delete" data-id="${escapeHtml(item.id)}">Delete conversation</button></div></details>`}</article>`).join('');
+            if (!conversations.length) listNode.innerHTML = adminMode ? '<p class="empty-list">No user conversations have been started yet.</p>' : '<p class="empty-list">No conversations yet. Start a chat from a product listing or an order.</p>';
         }
         function renderMessages(messages) {
             activeMessages = messages;
@@ -231,7 +247,7 @@
                 const attachments = (message.attachments || []).map(file => `<button class="message-attachment" type="button" data-open-attachment="${escapeHtml(message.id)}" data-index="${file.index}"><span aria-hidden="true">${file.type.startsWith('image/') ? '🖼️' : file.type.startsWith('video/') ? '▶️' : '📎'}</span><span>${escapeHtml(file.name)}</span><small>${(file.size / 1024 / 1024).toFixed(2)} MB</small></button>`).join('');
                 const deleted = message.deleted ? '<em>This message was deleted.</em>' : escapeHtml(message.body);
                 const readTick = mine ? `<span class="read-ticks ${message.isRead ? 'read' : ''}" title="${message.isRead ? 'Read' : 'Sent'}">${message.isRead ? '✓✓' : '✓'}</span>` : '';
-                const menu = message.deleted ? '' : `<details class="message-menu"><summary class="icon-button" aria-label="Message options">⋮</summary><div class="menu-panel"><button type="button" data-message-action="copy" data-id="${escapeHtml(message.id)}">Copy message text</button><button type="button" data-message-action="pin" data-id="${escapeHtml(message.id)}">${message.pinned ? 'Unpin message' : 'Pin message'}</button><button type="button" data-message-action="forward" data-id="${escapeHtml(message.id)}">Forward message</button><button type="button" data-message-action="info" data-id="${escapeHtml(message.id)}">Message info</button><button type="button" data-message-action="me" data-id="${escapeHtml(message.id)}">Delete for me</button>${mine || adminMode ? `<button type="button" data-message-action="everyone" data-id="${escapeHtml(message.id)}">Delete for everyone</button>` : ''}</div></details>`;
+                const menu = message.deleted || adminMode ? '' : `<details class="message-menu"><summary class="icon-button" aria-label="Message options">⋮</summary><div class="menu-panel"><button type="button" data-message-action="copy" data-id="${escapeHtml(message.id)}">Copy message text</button><button type="button" data-message-action="pin" data-id="${escapeHtml(message.id)}">${message.pinned ? 'Unpin message' : 'Pin message'}</button><button type="button" data-message-action="forward" data-id="${escapeHtml(message.id)}">Forward message</button><button type="button" data-message-action="info" data-id="${escapeHtml(message.id)}">Message info</button><button type="button" data-message-action="me" data-id="${escapeHtml(message.id)}">Delete for me</button>${mine ? `<button type="button" data-message-action="everyone" data-id="${escapeHtml(message.id)}">Delete for everyone</button>` : ''}</div></details>`;
                 return `<article class="message ${mine ? 'mine' : ''} ${message.senderRole === 'admin' ? 'support' : ''} ${message.pinned ? 'pinned' : ''}" id="message-${escapeHtml(message.id)}"><strong>${escapeHtml(message.senderName)}${message.senderRole === 'admin' ? ' · Support' : ''}${message.forwarded ? ' · Forwarded' : ''}</strong><div class="message-content">${deleted}</div>${attachments}<div class="message-meta"><time>${escapeHtml(dateLabel(message.createdAt, true))}</time>${readTick}</div>${menu}</article>`;
             }).join('');
             const pinned = messages.filter(message => message.pinned && !message.deleted);
@@ -241,13 +257,17 @@
             pinnedBanner.onclick = () => document.getElementById(`message-${pinned[0]?.id}`)?.scrollIntoView({ behavior:'smooth', block:'center' });
             messageNode.scrollTop = messageNode.scrollHeight;
         }
-        async function loadMessages() {
+        async function loadMessages(throwOnError = false) {
             if (!activeConversationId || loadingMessages) return;
             loadingMessages = true;
             try {
                 const result = await apiRequest(`/api/chat/conversations/${encodeURIComponent(activeConversationId)}/messages`);
                 renderMessages(result.messages || []);
-            } catch (error) { showNotice(error.message || 'Could not load messages.'); }
+            } catch (error) {
+                showNotice(error.message || 'Could not load messages.', adminMode);
+                document.getElementById('refreshThreadButton').hidden = !adminMode;
+                if (throwOnError) throw error;
+            }
             finally { loadingMessages = false; }
         }
         async function selectConversation(id) {
@@ -256,6 +276,7 @@
             document.getElementById('threadTitle').textContent = item ? item.peerName : 'Conversation';
             document.getElementById('threadSubtitle').textContent = item ? `About: ${item.listingName}` : '';
             document.getElementById('activeConversationMenu').hidden = !item;
+            document.getElementById('refreshThreadButton').hidden = true;
             document.getElementById('composer').hidden = false;
             document.getElementById('messageBody').focus();
             renderConversations();
@@ -519,9 +540,12 @@
             document.getElementById('adminLabel').hidden = false;
             document.getElementById('backButton').href = 'admin.html';
             document.getElementById('pageTitle').textContent = 'User messages';
-            document.getElementById('pageIntro').textContent = 'Review buyer and farmer conversations and reply as KITUI FARM Support.';
+            document.body.classList.add('admin-mode');
+            document.getElementById('pageIntro').textContent = 'Review user conversations, retry failed message loads, and reply as KITUI FARM Support.';
+            document.getElementById('adminHelp').hidden = false;
             document.getElementById('listTitle').textContent = 'All conversations';
-            document.getElementById('listSubtitle').textContent = 'Admin access to user chats.';
+            document.getElementById('listSubtitle').textContent = 'View conversations between buyers and farmers.';
+            document.getElementById('refreshInboxButton').hidden = false;
         } else if (userSession?.role === 'farmer') {
             document.getElementById('brandLink')?.setAttribute('href', 'farmer-dashboard.html');
             document.getElementById('backButton').href = 'farmer-dashboard.html';
@@ -529,8 +553,19 @@
         }
         (async () => {
             try { await loadConversations(); await startFromLink(); }
-            catch (error) { showNotice(error.message || 'Sign in to use KITUI FARM chat.'); }
+            catch (error) { showNotice(error.message || 'Sign in to use KITUI FARM chat.', adminMode); }
         })();
+        async function retryAdminLoad() {
+            showNotice('Refreshing conversations…');
+            try {
+                await loadConversations();
+                if (activeConversationId) await loadMessages(true);
+                document.getElementById('refreshThreadButton').hidden = true;
+                showNotice('');
+            } catch (error) { showNotice(error.message || 'Could not refresh messages.', true); }
+        }
+        document.getElementById('refreshInboxButton').addEventListener('click', retryAdminLoad);
+        document.getElementById('refreshThreadButton').addEventListener('click', retryAdminLoad);
         window.setInterval(() => { loadConversations().catch(() => {}); }, 10000);
     </script>
 </body>
