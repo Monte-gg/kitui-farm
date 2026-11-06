@@ -273,6 +273,7 @@
                     </div>
                     <div class="form-actions">
                         <button class="button" type="submit" id="saveListingButton">Publish listing</button>
+                        <button class="button danger" type="button" id="closeListingButton" hidden>Close listing</button>
                         <button class="button secondary" type="button" id="cancelEditButton" hidden>Cancel edit</button>
                         <p class="form-message" id="listingMessage" role="status" aria-live="polite"></p>
                     </div>
@@ -444,7 +445,7 @@
             const earnings = myOrders.filter(order => ['Paid', 'Completed'].includes(order.status))
                 .reduce((sum, order) => sum + farmerItems(order).reduce((sub, line) => sub + line.quantity * line.price, 0), 0);
             document.getElementById('earningsMetric').textContent = `KES ${earnings.toLocaleString('en-KE')}`;
-            const activeCount = listings.filter(item => item.quantity > 0).length;
+            const activeCount = listings.filter(item => item.listingStatus !== 'closed' && item.quantity > 0).length;
             const pendingCount = myOrders.filter(order => !['Dispatched', 'Completed', 'Cancelled'].includes(order.status)).length;
             document.getElementById('listingsMetric').textContent = `${activeCount} ${activeCount === 1 ? 'crop' : 'crops'}`;
             document.getElementById('ordersMetric').textContent = `${pendingCount} ${pendingCount === 1 ? 'order' : 'orders'}`;
@@ -455,7 +456,7 @@
                 <td><strong>${escapeHtml(item.name)}</strong><br><span style="color:var(--muted)">${escapeHtml(item.category)} · MOQ ${item.minimumOrder} kg</span></td>
                 <td>${Number(item.quantity).toLocaleString('en-KE')} kg</td>
                 <td>KES ${Number(item.price).toLocaleString('en-KE')}</td>
-                <td><span class="status-pill ${item.quantity > 0 ? '' : 'out'}">${item.quantity > 0 ? 'Active' : 'Out of stock'}</span></td>
+                <td><span class="status-pill ${item.listingStatus === 'closed' || item.quantity <= 0 ? 'out' : ''}">${item.listingStatus === 'closed' ? 'Closed' : item.quantity > 0 ? 'Active' : 'Out of stock'}</span></td>
                 <td><div class="actions"><button class="button secondary small" data-edit="${item.id}" type="button">Edit</button><button class="button danger small" data-delete="${item.id}" type="button">Delete</button></div></td>
             </tr>`).join('');
             document.getElementById('inventoryEmpty').hidden = visibleListings.length > 0;
@@ -507,6 +508,7 @@
             editingId = null;
             document.getElementById('listingFormTitle').textContent = 'Add new produce';
             document.getElementById('saveListingButton').textContent = 'Publish listing';
+            document.getElementById('closeListingButton').hidden = true;
             document.getElementById('cancelEditButton').hidden = true;
             showMessage('');
         }
@@ -710,6 +712,7 @@
                     document.getElementById('removePhotoButton').hidden = !item.image && !item.videoUrl;
                     document.getElementById('listingFormTitle').textContent = `Edit ${item.name}`;
                     document.getElementById('saveListingButton').textContent = 'Save changes';
+                    document.getElementById('closeListingButton').hidden = item.listingStatus === 'closed';
                     document.getElementById('cancelEditButton').hidden = false;
                     openForm();
                 } else if (!getFarmerSettings().confirmDeletes || window.confirm('Delete this produce listing?')) {
@@ -720,6 +723,32 @@
                 }
             } catch (error) {
                 setMessage('inventoryMessage', error.message || 'Could not update inventory.', true);
+            }
+        });
+
+        document.getElementById('closeListingButton').addEventListener('click', async event => {
+            if (!editingId) return;
+            const listing = myListings().find(item => item.id === editingId);
+            if (!listing || listing.listingStatus === 'closed') return;
+            const confirmed = window.confirm(
+                `Close the listing for ${listing.name}? Buyers will no longer see or order this product. You can reopen it later by editing the listing and saving your changes.`
+            );
+            if (!confirmed) return;
+
+            const button = event.currentTarget;
+            button.disabled = true;
+            try {
+                const result = await apiRequest(`/api/listings/${encodeURIComponent(listing.id)}/close`, { method: 'PATCH' });
+                const listings = loadData('kituiFarmListings');
+                saveData('kituiFarmListings', listings.map(item => item.id === listing.id ? result.listing : item));
+                resetForm();
+                listingPanel.hidden = true;
+                render();
+                setMessage('inventoryMessage', `${listing.name} was closed and is no longer visible to buyers.`);
+            } catch (error) {
+                showMessage(error.message || 'Could not close this listing. Please try again.', true);
+            } finally {
+                button.disabled = false;
             }
         });
 

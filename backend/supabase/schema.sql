@@ -73,9 +73,12 @@ create table if not exists listings (
     price double precision not null check (price > 0),
     location text not null,
     image text not null default '',
-    created_at text not null
+    created_at text not null,
+    listing_status text not null default 'active' check (listing_status in ('active', 'closed'))
 );
 
+alter table listings add column if not exists listing_status text not null default 'active';
+create index if not exists idx_listings_status_farmer on listings (listing_status, farmer_id, created_at);
 create index if not exists idx_listings_farmer on listings (farmer_id);
 
 create table if not exists checkout_requests (
