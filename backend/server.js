@@ -934,6 +934,10 @@ function createApp(options = {}) {
     const adminRegistrationGrants = new Map();
     const signupAttempts = new Map();
     const passwordResetAttempts = new Map();
+    const reverseGeocodeCache = new Map();
+    const reverseGeocodeUsers = new Map();
+    let reverseGeocodeQueue = Promise.resolve();
+    let lastReverseGeocodeAt = 0;
     const secureCookie = process.env.NODE_ENV === 'production' ? '; Secure' : '';
 
     app.disable('x-powered-by');
@@ -1079,6 +1083,63 @@ function createApp(options = {}) {
     }
 
     app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
+    app.get('/api/location/reverse', auth, async (req, res, next) => {
+        try {
+            const latitude = Number(req.query.lat);
+            const longitude = Number(req.query.lon);
+            if (!Number.isFinite(latitude) || latitude < -90 || latitude > 90
+                || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+                return res.status(400).json({ error: 'A valid current location is required.' });
+            }
+            const now = Date.now();
+            const previous = reverseGeocodeUsers.get(req.user.id) || 0;
+            if (now - previous < 5000) return res.status(429).json({ error: 'Please wait a moment before checking your location again.' });
+            reverseGeocodeUsers.set(req.user.id, now);
+            const key = `${latitude.toFixed(4)},${longitude.toFixed(4)}`;
+            if (reverseGeocodeCache.has(key)) return res.json({ location: reverseGeocodeCache.get(key), attribution: '© OpenStreetMap contributors' });
+
+            const lookup = async () => {
+                if (reverseGeocodeCache.has(key)) return reverseGeocodeCache.get(key);
+                const waitMs = Math.max(0, 1000 - (Date.now() - lastReverseGeocodeAt));
+                if (waitMs) await new Promise(resolve => setTimeout(resolve, waitMs));
+                lastReverseGeocodeAt = Date.now();
+                const url = new URL(process.env.REVERSE_GEOCODER_URL || 'https://nominatim.openstreetmap.org/reverse');
+                url.search = new URLSearchParams({ format: 'jsonv2', lat: String(latitude), lon: String(longitude), zoom: '16', addressdetails: '1', layer: 'address' }).toString();
+                const response = await fetch(url, {
+                    headers: {
+                        Accept: 'application/json',
+                        'User-Agent': 'KITUI FARM/1.0 (https://monte-gg.github.io/kitui-farm/; customer service 0114 583 373)'
+                    },
+                    signal: AbortSignal.timeout(8000)
+                });
+                if (!response.ok) throw new Error('Could not identify your nearby area. Enter the area manually and try again later.');
+                const place = await response.json();
+                const address = place.address || {};
+                const locality = address.neighbourhood || address.suburb || address.residential || address.quarter || address.city_district
+                    || address.village || address.hamlet || address.town || address.city || '';
+                const town = address.city || address.town || address.municipality || address.county || '';
+                const location = locality && town && locality.toLowerCase() !== town.toLowerCase()
+                    ? `${locality}, ${town}` : locality || town;
+                if (!location) throw new Error('No nearby town or neighbourhood name was found. Enter your area manually.');
+                reverseGeocodeCache.set(key, location);
+                if (reverseGeocodeCache.size > 1000) reverseGeocodeCache.delete(reverseGeocodeCache.keys().next().value);
+                return location;
+            };
+            const request = reverseGeocodeQueue.then(lookup, lookup);
+            reverseGeocodeQueue = request.then(() => undefined, () => undefined);
+            const location = await request;
+            res.json({ location, attribution: '© OpenStreetMap contributors' });
+        } catch (error) {
+            if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+                return res.status(504).json({ error: 'Location lookup timed out. Enter your area manually and try again.' });
+            }
+            if (error.message?.startsWith('Could not identify') || error.message?.startsWith('No nearby')) {
+                return res.status(502).json({ error: error.message });
+            }
+            next(error);
+        }
+    });
 
     app.post('/api/auth/signup', async (req, res, next) => {
         const name = text(req.body?.name, 100);

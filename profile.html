@@ -83,6 +83,8 @@
         .identity p { margin: 0; color: var(--muted); font-size: 13px; }
         form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px; padding: 23px; }
         .field { min-width: 0; }
+        .location-tools { display:flex; align-items:center; flex-wrap:wrap; gap:9px; margin-top:8px; }
+        .location-tools span { color:var(--muted); font-size:12px; }
         .field.full { grid-column: 1 / -1; }
         label { display: block; margin-bottom: 7px; color: var(--ink); font-size: 13px; font-weight: 650; }
         input, select { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
@@ -166,7 +168,7 @@
                 <div class="field"><label for="phone">Kenyan phone number</label><input id="phone" type="tel" inputmode="tel" placeholder="+254 712345678" required></div>
                 <div class="field"><label for="role">Account type</label><input id="role" readonly></div>
                 <div class="field"><label for="gender">Gender <span class="hint">(optional)</span></label><select id="gender"><option value="">Prefer not to say</option><option value="female">Female</option><option value="male">Male</option><option value="non-binary">Non-binary</option><option value="other">Other</option></select></div>
-                <div class="field full"><label for="location" id="locationLabel">Location</label><input id="location" maxlength="120" required></div>
+                <div class="field full"><label for="location" id="locationLabel">Location</label><input id="location" maxlength="120" required><div class="location-tools"><button class="button secondary" id="useProfileLocationButton" type="button">Use current location</button><span id="profileLocationStatus" role="status" aria-live="polite">Or type your town or neighbourhood.</span></div><p class="hint">Choosing current location sends your coordinates to OpenStreetMap to find a nearby name. Only the area name is saved. <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a></p></div>
                 <div class="actions"><button class="button" type="submit">Save changes</button><p class="message" id="profileMessage" role="status" aria-live="polite"></p></div>
             </form>
         </section>
@@ -224,10 +226,12 @@
                 if (response.ok && result.user) {
                     cacheProfilePhoto(result.user.profilePhoto || '');
                     user.gender = result.user.gender || '';
+                    user.location = result.user.location || '';
+                    document.getElementById('location').value = user.location;
                     document.getElementById('gender').value = user.gender;
                     const users = readArray('kituiFarmUsers');
                     const account = users.find(item => item.id === user.id);
-                    if (account) { account.gender = user.gender; saveArray('kituiFarmUsers', users); }
+                    if (account) { account.gender = user.gender; account.location = user.location; saveArray('kituiFarmUsers', users); }
                 }
             } catch (error) { /* use the saved browser copy while offline */ }
         }
@@ -260,6 +264,32 @@
         document.getElementById('gender').value = user.gender || '';
         document.getElementById('location').value = user.location || '';
         document.getElementById('locationLabel').textContent = user.role === 'farmer' ? 'Farm location' : 'Default delivery location';
+        document.getElementById('useProfileLocationButton').addEventListener('click', () => {
+            const button = document.getElementById('useProfileLocationButton');
+            const status = document.getElementById('profileLocationStatus');
+            if (!navigator.geolocation) { status.textContent = 'Location is unavailable in this browser. Type your area manually.'; return; }
+            if (!window.isSecureContext) { status.textContent = 'Current location needs a secure HTTPS connection. Type your area manually.'; return; }
+            button.disabled = true;
+            status.textContent = 'Getting your location…';
+            navigator.geolocation.getCurrentPosition(async position => {
+                try {
+                    status.textContent = 'Finding your town or neighbourhood…';
+                    const params = new URLSearchParams({ lat:String(position.coords.latitude), lon:String(position.coords.longitude) });
+                    const response = await fetch(`/api/location/reverse?${params}`);
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.error || 'Could not identify the nearby area.');
+                    document.getElementById('location').value = result.location;
+                    status.textContent = `Area found: ${result.location}. Save changes to update your profile.`;
+                } catch (error) {
+                    status.textContent = error.message || 'Could not identify the nearby area. Type it manually.';
+                } finally { button.disabled = false; }
+            }, error => {
+                status.textContent = error.code === 1 ? 'Location permission was denied. Allow it in your browser settings or type your area manually.'
+                    : error.code === 2 ? 'Your device could not determine its location. Type your area manually.'
+                        : 'Location lookup timed out. Try again or type your area manually.';
+                button.disabled = false;
+            }, { enableHighAccuracy:true, timeout:15000, maximumAge:60000 });
+        });
 
         function readArray(key) {
             const value = JSON.parse(localStorage.getItem(key) || '[]');

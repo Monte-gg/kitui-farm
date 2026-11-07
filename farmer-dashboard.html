@@ -263,7 +263,7 @@
                     <div class="field"><label for="price">Price per kg (KES)</label><input id="price" name="price" type="number" min="1" step="0.01" placeholder="e.g. 120" required></div>
                     <div class="field"><label for="location">Pickup / farm location</label><input id="location" name="location" placeholder="Town, village, market, or GPS coordinates" maxlength="80" required>
                         <div class="location-tools"><button class="button secondary small" type="button" id="useCurrentLocationButton">Use current location</button><span id="locationStatus" role="status" aria-live="polite">Or enter your farm area manually.</span></div>
-                        <p class="location-privacy">GPS coordinates are shown to customers on this listing. You can enter a general area instead.</p>
+                        <p class="location-privacy">Choosing current location sends your coordinates to OpenStreetMap to find a nearby town or neighbourhood. Only the area name is saved and shown to customers. <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">© OpenStreetMap contributors</a></p>
                     </div>
                     <div class="field full"><label for="photo">Product photo or video (optional)</label>
                         <div class="photo-tools"><input id="photo" name="photo" type="file" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,video/quicktime"><button class="button secondary small" type="button" id="removePhotoButton" hidden>Remove media</button></div>
@@ -745,7 +745,7 @@
         });
         listingForm.addEventListener('input', scheduleDraftSave);
         listingForm.addEventListener('change', scheduleDraftSave);
-        document.getElementById('useCurrentLocationButton').addEventListener('click', () => {
+        document.getElementById('useCurrentLocationButton').addEventListener('click', async () => {
             const button = document.getElementById('useCurrentLocationButton');
             const status = document.getElementById('locationStatus');
             if (!navigator.geolocation) {
@@ -758,12 +758,15 @@
             }
             button.disabled = true;
             status.textContent = 'Getting your location…';
-            navigator.geolocation.getCurrentPosition(position => {
-                const latitude = position.coords.latitude.toFixed(4);
-                const longitude = position.coords.longitude.toFixed(4);
-                document.getElementById('location').value = `GPS: ${latitude}, ${longitude}`;
-                status.textContent = 'Location added. You can edit it or enter a general area instead.';
-                button.disabled = false;
+            navigator.geolocation.getCurrentPosition(async position => {
+                try {
+                    status.textContent = 'Finding your town or neighbourhood…';
+                    const result = await apiRequest(`/api/location/reverse?lat=${encodeURIComponent(position.coords.latitude)}&lon=${encodeURIComponent(position.coords.longitude)}`);
+                    document.getElementById('location').value = result.location;
+                    status.textContent = `Area found: ${result.location}. You can edit it.`;
+                } catch (error) {
+                    status.textContent = error.message || 'Could not identify the nearby area. Enter it manually.';
+                } finally { button.disabled = false; }
             }, error => {
                 status.textContent = error.code === 1
                     ? 'Location permission was denied. Allow it in your browser settings or enter the farm area manually.'
