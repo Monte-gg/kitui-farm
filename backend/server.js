@@ -94,6 +94,19 @@ const SQLITE_SCHEMA = `
         seller_name TEXT NOT NULL, location TEXT NOT NULL,
         quantity INTEGER NOT NULL CHECK (quantity > 0), price REAL NOT NULL CHECK (price > 0)
     );
+    CREATE TABLE IF NOT EXISTS order_delivery_updates (
+        id TEXT PRIMARY KEY, order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE CASCADE,
+        status TEXT NOT NULL, note TEXT NOT NULL DEFAULT '', updated_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS order_return_requests (
+        id TEXT PRIMARY KEY, order_id TEXT NOT NULL UNIQUE REFERENCES orders(id) ON DELETE CASCADE,
+        buyer_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        reason TEXT NOT NULL, photo_data TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+        response TEXT NOT NULL DEFAULT '', reviewed_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS user_settings (
         user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE, settings_json TEXT NOT NULL
     );
@@ -358,6 +371,19 @@ function createPostgresStore(connectionString, options = {}) {
                 expires_at bigint not null,
                 created_at text not null
             )`,
+                `CREATE TABLE IF NOT EXISTS order_delivery_updates (
+                id text primary key, order_id text not null references orders(id) on delete cascade,
+                status text not null, note text not null default '', updated_by text references users(id) on delete set null,
+                created_at text not null
+            )`,
+                `CREATE TABLE IF NOT EXISTS order_return_requests (
+                id text primary key, order_id text not null unique references orders(id) on delete cascade,
+                buyer_id text not null references users(id) on delete cascade,
+                reason text not null, photo_data text not null default '',
+                status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+                response text not null default '', reviewed_by text references users(id) on delete set null,
+                created_at text not null, updated_at text not null
+            )`,
                 `CREATE TABLE IF NOT EXISTS listing_drafts (
                 farmer_id text primary key references users(id) on delete cascade,
                 draft_json text not null,
@@ -487,6 +513,8 @@ function createPostgresStore(connectionString, options = {}) {
                 'CREATE INDEX IF NOT EXISTS idx_chat_messages_unread ON chat_messages(conversation_id, sender_id, read_at)',
                 'CREATE INDEX IF NOT EXISTS idx_chat_conversation_states_user ON chat_conversation_states(user_id, deleted_at)',
                 'CREATE INDEX IF NOT EXISTS idx_wishlist_items_user ON wishlist_items(user_id, created_at)',
+                'CREATE INDEX IF NOT EXISTS idx_order_delivery_updates_order ON order_delivery_updates(order_id, created_at)',
+                'CREATE INDEX IF NOT EXISTS idx_order_return_requests_status ON order_return_requests(status, created_at)',
                 'ALTER TABLE wallet_accounts ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE wallet_transactions ENABLE ROW LEVEL SECURITY',
                 'ALTER TABLE wallet_operations ENABLE ROW LEVEL SECURITY',
@@ -869,17 +897,26 @@ function publicListing(row) {
 }
 
 async function publicOrder(store, row) {
-    const items = (await store.all(
+    const [items, deliveryUpdates, returnRequest] = await Promise.all([store.all(
         'SELECT product_id, farmer_id, name, seller_name, location, quantity, price FROM order_items WHERE order_id = ?',
         [row.id]
-    )).map(item => ({
+    ), store.all('SELECT status, note, created_at FROM order_delivery_updates WHERE order_id = ? ORDER BY created_at, id', [row.id]),
+    store.get('SELECT id, reason, length(photo_data) AS photo_size, status, response, created_at, updated_at FROM order_return_requests WHERE order_id = ?', [row.id])]);
+    const publicItems = items.map(item => ({
         productId: item.product_id, farmerId: item.farmer_id, name: item.name,
         sellerName: item.seller_name, location: item.location, quantity: item.quantity, price: item.price
     }));
     const deliveryDate = new Date(new Date(row.created_at).getTime() + 2 * 24 * 60 * 60 * 1000);
     return {
         id: row.id, buyerId: row.buyer_id, buyerName: row.buyer_name, address: row.address,
-        paymentMethod: row.payment_method, status: row.status, total: row.total, createdAt: row.created_at, items,
+        paymentMethod: row.payment_method, status: row.status, total: row.total, createdAt: row.created_at, items: publicItems,
+        deliveryUpdates: deliveryUpdates.map(update => ({ status: update.status, note: update.note, createdAt: update.created_at })),
+        returnRequest: returnRequest ? {
+            id: returnRequest.id, reason: returnRequest.reason, hasPhoto: Number(returnRequest.photo_size || 0) > 0,
+            photoUrl: Number(returnRequest.photo_size || 0) > 0 ? `/api/orders/${encodeURIComponent(row.id)}/returns/photo` : '',
+            status: returnRequest.status, response: returnRequest.response,
+            createdAt: returnRequest.created_at, updatedAt: returnRequest.updated_at
+        } : null,
         paymentStatus: row.payment_method === 'KITUI FARM Wallet' ? 'Paid with wallet' : row.payment_method === 'Cash on delivery' ? 'Due on delivery' : 'Not processed (demo)',
         estimatedDelivery: deliveryDate.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' })
     };
@@ -1080,6 +1117,12 @@ function createApp(options = {}) {
         const error = new Error(message);
         error.status = status;
         return error;
+    }
+
+    async function addDeliveryUpdate(orderId, status, note, userId) {
+        await store.run(`INSERT INTO order_delivery_updates (id, order_id, status, note, updated_by, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)`,
+        [crypto.randomUUID(), orderId, status, text(note, 500), userId || null, new Date().toISOString()]);
     }
 
     async function reverseWalletSale(order, actorId) {
@@ -2081,6 +2124,35 @@ function createApp(options = {}) {
         } catch (error) { next(error); }
     });
 
+    app.get('/api/admin/deliveries', auth, walletAdmin, async (req, res, next) => {
+        try {
+            const rows = await store.all("SELECT * FROM orders WHERE status NOT IN ('Cancelled', 'Refunded') ORDER BY created_at DESC LIMIT 500");
+            res.json({ deliveries: await Promise.all(rows.map(row => publicOrder(store, row))) });
+        } catch (error) { next(error); }
+    });
+
+    app.patch('/api/admin/orders/:id/delivery', auth, walletAdmin, async (req, res, next) => {
+        const note = text(req.body?.note, 500) || 'Admin confirmed that the product arrived at its delivery address.';
+        try {
+            let updatedOrder;
+            await store.transaction(async () => {
+                const order = await store.get('SELECT * FROM orders WHERE id = ?', [req.params.id]);
+                if (!order) throw walletError('Order not found.', 404);
+                if (['Cancelled', 'Refunded', 'Completed'].includes(order.status)) {
+                    throw walletError('This order is already closed and its delivery status cannot be changed.', 409);
+                }
+                const changed = await store.run("UPDATE orders SET status = 'Delivered' WHERE id = ? AND status = ?", [order.id, order.status]);
+                if (!changed.changes) throw walletError('The order changed while you were updating it. Refresh and try again.', 409);
+                await addDeliveryUpdate(order.id, 'Delivered', note, req.user.id);
+                updatedOrder = await store.get('SELECT * FROM orders WHERE id = ?', [order.id]);
+            });
+            res.json({ order: await publicOrder(store, updatedOrder) });
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
     app.get('/api/admin/wallets', auth, walletAdmin, async (req, res, next) => {
         try {
             const rows = await store.all(`
@@ -2813,7 +2885,7 @@ function createApp(options = {}) {
                             'Marketplace sale proceeds', createdAt, buyerWallet.wallet_id]);
                     }
                 }
-                const status = 'Paid with wallet';
+                const status = 'Processing';
                 const createdOrders = [];
                 for (const items of byFarmer.values()) {
                     const id = `KF-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
@@ -2823,6 +2895,7 @@ function createApp(options = {}) {
                             (id, buyer_id, buyer_name, address, payment_method, status, total, checkout_key, created_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     `, [id, req.user.id, req.user.name, address, paymentMethod, status, total, checkoutKey, createdAt]);
+                    await addDeliveryUpdate(id, status, 'Payment confirmed. The farmer is preparing your order.', req.user.id);
                     for (const item of items) {
                         const listing = await store.get('SELECT seller_name, location FROM listings WHERE id = ?', [item.productId]);
                         await store.run(`
@@ -2841,22 +2914,113 @@ function createApp(options = {}) {
             next(error);
         }
     });
+    app.get('/api/orders/:id/returns/photo', auth, async (req, res, next) => {
+        try {
+            const order = await store.get('SELECT id, buyer_id FROM orders WHERE id = ?', [req.params.id]);
+            if (!order) return res.status(404).json({ error: 'Order not found.' });
+            const isBuyer = order.buyer_id === req.user.id;
+            const isSeller = Boolean(await store.get('SELECT 1 FROM order_items WHERE order_id = ? AND farmer_id = ? LIMIT 1', [order.id, req.user.id]));
+            if (!isBuyer && !isSeller && !await chatIsAdmin(req.user.id)) return res.status(403).json({ error: 'You cannot view this return photo.' });
+            const request = await store.get('SELECT photo_data FROM order_return_requests WHERE order_id = ?', [order.id]);
+            const match = request?.photo_data?.match(/^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/i);
+            if (!match) return res.status(404).json({ error: 'No return photo is available.' });
+            const type = match[1].toLowerCase() === 'jpg' ? 'jpeg' : match[1].toLowerCase();
+            res.set('Cache-Control', 'private, no-store').set('X-Content-Type-Options', 'nosniff').type(`image/${type}`)
+                .send(Buffer.from(match[2], 'base64'));
+        } catch (error) { next(error); }
+    });
+
+    app.post('/api/orders/:id/returns', auth, async (req, res, next) => {
+        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
+            return res.status(403).json({ error: 'A customer account is required to request a return or refund.' });
+        }
+        const reason = text(req.body?.reason, 1000);
+        const photo = typeof req.body?.photo === 'string' ? req.body.photo : '';
+        if (reason.length < 10) return res.status(400).json({ error: 'Explain the return or refund reason in at least 10 characters.' });
+        if (photo && (photo.length > 3500000 || !/^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/i.test(photo))) {
+            return res.status(400).json({ error: 'Attach a JPG, PNG, or WebP photo smaller than 2.5 MB.' });
+        }
+        try {
+            const order = await store.get('SELECT * FROM orders WHERE id = ? AND buyer_id = ? AND buyer_hidden = false', [req.params.id, req.user.id]);
+            if (!order) return res.status(404).json({ error: 'Order not found in your account.' });
+            if (!['Delivered', 'Completed'].includes(order.status)) {
+                return res.status(409).json({ error: 'You can request a return or refund after the order is marked delivered.' });
+            }
+            if (order.payment_method !== 'KITUI FARM Wallet') {
+                return res.status(409).json({ error: 'This order does not have a refundable KITUI FARM Wallet payment.' });
+            }
+            const now = new Date().toISOString();
+            await store.run(`INSERT INTO order_return_requests
+                (id, order_id, buyer_id, reason, photo_data, status, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+            [crypto.randomUUID(), order.id, req.user.id, reason, photo, now, now]);
+            res.status(201).json({ order: await publicOrder(store, await store.get('SELECT * FROM orders WHERE id = ?', [order.id])) });
+        } catch (error) {
+            if (error.errcode === 2067) return res.status(409).json({ error: 'A return or refund request has already been submitted for this order.' });
+            next(error);
+        }
+    });
+
+    app.post('/api/orders/:id/returns/review', auth, role('farmer'), async (req, res, next) => {
+        const decision = req.body?.decision;
+        const response = text(req.body?.response, 1000);
+        if (!['approve', 'reject'].includes(decision)) return res.status(400).json({ error: 'Choose approve or reject.' });
+        try {
+            const order = await store.get('SELECT * FROM orders WHERE id = ?', [req.params.id]);
+            if (!order) return res.status(404).json({ error: 'Order not found.' });
+            const ownsItems = await store.get('SELECT 1 FROM order_items WHERE order_id = ? AND farmer_id = ? LIMIT 1', [order.id, req.user.id]);
+            if (!ownsItems) return res.status(403).json({ error: 'Only the seller can review this return request.' });
+            let result;
+            await store.transaction(async () => {
+                const request = await store.get("SELECT * FROM order_return_requests WHERE order_id = ? AND status = 'pending'", [order.id]);
+                if (!request) throw walletError('There is no pending return or refund request for this order.', 409);
+                const now = new Date().toISOString();
+                if (decision === 'approve') {
+                    await reverseWalletSale(order, req.user.id);
+                    const changedOrder = await store.run('UPDATE orders SET status = ? WHERE id = ? AND status IN (?, ?)',
+                        ['Refunded', order.id, 'Delivered', 'Completed']);
+                    if (!changedOrder.changes) throw walletError('This order can no longer be refunded.', 409);
+                    await addDeliveryUpdate(order.id, 'Refunded', response || 'Seller approved the return and refunded the wallet payment.', req.user.id);
+                }
+                const changedRequest = await store.run(`UPDATE order_return_requests SET status = ?, response = ?, reviewed_by = ?, updated_at = ?
+                    WHERE id = ? AND status = 'pending'`,
+                [decision === 'approve' ? 'approved' : 'rejected', response, req.user.id, now, request.id]);
+                if (!changedRequest.changes) throw walletError('This return request has already been reviewed.', 409);
+                result = await store.get('SELECT * FROM orders WHERE id = ?', [order.id]);
+            });
+            res.json({ order: await publicOrder(store, result) });
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
     app.patch('/api/orders/:id/status', auth, async (req, res, next) => {
         try {
             const order = await store.get('SELECT * FROM orders WHERE id = ?', [req.params.id]);
             if (!order) return res.status(404).json({ error: 'Order not found.' });
             const status = req.body?.status;
-            const validStatuses = new Set(['Packed', 'Dispatched', 'Completed', 'Cancelled']);
+            const validStatuses = new Set(['Processing', 'Packed', 'Dispatched', 'Out for delivery', 'Delivered', 'Completed', 'Cancelled']);
             if (!validStatuses.has(status)) return res.status(400).json({ error: 'Choose a valid order status.' });
             const isFarmerOrder = Boolean(await store.get('SELECT 1 FROM order_items WHERE order_id = ? AND farmer_id = ?',
                 [order.id, req.user.id]));
             const canCancel = ['buyer', 'farmer'].includes(req.user.role) && order.buyer_id === req.user.id && status === 'Cancelled'
-                && ['Pending', 'Cash on delivery', 'Payment pending (demo)', 'Paid with wallet'].includes(order.status);
+                && ['Pending', 'Cash on delivery', 'Payment pending (demo)', 'Paid with wallet', 'Processing', 'Packed'].includes(order.status);
             const canPack = req.user.role === 'farmer' && isFarmerOrder && status === 'Packed'
                 && ['Cash on delivery', 'Paid', 'Paid with wallet', 'Payment pending (demo)'].includes(order.status);
-            const canDispatch = req.user.role === 'farmer' && isFarmerOrder && status === 'Dispatched' && order.status === 'Packed';
-            const canComplete = req.user.role === 'farmer' && isFarmerOrder && status === 'Completed' && order.status === 'Dispatched';
-            if (!canCancel && !canPack && !canDispatch && !canComplete) return res.status(403).json({ error: 'You cannot make that order status change.' });
+            const canProcess = req.user.role === 'farmer' && isFarmerOrder && status === 'Processing'
+                && ['Paid with wallet', 'Paid', 'Cash on delivery', 'Payment pending (demo)'].includes(order.status);
+            const canDispatch = req.user.role === 'farmer' && isFarmerOrder && status === 'Dispatched'
+                && ['Processing', 'Packed'].includes(order.status);
+            const canOutForDelivery = req.user.role === 'farmer' && isFarmerOrder && status === 'Out for delivery'
+                && order.status === 'Dispatched';
+            const canDeliver = req.user.role === 'farmer' && isFarmerOrder && status === 'Delivered'
+                && ['Dispatched', 'Out for delivery'].includes(order.status);
+            const canComplete = req.user.id === order.buyer_id && ['buyer', 'farmer'].includes(req.user.role)
+                && status === 'Completed' && order.status === 'Delivered';
+            if (!canCancel && !canPack && !canProcess && !canDispatch && !canOutForDelivery && !canDeliver && !canComplete) {
+                return res.status(403).json({ error: 'You cannot make that order status change.' });
+            }
             await store.transaction(async () => {
                 const changed = await store.run('UPDATE orders SET status = ? WHERE id = ? AND status = ?', [status, order.id, order.status]);
                 if (!changed.changes) throw walletError('This order has already changed. Refresh and try again.', 409);
@@ -2871,6 +3035,16 @@ function createApp(options = {}) {
                         await reverseWalletSale(order, req.user.id);
                     }
                 }
+                const notes = {
+                    Processing: 'The farmer is preparing your order.',
+                    Packed: 'The farmer has packed your order.',
+                    Dispatched: 'The order has left the farm.',
+                    'Out for delivery': 'The order is on its way to your delivery address.',
+                    Delivered: 'The product has arrived at the delivery address.',
+                    Completed: 'The buyer confirmed receipt of the order.',
+                    Cancelled: 'The order was cancelled and the wallet payment was refunded.'
+                };
+                await addDeliveryUpdate(order.id, status, req.body?.note || notes[status] || '', req.user.id);
             });
             res.json({ order: await publicOrder(store, await store.get('SELECT * FROM orders WHERE id = ?', [order.id])) });
         } catch (error) {
@@ -2887,7 +3061,7 @@ function createApp(options = {}) {
             const order = await store.get('SELECT * FROM orders WHERE id = ? AND buyer_id = ?', [req.params.id, req.user.id]);
             if (!order || order.buyer_hidden === true || order.buyer_hidden === 1) return res.status(404).json({ error: 'Order not found.' });
             await store.transaction(async () => {
-                if (['Pending', 'Cash on delivery', 'Payment pending (demo)', 'Paid with wallet'].includes(order.status)) {
+                if (['Pending', 'Cash on delivery', 'Payment pending (demo)', 'Paid with wallet', 'Processing', 'Packed'].includes(order.status)) {
                     const changed = await store.run('UPDATE orders SET status = ?, buyer_hidden = true WHERE id = ? AND status = ?',
                         ['Cancelled', order.id, order.status]);
                     if (!changed.changes) throw walletError('This order has already changed. Refresh and try again.', 409);
@@ -2896,10 +3070,11 @@ function createApp(options = {}) {
                         await store.run('UPDATE listings SET quantity = quantity + ? WHERE id = ? AND farmer_id = ?',
                             [item.quantity, item.product_id, item.farmer_id]);
                     }
+                    await addDeliveryUpdate(order.id, 'Cancelled', 'The buyer cancelled the order before dispatch.', req.user.id);
                 } else {
                     await store.run('UPDATE orders SET buyer_hidden = true WHERE id = ?', [order.id]);
                 }
-                if (order.payment_method === 'KITUI FARM Wallet' && ['Pending', 'Cash on delivery', 'Payment pending (demo)', 'Paid with wallet'].includes(order.status)) {
+                if (order.payment_method === 'KITUI FARM Wallet' && ['Pending', 'Cash on delivery', 'Payment pending (demo)', 'Paid with wallet', 'Processing', 'Packed'].includes(order.status)) {
                     await getActiveWallet(order.buyer_id);
                     await reverseWalletSale(order, req.user.id);
                 }

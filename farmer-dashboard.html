@@ -306,7 +306,7 @@
             </div>
             <div class="table-wrap">
                 <table>
-                    <thead><tr><th>Order</th><th>Ordered at</th><th>Buyer</th><th>Items</th><th>Total cost</th><th>Payment</th><th>Delivery address</th><th>Status</th><th>Update status</th><th>Contact buyer</th></tr></thead>
+                    <thead><tr><th>Order</th><th>Ordered at</th><th>Buyer</th><th>Items</th><th>Total cost</th><th>Payment</th><th>Delivery address</th><th>Status</th><th>Update delivery</th><th>Return/refund</th><th>Contact buyer</th></tr></thead>
                     <tbody id="ordersBody"></tbody>
                 </table>
                 <div class="empty-state" id="ordersEmpty" hidden>No buyer orders yet. Orders will appear here when buyers check out.</div>
@@ -435,9 +435,11 @@
             return Array.isArray(order.items) ? order.items.filter(line => line.farmerId === farmer.userId) : [];
         }
         function nextStatuses(current) {
+            if (current === 'Processing') return ['Processing', 'Dispatched'];
             if (current === 'Packed') return ['Packed', 'Dispatched'];
-            if (current === 'Dispatched') return ['Dispatched', 'Completed'];
-            if (['Cash on delivery', 'Paid', 'Payment pending (demo)'].includes(current)) return [current, 'Packed'];
+            if (current === 'Dispatched') return ['Dispatched', 'Out for delivery'];
+            if (current === 'Out for delivery') return ['Out for delivery', 'Delivered'];
+            if (['Cash on delivery', 'Paid', 'Paid with wallet', 'Payment pending (demo)'].includes(current)) return [current, 'Processing'];
             return [current];
         }
         function render() {
@@ -447,11 +449,11 @@
                 || `${item.name} ${item.category} ${item.location}`.toLowerCase().includes(searchQuery));
             const orders = loadData('kituiFarmOrders');
             const myOrders = orders.filter(order => farmerItems(order).length > 0);
-            const earnings = myOrders.filter(order => ['Paid', 'Completed'].includes(order.status))
+            const earnings = myOrders.filter(order => ['Paid', 'Processing', 'Packed', 'Dispatched', 'Out for delivery', 'Delivered', 'Completed'].includes(order.status))
                 .reduce((sum, order) => sum + farmerItems(order).reduce((sub, line) => sub + line.quantity * line.price, 0), 0);
             document.getElementById('earningsMetric').textContent = `KES ${earnings.toLocaleString('en-KE')}`;
             const activeCount = listings.filter(item => item.quantity > 0).length;
-            const pendingCount = myOrders.filter(order => !['Dispatched', 'Completed', 'Cancelled'].includes(order.status)).length;
+            const pendingCount = myOrders.filter(order => !['Delivered', 'Completed', 'Cancelled', 'Refunded'].includes(order.status)).length;
             document.getElementById('listingsMetric').textContent = `${activeCount} ${activeCount === 1 ? 'crop' : 'crops'}`;
             document.getElementById('ordersMetric').textContent = `${pendingCount} ${pendingCount === 1 ? 'order' : 'orders'}`;
 
@@ -475,14 +477,20 @@
                 const current = order.status || 'Cash on delivery';
                 const allowed = nextStatuses(current);
                 const orderedAt = order.createdAt ? new Date(order.createdAt).toLocaleString('en-KE', { dateStyle: 'medium', timeStyle: 'short' }) : '—';
+                const returnRequest = order.returnRequest;
+                const returnCell = returnRequest ? `<strong>${escapeHtml(returnRequest.status)}</strong><br><span>${escapeHtml(returnRequest.reason)}</span>
+                    ${returnRequest.hasPhoto ? `<br><a href="${escapeHtml(returnRequest.photoUrl)}" data-return-photo>View attached photo</a>` : ''}
+                    ${returnRequest.response ? `<br><small>${escapeHtml(returnRequest.response)}</small>` : ''}
+                    ${returnRequest.status === 'pending' ? `<div class="actions"><button class="button small" type="button" data-review-return="approve" data-return-order="${escapeHtml(order.id)}">Approve refund</button><button class="button secondary small" type="button" data-review-return="reject" data-return-order="${escapeHtml(order.id)}">Reject</button></div>` : ''}` : '—';
                 return `<tr>
                     <td>${escapeHtml(order.id)}</td><td>${escapeHtml(orderedAt)}</td><td>${escapeHtml(order.buyerName)}</td>
                     <td>${relevant.map(line => `${escapeHtml(line.name)} × ${line.quantity} kg`).join('<br>')}</td>
                     <td>KES ${total.toLocaleString('en-KE')}</td><td>${escapeHtml(order.paymentMethod || 'Not recorded')}</td><td>${escapeHtml(order.address)}</td>
                     <td><span class="status-pill">${escapeHtml(current)}</span></td>
-                    <td>${allowed.length > 1 ? `<select class="order-status-select" data-order="${escapeHtml(order.id)}" aria-label="Update order ${escapeHtml(order.id)} status">
+                    <td>${allowed.length > 1 ? `<select class="order-status-select" data-order="${escapeHtml(order.id)}" aria-label="Update order ${escapeHtml(order.id)} delivery status">
                         ${allowed.map(status => `<option ${status === current ? 'selected' : ''}>${status}</option>`).join('')}
                     </select>` : '—'}</td>
+                    <td>${returnCell}</td>
                     <td>${relevant[0]?.productId ? `<button class="button secondary small" type="button" data-chat-buyer="${escapeHtml(order.buyerId)}" data-chat-order="${escapeHtml(order.id)}" data-chat-listing="${escapeHtml(relevant[0].productId)}">Message buyer</button>` : '—'}</td>
                 </tr>`;
             }).join('');
@@ -886,11 +894,44 @@
         });
 
         document.getElementById('ordersBody').addEventListener('click', event => {
+            const review = event.target.closest('[data-review-return]');
+            if (review) { reviewReturnRequest(review.dataset.returnOrder, review.dataset.reviewReturn); return; }
+            const photo = event.target.closest('[data-return-photo]');
+            if (photo) { event.preventDefault(); openReturnPhoto(photo.getAttribute('href')); return; }
             const button = event.target.closest('[data-chat-buyer]');
             if (!button) return;
             const params = new URLSearchParams({ buyerId:button.dataset.chatBuyer, orderId:button.dataset.chatOrder, listingId:button.dataset.chatListing });
             window.location.assign(`chat.html?${params}`);
         });
+        async function openReturnPhoto(url) {
+            const popup = window.open('about:blank', '_blank');
+            try {
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Could not load the attached photo.');
+                const objectUrl = URL.createObjectURL(await response.blob());
+                if (popup) popup.location = objectUrl;
+                else { const link = document.createElement('a'); link.href = objectUrl; link.download = 'kitui-farm-return-photo'; link.click(); }
+                setTimeout(() => URL.revokeObjectURL(objectUrl), 60000);
+            } catch (error) { popup?.close(); setMessage('ordersMessage', error.message, true); }
+        }
+        async function reviewReturnRequest(orderId, decision) {
+            const action = decision === 'approve' ? 'approve the refund' : 'reject the request';
+            if (!window.confirm(`Are you sure you want to ${action} for order ${orderId}?`)) return;
+            const response = window.prompt('Optional message to the customer:') || '';
+            try {
+                const result = await apiRequest(`/api/orders/${encodeURIComponent(orderId)}/returns/review`, {
+                    method:'POST', body:JSON.stringify({ decision, response })
+                });
+                const orders = loadData('kituiFarmOrders');
+                const index = orders.findIndex(order => order.id === orderId);
+                if (index >= 0) orders[index] = result.order;
+                saveData('kituiFarmOrders', orders);
+                render();
+                setMessage('ordersMessage', decision === 'approve' ? 'Refund approved and credited to the customer’s wallet.' : 'Return request rejected and the customer was notified here.');
+            } catch (error) {
+                setMessage('ordersMessage', error.message || 'Could not review the return request.', true);
+            }
+        }
         document.getElementById('ordersBody').addEventListener('change', async event => {
             if (!event.target.dataset.order) return;
             try {
@@ -975,6 +1016,18 @@
                 setMessage('dashboardAlert', error.message || 'Could not load dashboard data.', true);
             }
         })();
+        async function refreshFarmerOrders() {
+            if (document.visibilityState !== 'visible') return;
+            try {
+                const result = await apiRequest('/api/orders');
+                saveData('kituiFarmOrders', result.orders);
+                render();
+            } catch (error) {
+                if (error.status !== 401) console.warn('Could not refresh order delivery updates.', error);
+            }
+        }
+        window.setInterval(refreshFarmerOrders, 30000);
+        window.addEventListener('focus', refreshFarmerOrders);
     </script>
 </body>
 </html>
