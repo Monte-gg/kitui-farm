@@ -30,10 +30,11 @@
         <div class="grid" id="walletContent">
             <section class="card balance-card"><p class="label">Available balance</p><p class="balance" id="walletBalance">KES —</p><div class="wallet-meta"><span>Wallet ID: <strong id="walletId">Loading…</strong></span><span>Status: <strong id="walletStatus">—</strong></span></div><p class="hint">Internal wallet transfers and marketplace wallet payments update instantly.</p></section>
 
-            <section class="card"><h2>Add money</h2><p class="hint">PayPal deposits use secure PayPal Checkout. The wallet is credited only after PayPal confirms the payment. M-Pesa, Airtel Money, and bank deposits still need a receipt and administrator verification.</p>
+            <section class="card"><h2>Add money</h2><p class="hint">Choose PayPal Checkout or, when enabled, receive an M-Pesa STK prompt. Other deposits use a receipt and administrator verification. Wallet funds are added only after payment is confirmed.</p>
                 <form id="depositForm"><div class="field"><label for="depositMethodId">Deposit method</label><select id="depositMethodId" required><option value="">Choose a deposit method</option></select><input id="depositChannel" type="hidden" value=""></div>
                     <div class="field"><label for="depositAmount">Amount (KES)</label><input id="depositAmount" type="number" min="0.01" max="1000000" step="0.01" required></div>
-                    <p class="hint" id="phoneHint">M-Pesa STK Push is not connected. Enter the receipt/reference after paying.</p>
+                    <div class="field" id="depositPhoneField" hidden><label for="depositPhone">M-Pesa phone number</label><input id="depositPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678"><p class="hint">Enter the phone that should receive the payment prompt.</p></div>
+                    <p class="hint" id="phoneHint">Choose a deposit method to continue.</p>
                     <p class="hint" id="depositQuote" hidden></p>
                     <div class="field" id="depositReferenceField"><label for="depositReference">Payment receipt/reference</label><input id="depositReference" maxlength="32" autocomplete="off" placeholder="e.g. QAB12CD34E" required><p class="hint">Enter the receipt/reference from your payment message.</p></div>
                     <div id="paypalDepositContainer" hidden></div>
@@ -75,6 +76,7 @@
         let paypalSdkPromise = null;
         let paypalButtonsReady = false;
         let paypalPublicConfig = null;
+        let mpesaStkEnabled = false;
         const apiRequest = async (url, options = {}) => {
             const response = await fetch(url, { ...options, headers: { ...(options.body ? { 'Content-Type':'application/json' } : {}), ...options.headers } });
             let data = null; try { data = response.status === 204 ? null : await response.json(); } catch { data = null; }
@@ -97,19 +99,26 @@
             $('withdrawMethodId').innerHTML=withdrawals.length?'<option value="">Choose a payout destination</option>'+withdrawals.map(option).join(''):'<option value="">No payout methods — add one in Settings</option>';
             $('depositMethodId').onchange=()=>{
                 const kind=$('depositMethodId').selectedOptions[0]?.dataset.kind||'';
-                $('depositChannel').value=kind==='paypal'?'paypal':({mpesa:'mpesa_stk_simulation',airtel:'airtel_money',bank:'bank_transfer'})[kind]||'';
+                $('depositChannel').value=kind==='paypal'?'paypal':kind==='mpesa'&&mpesaStkEnabled?'mpesa_stk':({mpesa:'mpesa_stk_simulation',airtel:'airtel_money',bank:'bank_transfer'})[kind]||'';
                 updateDepositMethodUi();
             };
             $('withdrawMethodId').onchange=()=>{$('withdrawChannel').value=$('withdrawMethodId').selectedOptions[0]?.dataset.kind||''; updatePayPalQuote();};
         }
         function updateDepositMethodUi() {
             const isPaypal=$('depositChannel').value==='paypal';
-            $('depositReferenceField').hidden=isPaypal;
-            $('depositReference').required=!isPaypal;
+            const isMpesaStk=$('depositChannel').value==='mpesa_stk';
+            $('depositReferenceField').hidden=isPaypal||isMpesaStk;
+            $('depositReference').required=!isPaypal&&!isMpesaStk;
+            $('depositPhoneField').hidden=!isMpesaStk;
+            $('depositPhone').required=isMpesaStk;
+            $('depositAmount').min=isMpesaStk?'1':'0.01';
+            $('depositAmount').max=isMpesaStk?'150000':'1000000';
+            $('depositAmount').step=isMpesaStk?'1':'0.01';
             $('depositButton').hidden=isPaypal;
+            $('depositButton').textContent=isMpesaStk?'Send M-Pesa prompt':'Submit deposit request';
             $('paypalDepositContainer').hidden=!isPaypal;
             $('depositQuote').hidden=!isPaypal;
-            $('phoneHint').textContent=isPaypal?'Pay securely with PayPal. The amount is converted to USD using the rate shown below.':'M-Pesa STK Push is not connected. Enter the receipt/reference after paying.';
+            $('phoneHint').textContent=isPaypal?'Pay securely with PayPal. The amount is converted to USD using the rate shown below.':isMpesaStk?`M-Pesa ${mpesaStkEnabled?'STK Push is enabled':'STK Push is not configured; enter your receipt after paying'}.`: 'Enter the receipt/reference after paying. An administrator will verify the payment.';
             if(isPaypal){updatePaypalDepositQuote();renderPaypalButtons().catch(error=>setMessage('depositMessage',error.message,true));}
         }
         async function updatePaypalDepositQuote() {
@@ -241,18 +250,48 @@
         $('createWalletForm').addEventListener('submit', async event => { event.preventDefault(); const button=event.currentTarget.querySelector('button'); button.disabled=true; try { await apiRequest('/api/wallet/create',{method:'POST',body:'{}'}); await loadWallet(); } catch(error) { $('createWalletMessage').textContent=error.message; } finally { button.disabled=false; } });
         $('reopenWalletForm').addEventListener('submit', async event => { event.preventDefault(); const button=event.currentTarget.querySelector('button'); button.disabled=true; try { await apiRequest('/api/wallet/reopen',{method:'POST',body:JSON.stringify({password:$('reopenPassword').value,confirmation:$('reopenConfirmation').value})}); $('reopenMessage').textContent='Wallet recovered.'; await loadWallet(); } catch(error) { $('reopenMessage').textContent=error.message; } finally { button.disabled=false; } });
         async function initialize() {
-            try { const result = await apiRequest('/api/auth/me'); currentUser = result.user; await loadWallet(); }
+            try { const result = await apiRequest('/api/auth/me'); currentUser = result.user; try { const mpesa=await apiRequest('/api/wallet/mpesa/config'); mpesaStkEnabled=Boolean(mpesa.stkEnabled); } catch { mpesaStkEnabled=false; } await loadWallet(); }
             catch (error) { if (error.status === 401) { location.replace('login.html'); return; } setMessage('depositMessage', error.message, true); }
         }
         $('depositForm').addEventListener('submit', async event => {
             event.preventDefault(); const form = event.currentTarget; const button = $('depositButton'); button.disabled = true; setMessage('depositMessage','Submitting deposit request…');
             const channel = $('depositChannel').value;
             if(channel==='paypal'){button.disabled=false;setMessage('depositMessage','Use the PayPal Checkout button above to complete this deposit.');return;}
+            if(channel==='mpesa_stk'){
+                const body={amount:$('depositAmount').value,phone:$('depositPhone').value.trim(),paymentMethodId:$('depositMethodId').value,idempotencyKey:depositSubmissionKey};
+                try{
+                    const data=await apiRequest('/api/wallet/mpesa/deposits/stk',{method:'POST',body:JSON.stringify(body)});
+                    if(data.operation.status==='completed'){depositSubmissionKey=crypto.randomUUID();await loadWallet();setMessage('depositMessage',`M-Pesa payment confirmed. ${money(data.operation.amount)} was added to your wallet.`);return;}
+                    setMessage('depositMessage',data.operation.status==='processing'?`M-Pesa prompt sent to ${body.phone}. ${data.operation.message||'Enter your M-Pesa PIN on your phone. Waiting for confirmation…'}`:data.error||'The M-Pesa request needs review. Check your phone before trying again.',data.operation.status==='failed');
+                    if(data.operation.status==='processing')await pollMpesaDeposit(data.operation.id);
+                    else if(data.operation.status==='failed')depositSubmissionKey=crypto.randomUUID();
+                }catch(error){if([409,502,503].includes(error.status))depositSubmissionKey=crypto.randomUUID();setMessage('depositMessage',error.message,true);}
+                finally{button.disabled=currentWallet?.status!=='active';}
+                return;
+            }
             const body = { amount:$('depositAmount').value, channel, paymentReference:$('depositReference').value.trim(), idempotencyKey:depositSubmissionKey };
             body.paymentMethodId=$('depositMethodId').value;
             try { const data = await apiRequest('/api/wallet/deposits',{method:'POST',body:JSON.stringify(body)}); const success=`Request ${data.operation.id.slice(0,8)} submitted as pending. Funds appear after admin verification.`; depositSubmissionKey=crypto.randomUUID();form.reset(); try { await loadWallet(); setMessage('depositMessage',success); } catch { setMessage('depositMessage',`${success} Your wallet summary could not refresh; use Refresh to reload it.`); } }
             catch(error){setMessage('depositMessage',error.message,true);} finally{button.disabled=currentWallet?.status!=='active';}
         });
+        async function pollMpesaDeposit(id){
+            const button=$('depositButton');button.disabled=true;
+            try{
+                for(let attempt=0;attempt<40;attempt++){
+                    await new Promise(resolve=>setTimeout(resolve,3000));
+                    const data=await apiRequest(`/api/wallet/mpesa/deposits/${encodeURIComponent(id)}`);
+                    if(data.operation.status==='completed'){
+                        depositSubmissionKey=crypto.randomUUID();$('depositAmount').value='';$('depositPhone').value='';
+                        await loadWallet();setMessage('depositMessage',`M-Pesa payment confirmed. ${money(data.operation.amount)} was added to your wallet${data.operation.receipt?` (receipt ${data.operation.receipt})`:''}.`);return;
+                    }
+                    if(['failed','rejected'].includes(data.operation.status)){
+                        depositSubmissionKey=crypto.randomUUID();setMessage('depositMessage',data.operation.message||'M-Pesa payment was not completed. You can try again.',true);return;
+                    }
+                }
+                setMessage('depositMessage','Still waiting for M-Pesa confirmation. Keep this page open or refresh your wallet in a moment; do not pay twice.');
+            }catch(error){setMessage('depositMessage',`Could not check payment status: ${error.message}. Do not pay again until you check your wallet activity.`,true);}
+            finally{button.disabled=currentWallet?.status!=='active';}
+        }
         $('depositAmount').addEventListener('input',updatePaypalDepositQuote);
         $('recipientForm').addEventListener('submit', async event => {
             event.preventDefault(); checkedRecipient = null; $('recipientPreview').textContent = 'Checking recipient…';

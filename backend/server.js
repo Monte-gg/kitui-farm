@@ -20,6 +20,8 @@ const PAYMENT_METHODS = new Set([
 ]);
 let paypalAccessToken = '';
 let paypalAccessTokenExpiresAt = 0;
+let mpesaAccessToken = '';
+let mpesaAccessTokenExpiresAt = 0;
 const PAGES = [
     'about-us.html', 'admin-register.html', 'admin-signin.html', 'buyer-dashboard.html', 'chat.html', 'customer-service.html', 'email-verify.html', 'farmer-dashboard.html', 'farmer-store.html',
     'forgot-password.html', 'index.html', 'login.html', 'payment.html', 'profile.html', 'receipt.html', 'receipts.html',
@@ -49,6 +51,67 @@ function paypalQuote(amountCents, rate) {
     const usdCents = Math.round((amountCents / 100) * rate * 100);
     if (usdCents < 1) throw paypalError('This KES amount is too small for a PayPal payout at the current rate.', 400);
     return { currency: 'USD', amount: (usdCents / 100).toFixed(2), rate };
+}
+
+function mpesaConfig() {
+    const mode = String(process.env.MPESA_ENV || 'sandbox').trim().toLowerCase();
+    if (!['sandbox', 'live'].includes(mode)) throw new Error('MPESA_ENV must be sandbox or live.');
+    const consumerKey = String(process.env.MPESA_CONSUMER_KEY || '').trim();
+    const consumerSecret = String(process.env.MPESA_CONSUMER_SECRET || '').trim();
+    const shortCode = String(process.env.MPESA_SHORTCODE || '').trim();
+    const passkey = String(process.env.MPESA_PASSKEY || '').trim();
+    const callbackSecret = String(process.env.MPESA_CALLBACK_SECRET || '').trim();
+    if (!consumerKey || !consumerSecret || !shortCode || !passkey || callbackSecret.length < 32) {
+        const error = new Error('M-Pesa STK Push is not configured. Add the Daraja credentials and a long callback secret in Render.');
+        error.status = 503;
+        throw error;
+    }
+    const baseUrl = mode === 'live' ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.co.ke';
+    const callbackBase = String(process.env.MPESA_CALLBACK_BASE_URL || process.env.RENDER_EXTERNAL_URL || '').trim();
+    if (!callbackBase) {
+        const error = new Error('Set RENDER_EXTERNAL_URL or MPESA_CALLBACK_BASE_URL so Daraja can reach the payment callback.');
+        error.status = 503;
+        throw error;
+    }
+    let callbackUrl;
+    try {
+        const parsed = new URL(callbackBase);
+        if (parsed.protocol !== 'https:') throw new Error('HTTPS is required.');
+        callbackUrl = new URL(`/api/payments/mpesa/callback/${encodeURIComponent(callbackSecret)}`, parsed.origin).toString();
+    } catch {
+        const error = new Error('MPESA_CALLBACK_BASE_URL must be a valid HTTPS base URL.');
+        error.status = 503;
+        throw error;
+    }
+    return { mode, baseUrl, consumerKey, consumerSecret, shortCode, passkey, callbackSecret, callbackUrl,
+        transactionType: String(process.env.MPESA_TRANSACTION_TYPE || 'CustomerPayBillOnline').trim() };
+}
+
+async function mpesaRequest(endpoint, { method = 'GET', body, config = mpesaConfig() } = {}) {
+    if (!mpesaAccessToken || Date.now() >= mpesaAccessTokenExpiresAt - 60_000) {
+        const credentials = Buffer.from(`${config.consumerKey}:${config.consumerSecret}`).toString('base64');
+        const response = await fetch(`${config.baseUrl}/oauth/v1/generate?grant_type=client_credentials`, {
+            headers: { Authorization: `Basic ${credentials}` }, signal: AbortSignal.timeout(15_000)
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.access_token) {
+            mpesaAccessToken = ''; mpesaAccessTokenExpiresAt = 0;
+            const error = new Error('Daraja could not authorize the M-Pesa request. Check the Consumer Key and Consumer Secret in Render.');
+            error.status = 502; throw error;
+        }
+        mpesaAccessToken = data.access_token;
+        mpesaAccessTokenExpiresAt = Date.now() + Number(data.expires_in || 3599) * 1000;
+    }
+    const response = await fetch(`${config.baseUrl}${endpoint}`, {
+        method, headers: { Authorization: `Bearer ${mpesaAccessToken}`, 'Content-Type': 'application/json' },
+        ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(20_000)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const error = new Error(String(data.errorMessage || data.error || data.ResponseDescription || 'Daraja could not process the M-Pesa request.'));
+        error.status = response.status; error.mpesaData = data; throw error;
+    }
+    return data;
 }
 
 async function paypalRequest(endpoint, { method = 'GET', body, config = paypalConfig(), requestId } = {}) {
@@ -1794,6 +1857,63 @@ function createApp(options = {}) {
         } catch (error) { next(error); }
     });
 
+    app.get('/api/wallet/mpesa/config', auth, (req, res) => {
+        try { const config = mpesaConfig(); res.json({ stkEnabled: true, mode: config.mode }); }
+        catch (error) { res.json({ stkEnabled: false, mode: String(process.env.MPESA_ENV || 'sandbox').trim().toLowerCase() }); }
+    });
+
+    app.post('/api/payments/mpesa/callback/:token', async (req, res) => {
+        let config;
+        try { config = mpesaConfig(); } catch { return res.status(503).json({ ResultCode: 1, ResultDesc: 'Callback is not configured.' }); }
+        const receivedToken = String(req.params.token || '');
+        const expectedToken = config.callbackSecret;
+        const tokenMatches = receivedToken.length === expectedToken.length
+            && crypto.timingSafeEqual(Buffer.from(receivedToken), Buffer.from(expectedToken));
+        if (!tokenMatches) return res.status(404).json({ ResultCode: 1, ResultDesc: 'Not found.' });
+        try {
+            const callback = req.body?.Body?.stkCallback;
+            const checkoutId = text(callback?.CheckoutRequestID, 120);
+            if (!callback || !checkoutId) return res.status(400).json({ ResultCode: 1, ResultDesc: 'Invalid callback payload.' });
+            const operation = await store.get("SELECT * FROM wallet_operations WHERE kind = 'deposit' AND channel = 'mpesa_stk' AND payment_reference = ?", [checkoutId]);
+            if (!operation) return res.json({ ResultCode: 0, ResultDesc: 'Callback acknowledged.' });
+            if (operation.status !== 'processing') return res.json({ ResultCode: 0, ResultDesc: 'Callback already handled.' });
+            const details = JSON.parse(operation.details_json || '{}');
+            const now = new Date().toISOString();
+            if (Number(callback.ResultCode) !== 0) {
+                details.mpesaResultCode = Number(callback.ResultCode);
+                details.mpesaResultDescription = text(callback.ResultDesc, 240);
+                await store.run("UPDATE wallet_operations SET status = 'failed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, operation.id]);
+                return res.json({ ResultCode: 0, ResultDesc: 'Payment failure recorded.' });
+            }
+            const metadata = callback.CallbackMetadata?.Item || [];
+            const valueOf = name => metadata.find(item => item.Name === name)?.Value;
+            const amountCentsReceived = Math.round(Number(valueOf('Amount')) * 100);
+            const receipt = text(valueOf('MpesaReceiptNumber'), 32).toUpperCase();
+            const payerPhone = normalizedPhone(valueOf('PhoneNumber'));
+            if (!receipt || amountCentsReceived !== Number(operation.amount_cents) || !payerPhone || payerPhone !== details.payerPhone) {
+                details.mpesaCallbackReview = 'Successful Daraja callback did not match the expected amount, receipt, or phone.';
+                details.mpesaReceiptNumber = receipt;
+                details.mpesaCallbackAmount = Number(valueOf('Amount')) || null;
+                await store.run("UPDATE wallet_operations SET status = 'pending', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, operation.id]);
+                return res.json({ ResultCode: 0, ResultDesc: 'Payment requires merchant review.' });
+            }
+            await store.transaction(async () => {
+                const changed = await store.run("UPDATE wallet_operations SET status = 'completed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify({ ...details, mpesaReceiptNumber: receipt, mpesaTransactionDate: valueOf('TransactionDate') || null }), now, operation.id]);
+                if (!changed.changes) return;
+                const credited = await store.run('UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ? WHERE user_id = ? AND status = \'active\' AND balance_cents <= ?', [operation.amount_cents, now, operation.user_id, 2147483647 - operation.amount_cents]);
+                if (!credited.changes) throw new Error('Active wallet was not available for M-Pesa credit.');
+                await store.run(`INSERT INTO wallet_transactions
+                    (id, user_id, kind, event_type, amount_cents, reference_key, payment_reference, description, created_by, created_at, status, channel, operation_id)
+                    VALUES (?, ?, 'credit', 'deposit', ?, ?, ?, ?, ?, ?, 'completed', 'mpesa_stk', ?)` ,
+                [crypto.randomUUID(), operation.user_id, operation.amount_cents, `wallet-deposit:${operation.id}`, receipt, 'Wallet deposit via M-Pesa STK Push', operation.user_id, now, operation.id]);
+            });
+            return res.json({ ResultCode: 0, ResultDesc: 'Payment callback processed.' });
+        } catch (error) {
+            console.error('M-Pesa callback processing failed', error.message);
+            return res.status(500).json({ ResultCode: 1, ResultDesc: 'Payment callback could not be processed.' });
+        }
+    });
+
     app.post('/api/wallet/create', auth, async (req, res, next) => {
         try {
             const wallet = await createWallet(req.user.id);
@@ -2008,6 +2128,88 @@ function createApp(options = {}) {
             }
             next(error);
         }
+    });
+
+    app.post('/api/wallet/mpesa/deposits/stk', auth, async (req, res, next) => {
+        const cents = amountCents(req.body?.amount);
+        const phone = normalizedPhone(req.body?.phone);
+        const methodId = text(req.body?.paymentMethodId, 80);
+        const idempotencyKey = text(req.body?.idempotencyKey, 80);
+        if (!cents || cents % 100 !== 0 || cents > 15000000) return res.status(400).json({ error: 'Enter a whole-number M-Pesa deposit between KES 1 and KES 150,000.' });
+        if (!phone) return res.status(400).json({ error: 'Enter a valid Kenyan phone number to receive the M-Pesa prompt.' });
+        if (!/^[A-Za-z0-9-]{16,80}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Refresh the page and try the M-Pesa deposit again.' });
+        let config;
+        try { config = mpesaConfig(); } catch (error) { return res.status(error.status || 503).json({ error: error.message }); }
+        try {
+            const prior = await store.get('SELECT * FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
+            if (prior) {
+                if (prior.kind !== 'deposit' || prior.channel !== 'mpesa_stk' || Number(prior.amount_cents) !== cents) return res.status(409).json({ error: 'This M-Pesa request key was already used. Refresh and try again.' });
+                const priorDetails = JSON.parse(prior.details_json || '{}');
+                if (prior.status === 'failed') return res.status(409).json({ error: priorDetails.mpesaResultDescription || 'The previous M-Pesa request did not complete. You can start a new deposit.' });
+                return res.json({ operation: { id: prior.id, status: prior.status, amount: cents / 100, phone: priorDetails.payerPhone, message: prior.status === 'completed' ? 'Payment received and wallet credited.' : 'M-Pesa request already started. Check your phone and wait for confirmation.' } });
+            }
+            await getActiveWallet(req.user.id);
+            const method = await ownedPaymentMethod(req.user.id, methodId, 'deposit');
+            if (method.kind !== 'mpesa') return res.status(400).json({ error: 'Choose a saved M-Pesa deposit method to use STK Push.' });
+            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND status IN ('pending', 'processing')", [req.user.id]);
+            if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several deposits awaiting confirmation. Resolve those first.' });
+            const id = crypto.randomUUID();
+            const now = new Date().toISOString();
+            const details = { payerPhone: phone, mpesaEnvironment: config.mode };
+            await store.run(`INSERT INTO wallet_operations
+                (id, user_id, kind, amount_cents, fee_cents, currency, channel, details_json, status, idempotency_key, created_at, updated_at)
+                VALUES (?, ?, 'deposit', ?, 0, 'KES', 'mpesa_stk', ?, 'processing', ?, ?, ?)`,
+            [id, req.user.id, cents, JSON.stringify(details), idempotencyKey, now, now]);
+
+            const dateParts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+                timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit',
+                hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+            }).formatToParts(new Date()).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+            const timestamp = `${dateParts.year}${dateParts.month}${dateParts.day}${dateParts.hour}${dateParts.minute}${dateParts.second}`;
+            const password = Buffer.from(`${config.shortCode}${config.passkey}${timestamp}`).toString('base64');
+            let result;
+            try {
+                result = await mpesaRequest('/mpesa/stkpush/v1/processrequest', { config, method: 'POST', body: {
+                    BusinessShortCode: config.shortCode, Password: password, Timestamp: timestamp,
+                    TransactionType: config.transactionType, Amount: cents / 100,
+                    PartyA: phone.slice(1), PartyB: config.shortCode, PhoneNumber: phone.slice(1),
+                    CallBackURL: config.callbackUrl, AccountReference: `KF${id.replaceAll('-', '').slice(0, 10)}`,
+                    TransactionDesc: 'KITUI FARM wallet deposit'
+                } });
+            } catch (error) {
+                // Keep uncertain requests visible for reconciliation: a network
+                // timeout may happen after Safaricom has already sent the prompt.
+                details.mpesaInitiationError = text(error.message, 240);
+                const status = error.status && error.status < 500 ? 'failed' : 'pending';
+                await store.run('UPDATE wallet_operations SET status = ?, details_json = ?, updated_at = ? WHERE id = ? AND status = \'processing\'', [status, JSON.stringify(details), new Date().toISOString(), id]);
+                return res.status(status === 'failed' ? 502 : 202).json({
+                    operation: { id, status, amount: cents / 100 },
+                    error: status === 'pending' ? 'The payment request timed out. Check your phone before trying again; the request is awaiting confirmation.' : 'Daraja rejected the M-Pesa request. Check the sandbox app settings and try again.'
+                });
+            }
+            if (String(result.ResponseCode) !== '0' || !result.CheckoutRequestID) {
+                details.mpesaResultCode = text(result.ResponseCode, 20);
+                details.mpesaResultDescription = text(result.ResponseDescription || result.errorMessage, 240);
+                await store.run("UPDATE wallet_operations SET status = 'failed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), id]);
+                return res.status(502).json({ error: details.mpesaResultDescription || 'Daraja could not start the M-Pesa prompt.' });
+            }
+            details.mpesaCheckoutRequestId = text(result.CheckoutRequestID, 120);
+            details.mpesaMerchantRequestId = text(result.MerchantRequestID, 120);
+            await store.run("UPDATE wallet_operations SET payment_reference = ?, details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [details.mpesaCheckoutRequestId, JSON.stringify(details), new Date().toISOString(), id]);
+            res.status(202).json({ operation: { id, status: 'processing', amount: cents / 100, phone, message: text(result.CustomerMessage || result.ResponseDescription, 240) || 'Check your phone and enter your M-Pesa PIN to approve the payment.' } });
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
+    app.get('/api/wallet/mpesa/deposits/:id', auth, async (req, res, next) => {
+        try {
+            const operation = await store.get("SELECT id, amount_cents, status, details_json, created_at, updated_at FROM wallet_operations WHERE id = ? AND user_id = ? AND kind = 'deposit' AND channel = 'mpesa_stk'", [text(req.params.id, 80), req.user.id]);
+            if (!operation) return res.status(404).json({ error: 'M-Pesa deposit request not found.' });
+            const details = JSON.parse(operation.details_json || '{}');
+            res.json({ operation: { id: operation.id, amount: Number(operation.amount_cents) / 100, status: operation.status, receipt: details.mpesaReceiptNumber || '', message: details.mpesaResultDescription || '', updatedAt: operation.updated_at } });
+        } catch (error) { next(error); }
     });
 
     app.get('/api/wallet/paypal-quote', auth, async (req, res) => {
