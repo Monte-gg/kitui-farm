@@ -125,11 +125,11 @@
             catch (error) { if (error.status === 401) { location.replace('login.html'); return; } setMessage('depositMessage', error.message, true); }
         }
         $('depositForm').addEventListener('submit', async event => {
-            event.preventDefault(); const button = $('depositButton'); button.disabled = true; setMessage('depositMessage','Submitting deposit request…');
+            event.preventDefault(); const form = event.currentTarget; const button = $('depositButton'); button.disabled = true; setMessage('depositMessage','Submitting deposit request…');
             const channel = $('depositChannel').value;
             const body = { amount:$('depositAmount').value, channel, paymentReference:$('depositReference').value.trim(), idempotencyKey:depositSubmissionKey };
             body.paymentMethodId=$('depositMethodId').value;
-            try { const data = await apiRequest('/api/wallet/deposits',{method:'POST',body:JSON.stringify(body)}); setMessage('depositMessage',`Request ${data.operation.id.slice(0,8)} submitted as pending. Funds appear after admin verification.`); depositSubmissionKey=crypto.randomUUID();event.currentTarget.reset(); await loadWallet(); }
+            try { const data = await apiRequest('/api/wallet/deposits',{method:'POST',body:JSON.stringify(body)}); const success=`Request ${data.operation.id.slice(0,8)} submitted as pending. Funds appear after admin verification.`; depositSubmissionKey=crypto.randomUUID();form.reset(); try { await loadWallet(); setMessage('depositMessage',success); } catch { setMessage('depositMessage',`${success} Your wallet summary could not refresh; use Refresh to reload it.`); } }
             catch(error){setMessage('depositMessage',error.message,true);} finally{button.disabled=currentWallet?.status!=='active';}
         });
         $('recipientForm').addEventListener('submit', async event => {
@@ -138,19 +138,19 @@
             catch(error){$('recipientPreview').textContent=error.message;}
         });
         $('transferForm').addEventListener('submit', async event => {
-            event.preventDefault(); if(!checkedRecipient){setMessage('transferMessage','Check and confirm the recipient before sending.',true);return;}
+            event.preventDefault(); const form=event.currentTarget; if(!checkedRecipient){setMessage('transferMessage','Check and confirm the recipient before sending.',true);return;}
             if(!window.confirm(`Send ${money($('transferAmount').value)} to ${checkedRecipient.name} (${checkedRecipient.walletId})?`))return;
             const button=event.currentTarget.querySelector('button');button.disabled=true;setMessage('transferMessage','Processing transfer…');
-            try{const data=await apiRequest('/api/wallet/transfers',{method:'POST',body:JSON.stringify({recipient:$('recipient').value.trim(),amount:$('transferAmount').value,idempotencyKey:transferSubmissionKey})});setMessage('transferMessage',`Transfer complete to ${data.transfer.toWalletId}.`);transferSubmissionKey=crypto.randomUUID();event.currentTarget.reset();checkedRecipient=null;$('recipientPreview').textContent='';await loadWallet();}
+            try{const data=await apiRequest('/api/wallet/transfers',{method:'POST',body:JSON.stringify({recipient:$('recipient').value.trim(),amount:$('transferAmount').value,idempotencyKey:transferSubmissionKey})});const success=`Transfer complete to ${data.transfer.toWalletId}.`;transferSubmissionKey=crypto.randomUUID();form.reset();checkedRecipient=null;$('recipientPreview').textContent='';try{await loadWallet();setMessage('transferMessage',success);}catch{setMessage('transferMessage',`${success} Your wallet summary could not refresh; use Refresh to reload it.`);}}
             catch(error){setMessage('transferMessage',error.message,true);}finally{button.disabled=currentWallet?.status!=='active';}
         });
         $('withdrawalForm').addEventListener('submit',async event=>{
-            event.preventDefault();const channel=$('withdrawChannel').value;const body={channel,amount:$('withdrawAmount').value,paymentMethodId:$('withdrawMethodId').value};
+            event.preventDefault();const form=event.currentTarget;const channel=$('withdrawChannel').value;const body={channel,amount:$('withdrawAmount').value,paymentMethodId:$('withdrawMethodId').value};
             if(!body.paymentMethodId){setMessage('withdrawMessage','Add a payout method in Settings first.',true);return;}
             if(!window.confirm(`Request a ${money(body.amount)} withdrawal to the selected ${channel==='paypal'?'PayPal':'saved'} destination? The amount will be reserved while it is processed.`))return;
             const button=event.currentTarget.querySelector('button');button.disabled=true;setMessage('withdrawMessage','Submitting withdrawal request…');
             body.idempotencyKey=withdrawalSubmissionKey;
-            try{const data=await apiRequest('/api/wallet/withdrawals',{method:'POST',body:JSON.stringify(body)});setMessage('withdrawMessage',`Withdrawal request ${data.operation.id.slice(0,8)} is pending. Fee: ${money(data.operation.fee)}.`);withdrawalSubmissionKey=crypto.randomUUID();event.currentTarget.reset();await loadWallet();}
+            try{const data=await apiRequest('/api/wallet/withdrawals',{method:'POST',body:JSON.stringify(body)});const success=`Withdrawal request ${data.operation.id.slice(0,8)} is pending. Fee: ${money(data.operation.fee)}.`;withdrawalSubmissionKey=crypto.randomUUID();form.reset();try{await loadWallet();setMessage('withdrawMessage',success);}catch{setMessage('withdrawMessage',`${success} Your wallet summary could not refresh; use Refresh to reload it.`);}}
             catch(error){setMessage('withdrawMessage',error.message,true);}finally{button.disabled=currentWallet?.status!=='active';}
         });
         $('toggleClosePassword').addEventListener('click', event => {

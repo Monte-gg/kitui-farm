@@ -1082,6 +1082,39 @@ function createApp(options = {}) {
         return error;
     }
 
+    async function reverseWalletSale(order, actorId) {
+        const items = await store.all(`SELECT farmer_id, SUM(quantity * price) AS total
+            FROM order_items WHERE order_id = ? AND farmer_id <> '' GROUP BY farmer_id`, [order.id]);
+        const now = new Date().toISOString();
+        for (const item of items) {
+            const reference = `checkout:${order.checkout_key}:seller:${item.farmer_id}`;
+            const sale = await store.get('SELECT id FROM wallet_transactions WHERE reference_key = ?', [reference]);
+            // Older orders may predate seller wallet credits; only reverse proceeds actually credited.
+            if (!sale) continue;
+            const cents = Math.round(Number(item.total) * 100);
+            const debited = await store.run(`UPDATE wallet_accounts SET balance_cents = balance_cents - ?, updated_at = ?
+                WHERE user_id = ? AND status = 'active' AND balance_cents >= ?`,
+            [cents, now, item.farmer_id, cents]);
+            if (!debited.changes) {
+                throw walletError('The farmer’s wallet no longer has enough available funds to reverse this sale. Contact customer service for help with cancellation.', 409);
+            }
+            await store.run(`INSERT INTO wallet_transactions
+                (id, user_id, kind, event_type, amount_cents, reference_key, description, created_by, created_at, status, channel)
+                VALUES (?, ?, 'debit', 'sale_reversal', ?, ?, ?, ?, ?, 'completed', 'wallet')`,
+            [crypto.randomUUID(), item.farmer_id, cents, `sale-reversal:${order.id}:${item.farmer_id}`,
+                `Reversal for cancelled order ${order.id}`, actorId, now]);
+        }
+        const refunded = await store.run(`UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
+            WHERE user_id = ? AND status = 'active' AND balance_cents <= ?`,
+        [Math.round(Number(order.total) * 100), now, order.buyer_id, 2147483647 - Math.round(Number(order.total) * 100)]);
+        if (!refunded.changes) throw walletError('The buyer wallet cannot accept this refund right now.', 409);
+        await store.run(`INSERT INTO wallet_transactions
+            (id, user_id, kind, event_type, amount_cents, reference_key, description, created_by, created_at, status, channel)
+            VALUES (?, ?, 'credit', 'refund', ?, ?, ?, ?, ?, 'completed', 'wallet')`,
+        [crypto.randomUUID(), order.buyer_id, Math.round(Number(order.total) * 100), `refund:${order.id}`,
+            `Refund for cancelled order ${order.id}`, actorId, now]);
+    }
+
     app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
     app.get('/api/location/reverse', auth, async (req, res, next) => {
@@ -2746,7 +2779,7 @@ function createApp(options = {}) {
                 if (paymentMethod === 'KITUI FARM Wallet') {
                     const totalCents = [...byFarmer.values()].flat().reduce((sum, item) => sum + Math.round(item.quantity * item.price * 100), 0);
                     if (!Number.isSafeInteger(totalCents) || totalCents <= 0) throw walletError('Could not calculate the order total.', 400);
-                    await getActiveWallet(req.user.id);
+                    const buyerWallet = await getActiveWallet(req.user.id);
                     const debited = await store.run(`
                         UPDATE wallet_accounts SET balance_cents = balance_cents - ?, updated_at = ?
                         WHERE user_id = ? AND status = 'active' AND balance_cents >= ?
@@ -2757,6 +2790,28 @@ function createApp(options = {}) {
                             (id, user_id, kind, event_type, amount_cents, reference_key, description, created_at, status, channel)
                         VALUES (?, ?, 'debit', 'purchase', ?, ?, ?, ?, 'completed', 'wallet')
                     `, [crypto.randomUUID(), req.user.id, totalCents, `checkout:${checkoutKey}`, 'Marketplace order payment', createdAt]);
+
+                    for (const [farmerId, items] of byFarmer) {
+                        const saleCents = items.reduce((sum, item) => sum + Math.round(item.quantity * item.price * 100), 0);
+                        if (!Number.isSafeInteger(saleCents) || saleCents <= 0) {
+                            throw walletError('Could not calculate a farmer’s sale total.', 400);
+                        }
+                        // A farmer can receive their first paid order without having opened
+                        // the wallet page yet. Closed wallets remain closed and must be reopened.
+                        await createWallet(farmerId);
+                        const credited = await store.run(`
+                            UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
+                            WHERE user_id = ? AND status = 'active' AND balance_cents <= ?
+                        `, [saleCents, createdAt, farmerId, 2147483647 - saleCents]);
+                        if (!credited.changes) throw walletError('A farmer wallet could not accept this payment. Ask the farmer to check their wallet.', 409);
+                        await store.run(`
+                            INSERT INTO wallet_transactions
+                                (id, user_id, kind, event_type, amount_cents, reference_key, description, created_at,
+                                 status, channel, counterparty_wallet_id)
+                            VALUES (?, ?, 'credit', 'sale', ?, ?, ?, ?, 'completed', 'wallet', ?)
+                        `, [crypto.randomUUID(), farmerId, saleCents, `checkout:${checkoutKey}:seller:${farmerId}`,
+                            'Marketplace sale proceeds', createdAt, buyerWallet.wallet_id]);
+                    }
                 }
                 const status = 'Paid with wallet';
                 const createdOrders = [];
@@ -2813,17 +2868,7 @@ function createApp(options = {}) {
                     }
                     if (order.payment_method === 'KITUI FARM Wallet') {
                         await getActiveWallet(order.buyer_id);
-                        const cents = Math.round(Number(order.total) * 100);
-                        const refunded = await store.run(`
-                            UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
-                            WHERE user_id = ? AND balance_cents <= ?
-                        `, [cents, new Date().toISOString(), order.buyer_id, 2147483647 - cents]);
-                        if (!refunded.changes) throw walletError('The wallet cannot accept this refund right now.', 409);
-                        await store.run(`
-                            INSERT INTO wallet_transactions
-                                (id, user_id, kind, event_type, amount_cents, reference_key, description, created_by, created_at, status, channel)
-                            VALUES (?, ?, 'credit', 'refund', ?, ?, ?, ?, ?, 'completed', 'wallet')
-                        `, [crypto.randomUUID(), order.buyer_id, cents, `refund:${order.id}`, `Refund for cancelled order ${order.id}`, req.user.id, new Date().toISOString()]);
+                        await reverseWalletSale(order, req.user.id);
                     }
                 }
             });
@@ -2856,17 +2901,7 @@ function createApp(options = {}) {
                 }
                 if (order.payment_method === 'KITUI FARM Wallet' && ['Pending', 'Cash on delivery', 'Payment pending (demo)', 'Paid with wallet'].includes(order.status)) {
                     await getActiveWallet(order.buyer_id);
-                    const cents = Math.round(Number(order.total) * 100);
-                    const refunded = await store.run(`
-                        UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
-                        WHERE user_id = ? AND balance_cents <= ?
-                    `, [cents, new Date().toISOString(), order.buyer_id, 2147483647 - cents]);
-                    if (!refunded.changes) throw walletError('The wallet cannot accept this refund right now.', 409);
-                    await store.run(`
-                        INSERT INTO wallet_transactions
-                            (id, user_id, kind, event_type, amount_cents, reference_key, description, created_by, created_at, status, channel)
-                        VALUES (?, ?, 'credit', 'refund', ?, ?, ?, ?, ?, 'completed', 'wallet')
-                    `, [crypto.randomUUID(), order.buyer_id, cents, `refund:${order.id}`, `Refund for cancelled order ${order.id}`, req.user.id, new Date().toISOString()]);
+                    await reverseWalletSale(order, req.user.id);
                 }
             });
             res.status(204).end();

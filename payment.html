@@ -323,7 +323,6 @@
             renderSummary();
             checkoutReady = true;
             updatePaymentOptions();
-            document.getElementById('paymentPhone').value = buyer.phone || '';
         } catch (error) {
             paymentMessage.textContent = error.message || 'Could not load your order.';
             paymentMessage.classList.add('error');
