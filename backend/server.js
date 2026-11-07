@@ -114,6 +114,29 @@ async function mpesaRequest(endpoint, { method = 'GET', body, config = mpesaConf
     return data;
 }
 
+function paystackConfig() {
+    const secretKey = String(process.env.PAYSTACK_SECRET_KEY || '').trim();
+    const enabled = String(process.env.PAYSTACK_BANK_ENABLED || '').trim().toLowerCase() === 'true';
+    if (!enabled || !secretKey) {
+        const error = new Error('Paystack Pesalink deposits are not enabled. Configure an approved Paystack account and credentials in Render.');
+        error.status = 503; throw error;
+    }
+    return { secretKey };
+}
+
+async function paystackRequest(endpoint, { method = 'GET', body, config = paystackConfig() } = {}) {
+    const response = await fetch(`https://api.paystack.co${endpoint}`, {
+        method, headers: { Authorization: `Bearer ${config.secretKey}`, 'Content-Type': 'application/json' },
+        ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(20_000)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.status === false) {
+        const error = new Error(String(data.message || 'Paystack could not process the bank transfer request.'));
+        error.status = response.status || 502; throw error;
+    }
+    return data;
+}
+
 async function paypalRequest(endpoint, { method = 'GET', body, config = paypalConfig(), requestId } = {}) {
     const origin = config.mode === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
     if (!paypalAccessToken || Date.now() >= paypalAccessTokenExpiresAt - 60_000) {
@@ -1203,7 +1226,7 @@ function createApp(options = {}) {
         }
         next();
     });
-    app.use('/api', express.json({ limit: '8mb', strict: true }));
+    app.use('/api', express.json({ limit: '8mb', strict: true, verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 
     async function createSession(user, res, remember) {
         const token = crypto.randomBytes(32).toString('hex');
@@ -1852,7 +1875,7 @@ function createApp(options = {}) {
                     paymentReference: row.payment_reference || '', status: row.status, createdAt: row.created_at, updatedAt: row.updated_at
                 })),
                 isAdmin: Boolean(admin),
-                paymentMethods: paymentMethods.map(row => ({ id: row.id, kind: row.kind, label: row.label, details: JSON.parse(row.details_json || '{}'), useFor: row.use_for, createdAt: row.created_at }))
+                paymentMethods: paymentMethods.filter(row => row.kind !== 'airtel').map(row => ({ id: row.id, kind: row.kind, label: row.label, details: JSON.parse(row.details_json || '{}'), useFor: row.use_for, createdAt: row.created_at }))
             });
         } catch (error) { next(error); }
     });
@@ -1860,6 +1883,61 @@ function createApp(options = {}) {
     app.get('/api/wallet/mpesa/config', auth, (req, res) => {
         try { const config = mpesaConfig(); res.json({ stkEnabled: true, mode: config.mode }); }
         catch (error) { res.json({ stkEnabled: false, mode: String(process.env.MPESA_ENV || 'sandbox').trim().toLowerCase() }); }
+    });
+
+    app.get('/api/wallet/paystack/config', auth, (req, res) => {
+        try { paystackConfig(); res.json({ bankTransferEnabled: true }); }
+        catch { res.json({ bankTransferEnabled: false }); }
+    });
+
+    app.post('/api/paystack/webhook', async (req, res) => {
+        let config;
+        try { config = paystackConfig(); } catch { return res.status(503).send('Webhook not configured.'); }
+        const signature = String(req.get('x-paystack-signature') || '');
+        const expected = crypto.createHmac('sha512', config.secretKey).update(req.rawBody || Buffer.alloc(0)).digest('hex');
+        if (!signature || signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return res.status(401).send('Invalid signature.');
+        try {
+            const event = req.body;
+            const data = event?.data || {};
+            const reference = text(data.reference, 120);
+            if (!reference) return res.sendStatus(200);
+            const operation = await store.get("SELECT * FROM wallet_operations WHERE kind = 'deposit' AND channel = 'paystack_pesalink' AND payment_reference = ?", [reference]);
+            if (!operation || operation.status !== 'processing') return res.sendStatus(200);
+            const details = JSON.parse(operation.details_json || '{}');
+            const now = new Date().toISOString();
+            if (event.event === 'bank.transfer.rejected') {
+                details.paystackResult = text(data.gateway_response || data.message || 'Bank transfer rejected.', 240);
+                await store.run("UPDATE wallet_operations SET status = 'failed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, operation.id]);
+                return res.sendStatus(200);
+            }
+            if (event.event !== 'charge.success') return res.sendStatus(200);
+            const verified = await paystackRequest(`/transaction/verify/${encodeURIComponent(reference)}`, { config });
+            const paid = verified.data || {};
+            if (paid.status !== 'success') return res.sendStatus(200);
+            const verifiedReference = text(paid.reference, 120);
+            const amountMatches = Number(paid.amount) === Number(operation.amount_cents);
+            if (verifiedReference !== reference || paid.currency !== 'KES' || !amountMatches) {
+                details.paystackReview = 'Paystack reported a successful charge that does not match the wallet deposit amount or currency.';
+                details.paystackCallbackAmount = Number(paid.amount) || null;
+                details.paystackCallbackCurrency = text(paid.currency, 8);
+                await store.run("UPDATE wallet_operations SET status = 'pending', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, operation.id]);
+                return res.sendStatus(200);
+            }
+            await store.transaction(async () => {
+                const changed = await store.run("UPDATE wallet_operations SET status = 'completed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify({ ...details, paystackPaidAt: paid.paid_at || null }), now, operation.id]);
+                if (!changed.changes) return;
+                const credited = await store.run("UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ? WHERE user_id = ? AND status = 'active' AND balance_cents <= ?", [operation.amount_cents, now, operation.user_id, 2147483647 - operation.amount_cents]);
+                if (!credited.changes) throw new Error('Active wallet was not available for Paystack credit.');
+                await store.run(`INSERT INTO wallet_transactions
+                    (id, user_id, kind, event_type, amount_cents, reference_key, payment_reference, description, created_by, created_at, status, channel, operation_id)
+                    VALUES (?, ?, 'credit', 'deposit', ?, ?, ?, ?, ?, ?, 'completed', 'paystack_pesalink', ?)` ,
+                [crypto.randomUUID(), operation.user_id, operation.amount_cents, `wallet-deposit:${operation.id}`, reference, 'Wallet deposit via Paystack Pesalink', operation.user_id, now, operation.id]);
+            });
+            res.sendStatus(200);
+        } catch (error) {
+            console.error('Paystack wallet webhook failed', error.message);
+            res.status(500).send('Webhook processing failed.');
+        }
     });
 
     app.post('/api/payments/mpesa/callback/:token', async (req, res) => {
@@ -1937,7 +2015,7 @@ function createApp(options = {}) {
 
     app.get('/api/wallet/payment-methods', auth, async (req, res, next) => {
         try {
-            const rows = await store.all('SELECT id, kind, label, details_json, use_for, created_at FROM wallet_payment_methods WHERE user_id = ? ORDER BY created_at DESC', [req.user.id]);
+            const rows = (await store.all('SELECT id, kind, label, details_json, use_for, created_at FROM wallet_payment_methods WHERE user_id = ? ORDER BY created_at DESC', [req.user.id])).filter(row => row.kind !== 'airtel');
             res.json({ paymentMethods: rows.map(row => ({ id: row.id, kind: row.kind, label: row.label, details: JSON.parse(row.details_json || '{}'), useFor: row.use_for, createdAt: row.created_at })) });
         } catch (error) { next(error); }
     });
@@ -1945,6 +2023,7 @@ function createApp(options = {}) {
     async function ownedPaymentMethod(userId, methodId, useFor) {
         const method = await store.get('SELECT * FROM wallet_payment_methods WHERE id = ? AND user_id = ?', [text(methodId, 80), userId]);
         if (!method) throw walletError('Save a payment method in Settings before requesting a deposit or payout.', 409);
+        if (method.kind === 'airtel') throw walletError('Airtel Money is no longer available. Choose M-Pesa, bank transfer, or PayPal.', 409);
         if (method.use_for !== useFor && method.use_for !== 'both') throw walletError('This saved method is not enabled for that transaction.', 409);
         return method;
     }
@@ -1953,11 +2032,11 @@ function createApp(options = {}) {
         const kind = text(req.body?.kind, 16).toLowerCase();
         const label = text(req.body?.label, 60);
         const useFor = text(req.body?.useFor, 16).toLowerCase();
-        if (!['mpesa', 'airtel', 'bank', 'paypal'].includes(kind)) return res.status(400).json({ error: 'Choose M-Pesa, Airtel Money, bank, or PayPal.' });
+        if (!['mpesa', 'bank', 'paypal'].includes(kind)) return res.status(400).json({ error: 'Choose M-Pesa, bank, or PayPal.' });
         if (!['deposit', 'withdrawal', 'both'].includes(useFor) || (kind === 'paypal' && useFor !== 'withdrawal')) return res.status(400).json({ error: 'PayPal is currently available for withdrawals only. Choose a valid use for this method.' });
         if (!label) return res.status(400).json({ error: 'Enter a label for this payment method.' });
         const details = {};
-        if (kind === 'mpesa' || kind === 'airtel') {
+        if (kind === 'mpesa') {
             details.phone = normalizedPhone(text(req.body?.phone, 30));
             if (!details.phone) return res.status(400).json({ error: 'Enter a valid Kenyan mobile number.' });
         } else if (kind === 'bank') {
@@ -2095,7 +2174,7 @@ function createApp(options = {}) {
         const methodId = text(req.body?.paymentMethodId, 80);
         let channel = text(req.body?.channel, 32);
         const idempotencyKey = text(req.body?.idempotencyKey, 80);
-        const allowedChannels = new Set(['mpesa_stk_simulation', 'airtel_money', 'bank_transfer']);
+        const allowedChannels = new Set(['mpesa_stk_simulation', 'bank_transfer']);
         if (!cents) return res.status(400).json({ error: 'Enter an amount from KES 0.01 to KES 1,000,000.00.' });
         if (!allowedChannels.has(channel)) return res.status(400).json({ error: 'Choose a supported deposit method.' });
         if (!/^[A-Za-z0-9-]{16,80}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Refresh the page and try the deposit request again.' });
@@ -2108,7 +2187,7 @@ function createApp(options = {}) {
             await getActiveWallet(req.user.id);
             const method = await ownedPaymentMethod(req.user.id, methodId, 'deposit');
             if (method.kind === 'paypal') return res.status(400).json({ error: 'PayPal deposits are not enabled; use PayPal only for manual payout requests.' });
-            channel = method.kind === 'mpesa' ? 'mpesa_stk_simulation' : method.kind === 'airtel' ? 'airtel_money' : 'bank_transfer';
+            channel = method.kind === 'mpesa' ? 'mpesa_stk_simulation' : 'bank_transfer';
             const details = JSON.parse(method.details_json || '{}');
             const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND status IN ('pending', 'processing')", [req.user.id]);
             if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several deposits awaiting review. Wait for those to be resolved first.' });
@@ -2128,6 +2207,79 @@ function createApp(options = {}) {
             }
             next(error);
         }
+    });
+
+    app.post('/api/wallet/paystack/deposits/bank-transfer', auth, async (req, res, next) => {
+        const cents = amountCents(req.body?.amount);
+        const idempotencyKey = text(req.body?.idempotencyKey, 80);
+        if (!cents) return res.status(400).json({ error: 'Enter a bank deposit amount from KES 0.01 to KES 1,000,000.00.' });
+        if (!/^[A-Za-z0-9-]{16,80}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Refresh the page and try the bank deposit again.' });
+        let config;
+        try { config = paystackConfig(); } catch (error) { return res.status(error.status || 503).json({ error: error.message }); }
+        try {
+            const prior = await store.get('SELECT * FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
+            if (prior) {
+                if (prior.kind !== 'deposit' || prior.channel !== 'paystack_pesalink' || Number(prior.amount_cents) !== cents) return res.status(409).json({ error: 'This bank deposit request key was already used. Refresh and try again.' });
+                if (prior.status === 'failed') return res.status(409).json({ error: 'The previous Paystack bank deposit did not complete. Start another deposit.' });
+                const details = JSON.parse(prior.details_json || '{}');
+                return res.json({ operation: { id: prior.id, status: prior.status, amount: cents / 100, ...details.paystackInstructions } });
+            }
+            await getActiveWallet(req.user.id);
+            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND status IN ('pending', 'processing')", [req.user.id]);
+            if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several wallet deposits awaiting confirmation. Resolve those first.' });
+            const user = await store.get('SELECT email FROM users WHERE id = ?', [req.user.id]);
+            if (!user?.email) return res.status(409).json({ error: 'Add a verified email to your profile before using Paystack bank payments.' });
+            const id = crypto.randomUUID();
+            const reference = `KF${id.replaceAll('-', '').slice(0, 28)}`;
+            const now = new Date().toISOString();
+            const details = { paystackReference: reference };
+            await store.run(`INSERT INTO wallet_operations
+                (id, user_id, kind, amount_cents, fee_cents, currency, channel, details_json, payment_reference, status, idempotency_key, created_at, updated_at)
+                VALUES (?, ?, 'deposit', ?, 0, 'KES', 'paystack_pesalink', ?, ?, 'processing', ?, ?, ?)`,
+            [id, req.user.id, cents, JSON.stringify(details), reference, idempotencyKey, now, now]);
+            try {
+                const expiry = new Date(Date.now() + 25 * 60 * 1000).toISOString();
+                const result = await paystackRequest('/charge', { method: 'POST', config, body: {
+                    email: user.email, amount: cents, currency: 'KES', reference,
+                    bank_transfer: { account_expires_at: expiry },
+                    metadata: { wallet_operation_id: id, purpose: 'KITUI FARM wallet deposit' }
+                } });
+                const charge = result.data || {};
+                if (charge.reference !== reference || charge.status !== 'pending_bank_transfer' || !charge.account_number) {
+                    details.paystackResult = text(charge.display_text || result.message || 'Paystack did not return Pesalink transfer instructions.', 240);
+                    await store.run("UPDATE wallet_operations SET status = 'failed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), id]);
+                    return res.status(502).json({ error: details.paystackResult });
+                }
+                const instructions = {
+                    accountName: text(charge.account_name, 120), accountNumber: text(charge.account_number, 40),
+                    bankName: text(charge.bank?.name, 120), transactionReference: text(charge.transaction_reference, 80),
+                    expiresAt: text(charge.account_expires_at, 40), amount: cents / 100
+                };
+                details.paystackInstructions = instructions;
+                await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), id]);
+                res.status(201).json({ operation: { id, status: 'processing', ...instructions } });
+            } catch (error) {
+                details.paystackInitiationError = text(error.message, 240);
+                const status = error.status && error.status < 500 ? 'failed' : 'processing';
+                await store.run('UPDATE wallet_operations SET status = ?, details_json = ?, updated_at = ? WHERE id = ? AND status = \'processing\'', [status, JSON.stringify(details), new Date().toISOString(), id]);
+                return res.status(status === 'failed' ? 502 : 202).json({
+                    operation: { id, status, amount: cents / 100 },
+                    error: status === 'processing' ? 'Paystack is still processing this request. Do not submit another transfer; refresh your wallet shortly.' : 'Paystack rejected the bank deposit request. Check that Pesalink is enabled on your account.'
+                });
+            }
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
+    app.get('/api/wallet/paystack/deposits/:id', auth, async (req, res, next) => {
+        try {
+            const operation = await store.get("SELECT id, amount_cents, status, details_json, updated_at FROM wallet_operations WHERE id = ? AND user_id = ? AND kind = 'deposit' AND channel = 'paystack_pesalink'", [text(req.params.id, 80), req.user.id]);
+            if (!operation) return res.status(404).json({ error: 'Paystack bank deposit not found.' });
+            const details = JSON.parse(operation.details_json || '{}');
+            res.json({ operation: { id: operation.id, amount: Number(operation.amount_cents) / 100, status: operation.status, ...details.paystackInstructions, message: details.paystackResult || '', updatedAt: operation.updated_at } });
+        } catch (error) { next(error); }
     });
 
     app.post('/api/wallet/mpesa/deposits/stk', auth, async (req, res, next) => {

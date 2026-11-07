@@ -30,7 +30,7 @@
         <div class="grid" id="walletContent">
             <section class="card balance-card"><p class="label">Available balance</p><p class="balance" id="walletBalance">KES —</p><div class="wallet-meta"><span>Wallet ID: <strong id="walletId">Loading…</strong></span><span>Status: <strong id="walletStatus">—</strong></span></div><p class="hint">Internal wallet transfers and marketplace wallet payments update instantly.</p></section>
 
-            <section class="card"><h2>Add money</h2><p class="hint">Choose PayPal Checkout or, when enabled, receive an M-Pesa STK prompt. Other deposits use a receipt and administrator verification. Wallet funds are added only after payment is confirmed.</p>
+            <section class="card"><h2>Add money</h2><p class="hint">Choose PayPal Checkout, an M-Pesa STK prompt, or a temporary Pesalink bank transfer when enabled. Other deposits use a receipt and administrator verification. Wallet funds are added only after payment is confirmed.</p>
                 <form id="depositForm"><div class="field"><label for="depositMethodId">Deposit method</label><select id="depositMethodId" required><option value="">Choose a deposit method</option></select><input id="depositChannel" type="hidden" value=""></div>
                     <div class="field"><label for="depositAmount">Amount (KES)</label><input id="depositAmount" type="number" min="0.01" max="1000000" step="0.01" required></div>
                     <div class="field" id="depositPhoneField" hidden><label for="depositPhone">M-Pesa phone number</label><input id="depositPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678"><p class="hint">Enter the phone that should receive the payment prompt.</p></div>
@@ -38,6 +38,7 @@
                     <p class="hint" id="depositQuote" hidden></p>
                     <div class="field" id="depositReferenceField"><label for="depositReference">Payment receipt/reference</label><input id="depositReference" maxlength="32" autocomplete="off" placeholder="e.g. QAB12CD34E" required><p class="hint">Enter the receipt/reference from your payment message.</p></div>
                     <div id="paypalDepositContainer" hidden></div>
+                    <section class="notice" id="paystackBankInstructions" hidden aria-live="polite"></section>
                     <button class="button primary" id="depositButton" type="submit">Submit deposit request</button><p class="message" id="depositMessage" role="status" aria-live="polite"></p>
                 </form>
             </section>
@@ -47,7 +48,7 @@
                 <form id="transferForm"><div class="field"><label for="transferAmount">Amount (KES)</label><input id="transferAmount" type="number" min="0.01" max="1000000" step="0.01" required></div><button class="button primary" type="submit">Transfer funds</button><p class="message" id="transferMessage" role="status" aria-live="polite"></p></form>
             </section>
 
-            <section class="card"><h2>Withdraw funds</h2><p class="hint">Your KES wallet amount is reserved while the request is reviewed. M-Pesa, Airtel Money, and bank withdrawals are processed manually. PayPal withdrawals are sent automatically after an administrator approves them, then confirmed by PayPal. Current wallet fee: KES 0.00.</p>
+            <section class="card"><h2>Withdraw funds</h2><p class="hint">Your KES wallet amount is reserved while the request is reviewed. M-Pesa and bank withdrawals are processed manually. PayPal withdrawals are sent automatically after an administrator approves them, then confirmed by PayPal. Current wallet fee: KES 0.00.</p>
                 <form id="withdrawalForm"><div class="field"><label for="withdrawMethodId">Payout destination</label><select id="withdrawMethodId" required><option value="">Add a withdrawal method in Settings first</option></select><input id="withdrawChannel" type="hidden" value="mpesa"></div>
                     <div class="field"><label for="withdrawAmount">Amount (KES)</label><input id="withdrawAmount" type="number" min="0.01" max="1000000" step="0.01" required></div>
                     <p class="hint" id="paypalQuote" hidden></p>
@@ -77,6 +78,8 @@
         let paypalButtonsReady = false;
         let paypalPublicConfig = null;
         let mpesaStkEnabled = false;
+        let paystackBankEnabled = false;
+        let activePaystackDepositId = '';
         const apiRequest = async (url, options = {}) => {
             const response = await fetch(url, { ...options, headers: { ...(options.body ? { 'Content-Type':'application/json' } : {}), ...options.headers } });
             let data = null; try { data = response.status === 204 ? null : await response.json(); } catch { data = null; }
@@ -92,14 +95,14 @@
             group.querySelectorAll('input').forEach(input => { input.required = active && !input.placeholder.includes('optional'); });
         });
         function fillWalletPaymentMethods(methods) {
-            const deposits=methods.filter(item=>['deposit','both'].includes(item.useFor)&&item.kind!=='paypal');
-            const withdrawals=methods.filter(item=>['withdrawal','both'].includes(item.useFor));
-            const option=item=>`<option value="${escapeHtml(item.id)}" data-kind="${escapeHtml(item.kind)}">${escapeHtml(item.label)} · ${item.kind==='mpesa'?'M-Pesa':item.kind==='airtel'?'Airtel Money':item.kind==='paypal'?'PayPal':'Bank'}</option>`;
-            $('depositMethodId').innerHTML='<option value="">Choose a deposit method</option>'+deposits.map(option).join('')+'<option value="paypal" data-kind="paypal">PayPal · secure checkout</option>';
+            const deposits=methods.filter(item=>['deposit','both'].includes(item.useFor)&&item.kind!=='paypal'&&item.kind!=='airtel'&&!(paystackBankEnabled&&item.kind==='bank'));
+            const withdrawals=methods.filter(item=>['withdrawal','both'].includes(item.useFor)&&item.kind!=='airtel');
+            const option=item=>`<option value="${escapeHtml(item.id)}" data-kind="${escapeHtml(item.kind)}">${escapeHtml(item.label)} · ${item.kind==='mpesa'?'M-Pesa':item.kind==='paypal'?'PayPal':'Bank'}</option>`;
+            $('depositMethodId').innerHTML='<option value="">Choose a deposit method</option>'+deposits.map(option).join('')+'<option value="paypal" data-kind="paypal">PayPal · secure checkout</option>'+(paystackBankEnabled?'<option value="paystack_bank" data-kind="paystack_bank">Bank transfer · Pesalink</option>':'');
             $('withdrawMethodId').innerHTML=withdrawals.length?'<option value="">Choose a payout destination</option>'+withdrawals.map(option).join(''):'<option value="">No payout methods — add one in Settings</option>';
             $('depositMethodId').onchange=()=>{
                 const kind=$('depositMethodId').selectedOptions[0]?.dataset.kind||'';
-                $('depositChannel').value=kind==='paypal'?'paypal':kind==='mpesa'&&mpesaStkEnabled?'mpesa_stk':({mpesa:'mpesa_stk_simulation',airtel:'airtel_money',bank:'bank_transfer'})[kind]||'';
+                $('depositChannel').value=kind==='paypal'?'paypal':kind==='paystack_bank'?'paystack_bank':kind==='mpesa'&&mpesaStkEnabled?'mpesa_stk':({mpesa:'mpesa_stk_simulation',bank:'bank_transfer'})[kind]||'';
                 updateDepositMethodUi();
             };
             $('withdrawMethodId').onchange=()=>{$('withdrawChannel').value=$('withdrawMethodId').selectedOptions[0]?.dataset.kind||''; updatePayPalQuote();};
@@ -107,18 +110,19 @@
         function updateDepositMethodUi() {
             const isPaypal=$('depositChannel').value==='paypal';
             const isMpesaStk=$('depositChannel').value==='mpesa_stk';
-            $('depositReferenceField').hidden=isPaypal||isMpesaStk;
-            $('depositReference').required=!isPaypal&&!isMpesaStk;
+            const isPaystackBank=$('depositChannel').value==='paystack_bank';
+            $('depositReferenceField').hidden=isPaypal||isMpesaStk||isPaystackBank;
+            $('depositReference').required=!isPaypal&&!isMpesaStk&&!isPaystackBank;
             $('depositPhoneField').hidden=!isMpesaStk;
             $('depositPhone').required=isMpesaStk;
             $('depositAmount').min=isMpesaStk?'1':'0.01';
             $('depositAmount').max=isMpesaStk?'150000':'1000000';
             $('depositAmount').step=isMpesaStk?'1':'0.01';
             $('depositButton').hidden=isPaypal;
-            $('depositButton').textContent=isMpesaStk?'Send M-Pesa prompt':'Submit deposit request';
+            $('depositButton').textContent=isMpesaStk?'Send M-Pesa prompt':isPaystackBank?'Get bank transfer details':'Submit deposit request';
             $('paypalDepositContainer').hidden=!isPaypal;
             $('depositQuote').hidden=!isPaypal;
-            $('phoneHint').textContent=isPaypal?'Pay securely with PayPal. The amount is converted to USD using the rate shown below.':isMpesaStk?`M-Pesa ${mpesaStkEnabled?'STK Push is enabled':'STK Push is not configured; enter your receipt after paying'}.`: 'Enter the receipt/reference after paying. An administrator will verify the payment.';
+            $('phoneHint').textContent=isPaypal?'Pay securely with PayPal. The amount is converted to USD using the rate shown below.':isMpesaStk?`M-Pesa ${mpesaStkEnabled?'STK Push is enabled':'STK Push is not configured; enter your receipt after paying'}.`:isPaystackBank?'Pay through your bank using the temporary Pesalink account details. The transfer expires after 25 minutes.':'Enter the receipt/reference after paying. An administrator will verify the payment.';
             if(isPaypal){updatePaypalDepositQuote();renderPaypalButtons().catch(error=>setMessage('depositMessage',error.message,true));}
         }
         async function updatePaypalDepositQuote() {
@@ -219,6 +223,13 @@
                 if (requestId === quoteRequestId) output.textContent = error.message;
             }
         }
+        function showPaystackBankInstructions(operation){
+            const instructions=operation||{};
+            if(!instructions.accountNumber)return;
+            $('paystackBankInstructions').hidden=false;
+            $('paystackBankInstructions').innerHTML=`<strong>Bank transfer instructions · ${escapeHtml(money(instructions.amount))}</strong><p>Account name: <strong>${escapeHtml(instructions.accountName||'')}</strong><br>Bank: <strong>${escapeHtml(instructions.bankName||'')}</strong><br>Account number: <strong>${escapeHtml(instructions.accountNumber)}</strong><br>Transfer reference / narration: <strong>${escapeHtml(instructions.transactionReference||'')}</strong></p><p>This account expires ${instructions.expiresAt?`at ${escapeHtml(new Date(instructions.expiresAt).toLocaleString('en-KE'))}`:'in 25 minutes'}. Use the exact amount and reference. Your wallet is credited after Paystack confirms the transfer.</p><button type="button" class="button" id="checkPaystackDeposit">Check payment status</button>`;
+            $('checkPaystackDeposit').addEventListener('click',()=>pollPaystackDeposit(operation.id));
+        }
         function renderWallet(data) {
             currentWallet = data.wallet;
             $('walletSetup').hidden = Boolean(data.wallet && data.wallet.status === 'active');
@@ -245,18 +256,34 @@
             $('transactions').innerHTML = tx.length ? tx.map(item => `<div class="entry"><span>${escapeHtml(item.description)}<small>${escapeHtml(item.type)} · ${escapeHtml(item.channel)} · ${new Date(item.createdAt).toLocaleString('en-KE')}</small></span><span class="amount ${item.direction === 'credit' ? 'credit' : 'debit'}">${item.direction === 'credit' ? '+' : '−'}${money(item.amount)}<small class="status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</small></span></div>`).join('') : '<p class="empty">No wallet transactions yet.</p>';
             const ops = data.operations || [];
             $('operations').innerHTML = ops.length ? ops.map(item => `<div class="entry"><span>${escapeHtml(item.type)} · ${escapeHtml(item.channel)}<small>${item.paymentReference ? `Reference ${escapeHtml(item.paymentReference)} · ` : ''}${new Date(item.createdAt).toLocaleString('en-KE')}</small></span><span class="amount">${money(item.amount)}<small class="status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</small></span></div>`).join('') : '<p class="empty">No deposit or withdrawal requests yet.</p>';
+            const activePaystack=data.operations?.find(item=>item.channel==='paystack_pesalink'&&item.status==='processing'&&item.details?.paystackInstructions);
+            if(activePaystack){activePaystackDepositId=activePaystack.id;showPaystackBankInstructions({id:activePaystack.id,amount:Number(activePaystack.amount),...activePaystack.details.paystackInstructions});}
         }
         async function loadWallet() { const data = await apiRequest('/api/wallet'); renderWallet(data); }
         $('createWalletForm').addEventListener('submit', async event => { event.preventDefault(); const button=event.currentTarget.querySelector('button'); button.disabled=true; try { await apiRequest('/api/wallet/create',{method:'POST',body:'{}'}); await loadWallet(); } catch(error) { $('createWalletMessage').textContent=error.message; } finally { button.disabled=false; } });
         $('reopenWalletForm').addEventListener('submit', async event => { event.preventDefault(); const button=event.currentTarget.querySelector('button'); button.disabled=true; try { await apiRequest('/api/wallet/reopen',{method:'POST',body:JSON.stringify({password:$('reopenPassword').value,confirmation:$('reopenConfirmation').value})}); $('reopenMessage').textContent='Wallet recovered.'; await loadWallet(); } catch(error) { $('reopenMessage').textContent=error.message; } finally { button.disabled=false; } });
         async function initialize() {
-            try { const result = await apiRequest('/api/auth/me'); currentUser = result.user; try { const mpesa=await apiRequest('/api/wallet/mpesa/config'); mpesaStkEnabled=Boolean(mpesa.stkEnabled); } catch { mpesaStkEnabled=false; } await loadWallet(); }
+            try { const result = await apiRequest('/api/auth/me'); currentUser = result.user; try { const mpesa=await apiRequest('/api/wallet/mpesa/config'); mpesaStkEnabled=Boolean(mpesa.stkEnabled); } catch { mpesaStkEnabled=false; } try { const paystack=await apiRequest('/api/wallet/paystack/config'); paystackBankEnabled=Boolean(paystack.bankTransferEnabled); } catch { paystackBankEnabled=false; } await loadWallet(); }
             catch (error) { if (error.status === 401) { location.replace('login.html'); return; } setMessage('depositMessage', error.message, true); }
         }
         $('depositForm').addEventListener('submit', async event => {
             event.preventDefault(); const form = event.currentTarget; const button = $('depositButton'); button.disabled = true; setMessage('depositMessage','Submitting deposit request…');
             const channel = $('depositChannel').value;
             if(channel==='paypal'){button.disabled=false;setMessage('depositMessage','Use the PayPal Checkout button above to complete this deposit.');return;}
+            if(channel==='paystack_bank'){
+                setMessage('depositMessage','Creating a temporary Pesalink bank transfer…');
+                try{
+                    const data=await apiRequest('/api/wallet/paystack/deposits/bank-transfer',{method:'POST',body:JSON.stringify({amount:$('depositAmount').value,idempotencyKey:depositSubmissionKey})});
+                    activePaystackDepositId=data.operation.id;
+                    if(data.operation.accountNumber){showPaystackBankInstructions(data.operation);setMessage('depositMessage','Use the account number and narration shown below to transfer from your bank.');}
+                    else setMessage('depositMessage',data.error||'The bank payment request is still processing. Check your wallet activity shortly.');
+                    if(data.operation.status==='completed'){
+                        depositSubmissionKey=crypto.randomUUID();$('paystackBankInstructions').hidden=true;$('depositAmount').value='';await loadWallet();setMessage('depositMessage',`Bank payment confirmed. ${money(data.operation.amount)} was added to your wallet.`);
+                    }
+                }catch(error){if([409,502,503].includes(error.status))depositSubmissionKey=crypto.randomUUID();setMessage('depositMessage',error.message,true);}
+                finally{button.disabled=currentWallet?.status!=='active';}
+                return;
+            }
             if(channel==='mpesa_stk'){
                 const body={amount:$('depositAmount').value,phone:$('depositPhone').value.trim(),paymentMethodId:$('depositMethodId').value,idempotencyKey:depositSubmissionKey};
                 try{
@@ -291,6 +318,25 @@
                 setMessage('depositMessage','Still waiting for M-Pesa confirmation. Keep this page open or refresh your wallet in a moment; do not pay twice.');
             }catch(error){setMessage('depositMessage',`Could not check payment status: ${error.message}. Do not pay again until you check your wallet activity.`,true);}
             finally{button.disabled=currentWallet?.status!=='active';}
+        }
+        async function pollPaystackDeposit(id){
+            const checkButton=$('checkPaystackDeposit');if(checkButton)checkButton.disabled=true;
+            setMessage('depositMessage','Checking Paystack for the bank transfer…');
+            try{
+                for(let attempt=0;attempt<20;attempt++){
+                    const data=await apiRequest(`/api/wallet/paystack/deposits/${encodeURIComponent(id)}`);
+                    if(data.operation.status==='completed'){
+                        depositSubmissionKey=crypto.randomUUID();activePaystackDepositId='';$('paystackBankInstructions').hidden=true;$('depositAmount').value='';
+                        await loadWallet();setMessage('depositMessage',`Bank payment confirmed. ${money(data.operation.amount)} was added to your wallet.`);return;
+                    }
+                    if(['failed','rejected'].includes(data.operation.status)){
+                        depositSubmissionKey=crypto.randomUUID();activePaystackDepositId='';$('paystackBankInstructions').hidden=true;setMessage('depositMessage',data.operation.message||'Paystack did not confirm this bank transfer. You can start a new deposit.',true);return;
+                    }
+                    await new Promise(resolve=>setTimeout(resolve,3000));
+                }
+                setMessage('depositMessage','Paystack has not confirmed the transfer yet. You can continue browsing; the wallet will update after confirmation.');
+            }catch(error){setMessage('depositMessage',`Could not check transfer status: ${error.message}. Your wallet has not been credited.`,true);}
+            finally{const button=$('checkPaystackDeposit');if(button)button.disabled=false;}
         }
         $('depositAmount').addEventListener('input',updatePaypalDepositQuote);
         $('recipientForm').addEventListener('submit', async event => {

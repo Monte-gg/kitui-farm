@@ -32,8 +32,12 @@ All protected routes use the HTTP-only `kitui_farm_session` cookie created by si
 | `GET` | `/api/wallet` | Initialize/read wallet identity, balance, ledger history, and deposit/withdrawal requests |
 | `GET` | `/api/wallet/recipient?identifier=...` | Resolve another user’s wallet ID, Kenyan phone, or exact name before transfer |
 | `POST` | `/api/wallet/transfers` | Make an atomic, idempotent wallet-to-wallet transfer |
-| `POST` | `/api/wallet/deposits` | Submit an M-Pesa simulation, Airtel, or bank deposit for manual verification |
-| `POST` | `/api/wallet/withdrawals` | Reserve funds and request an M-Pesa, Airtel, or bank payout |
+| `POST` | `/api/wallet/deposits` | Submit a bank-transfer or manual M-Pesa receipt for verification |
+| `POST` | `/api/wallet/mpesa/deposits/stk` | Start a live Daraja STK Push wallet deposit |
+| `POST` | `/api/payments/mpesa/callback/:token` | Receive and verify Daraja STK Push results |
+| `POST` | `/api/wallet/paystack/deposits/bank-transfer` | Create a temporary Paystack Pesalink account for a KES wallet deposit |
+| `POST` | `/api/paystack/webhook` | Verify Paystack bank-transfer notifications and credit confirmed deposits |
+| `POST` | `/api/wallet/withdrawals` | Reserve funds and request an M-Pesa or bank payout |
 | `POST` | `/api/wallet/close` | Close a zero-balance wallet with no pending operations after password confirmation |
 | `GET` | `/api/wallet/admin/operations` | List pending deposits and withdrawal requests for authorized administrators |
 | `POST` | `/api/wallet/admin/operations/:id/review` | Credit verified deposits, mark sent withdrawals as paid, or reject/refund |
@@ -44,7 +48,7 @@ All protected routes use the HTTP-only `kitui_farm_session` cookie created by si
 | `PATCH` | `/api/orders/:id/status` | Buyer cancellation and farmer fulfillment updates |
 | `DELETE` | `/api/orders/:id` | Hide an order and restock eligible cancellations |
 
-M-PESA STK push, Airtel integration, and bank payments are not connected. Deposit requests require a payment reference and remain pending until an administrator verifies them. External withdrawals are manual: the administrator sends the payout, then marks it paid; rejecting the request refunds the reserved wallet balance. Wallet-to-wallet transfers and marketplace wallet payments are ledger-backed database transactions. The wallet v2 migration deliberately deletes old wallet balances, ledger rows, and top-up requests once while preserving the `wallet_admins` allowlist. Signup verification, welcome email, password reset codes, and password-change notifications use the Gmail API over HTTPS. Reset codes expire after 10 minutes and are limited to five attempts; successful resets revoke existing sessions.
+M-Pesa wallet deposits use Daraja STK Push when the sandbox or live credentials and callback secret are configured in Render; the wallet is credited only after a verified success callback. Paystack Pesalink wallet deposits are available after a Kenyan Paystack merchant account is approved for Pesalink and `PAYSTACK_SECRET_KEY` plus `PAYSTACK_BANK_ENABLED=true` are configured in Render. Set the Paystack webhook URL to `https://kitui-farm.onrender.com/api/paystack/webhook`; the server validates its signature and verifies the charge with Paystack before crediting the wallet. Airtel Money has been removed from new payment-method setup and wallet processing; historical transactions remain visible. External M-Pesa and bank withdrawals are manual: the administrator sends the payout, then marks it paid; rejecting the request refunds the reserved wallet balance. Wallet-to-wallet transfers and marketplace wallet payments are ledger-backed database transactions. The wallet v2 migration deliberately deletes old wallet balances, ledger rows, and top-up requests once while preserving the `wallet_admins` allowlist. Signup verification, welcome email, password reset codes, and password-change notifications use the Gmail API over HTTPS. Reset codes expire after 10 minutes and are limited to five attempts; successful resets revoke existing sessions.
 
 Accounts previously stored only in browser local storage are not imported automatically. Create a new account through the server-backed sign-up page; passwords and legacy browser hashes are not transferred.
 
@@ -78,7 +82,7 @@ To clear all current admin-console access and start fresh, run `backend/supabase
 
 Admin sign-up is available from the admin sign-in page. Enter the 4-digit registration gate code (`0987` by default; set `ADMIN_REGISTRATION_CODE` in Render to change it), then create an admin account with a name, Gmail address, and password. The gate grant expires in 10 minutes and failed code attempts are rate-limited. Admin sign-in checks the name without regard to capitalization and verifies the email and password; it does not use the normal user sign-in flow.
 
-Only administrators in this table can approve wallet operations. Confirm deposits outside the website before crediting; after sending a withdrawal payout, mark it as sent in the admin console. M-Pesa STK push, Airtel, and bank integrations are not active yet.
+Only administrators in this table can approve wallet operations. Confirm manual deposits outside the website before crediting; Daraja STK Push and Paystack Pesalink deposits are automatically credited only after provider verification. After sending a manual withdrawal payout, mark it as sent in the admin console.
 
 `npm start` and `npm test` load `backend/.env` automatically through Node's `--env-file-if-exists`, so `DATABASE_URL` takes effect without exporting it in the shell. The publishable (`sb_publishable_...`) key is not used by this backend and must not be substituted for `DATABASE_URL`.
 

@@ -156,12 +156,12 @@
         </form>
 
         <section class="card" id="paymentMethodsCard">
-            <div class="card-heading"><h2>Wallet payment methods</h2><p>Save the account details you use to fund your wallet or receive a manual payout. These are not marketplace checkout methods. PayPal is supported for withdrawals only; payouts are reviewed and sent manually.</p></div>
+            <div class="card-heading"><h2>Wallet payment methods</h2><p>Save the account details you use to fund your wallet or receive a manual payout. These are not marketplace checkout methods. Bank deposits still require a receipt and administrator verification until a live bank provider is connected. PayPal is supported for withdrawals only; payouts are reviewed and sent manually.</p></div>
             <div class="setting-row" style="display:block">
                 <form id="paymentMethodForm">
-                    <div class="setting-row" style="padding:12px 0;border:0"><label>Method <select id="methodKind"><option value="mpesa">M-Pesa</option><option value="airtel">Airtel Money</option><option value="bank">Bank account</option><option value="paypal">PayPal</option></select></label><label>Use for <select id="methodUse"><option value="both">Deposits and withdrawals</option><option value="deposit">Deposits only</option><option value="withdrawal">Withdrawals only</option></select></label></div>
+                    <div class="setting-row" style="padding:12px 0;border:0"><label>Method <select id="methodKind"><option value="mpesa">M-Pesa</option><option value="bank">Bank account</option><option value="paypal">PayPal</option></select></label><label>Use for <select id="methodUse"><option value="both">Deposits and withdrawals</option><option value="deposit">Deposits only</option><option value="withdrawal">Withdrawals only</option></select></label></div>
                     <div class="field"><label for="methodLabel">Name this method</label><input id="methodLabel" maxlength="60" required placeholder="e.g. My M-Pesa number"></div>
-                    <div class="field" data-method="mpesa airtel" hidden><label for="methodPhone">Kenyan phone number</label><input id="methodPhone" type="tel" inputmode="tel" placeholder="0712 345 678"></div>
+                    <div class="field" data-method="mpesa" hidden><label for="methodPhone">Kenyan phone number</label><input id="methodPhone" type="tel" inputmode="tel" placeholder="0712 345 678"></div>
                     <div class="field" data-method="bank" hidden><label for="methodAccountName">Account name</label><input id="methodAccountName" maxlength="100"></div>
                     <div class="field" data-method="bank" hidden><label for="methodAccountNumber">Account number</label><input id="methodAccountNumber" maxlength="34"></div>
                     <div class="field" data-method="bank" hidden><label for="methodBankName">Bank name</label><input id="methodBankName" maxlength="80"></div>
@@ -229,7 +229,7 @@
             const paymentMethodForm = event.currentTarget;
             const kind = methodKind.value;
             const body = { kind, label:document.getElementById('methodLabel').value.trim(), useFor:methodUse.value };
-            if (kind === 'mpesa' || kind === 'airtel') body.phone = document.getElementById('methodPhone').value;
+            if (kind === 'mpesa') body.phone = document.getElementById('methodPhone').value;
             else if (kind === 'bank') Object.assign(body, {
                 accountName:document.getElementById('methodAccountName').value,
                 accountNumber:document.getElementById('methodAccountNumber').value,
