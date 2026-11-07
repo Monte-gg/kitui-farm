@@ -78,6 +78,21 @@
         .stat span { display:block; color:var(--muted); font-size:13px; }
         .stat strong { display:block; margin-top:5px; color:var(--dark); font-size:27px; }
         .table-wrap { overflow:auto; margin-top:14px; }
+        .people-table-wrap { max-width:100%; }
+        .people-table { min-width:1160px; table-layout:auto; }
+        .people-table th,.people-table td { white-space:normal; overflow-wrap:normal; word-break:normal; }
+        .people-table th:nth-child(1),.people-table td:nth-child(1) { min-width:66px; }
+        .people-table th:nth-child(2),.people-table td:nth-child(2) { min-width:140px; }
+        .people-table th:nth-child(3),.people-table td:nth-child(3) { min-width:190px; }
+        .people-table th:nth-child(4),.people-table td:nth-child(4) { min-width:132px; }
+        .people-table th:nth-child(5),.people-table td:nth-child(5) { min-width:86px; }
+        .people-table th:nth-child(6),.people-table td:nth-child(6) { min-width:88px; }
+        .people-table th:nth-child(7),.people-table td:nth-child(7) { min-width:160px; }
+        .people-table th:nth-child(8),.people-table td:nth-child(8) { min-width:140px; }
+        .people-table th:nth-child(9),.people-table td:nth-child(9) { min-width:116px; }
+        .people-table td:nth-child(3),.people-table td:nth-child(4) { white-space:nowrap; }
+        .people-table td:nth-child(5),.people-table td:nth-child(6),.people-table td:last-child { white-space:nowrap; }
+        .people-table td:last-child .button { min-width:104px; white-space:nowrap; word-break:keep-all; }
         table { width:100%; border-collapse:collapse; text-align:left; }
         th,td { padding:11px 12px; border-bottom:1px solid var(--line); vertical-align:top; font-size:13px; }
         th { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
@@ -89,6 +104,23 @@
         :root[data-theme="dark"] .module-card:hover,:root[data-theme="dark"] .admin-nav-link.active { background:var(--green-light); }
         @media(max-width:820px) { .admin-layout { grid-template-columns:1fr; gap:15px; } .admin-sidebar { position:sticky; top:68px; z-index:4; display:flex; overflow-x:auto; padding:8px; white-space:nowrap; } .sidebar-label { display:none; } .admin-nav-link { flex:0 0 auto; min-height:38px; padding:7px 10px; font-size:13px; } .admin-nav-link .nav-icon { width:22px; height:22px; flex-basis:22px; } }
         @media(max-width:680px) { .topbar-inner,main { width:calc(100% - 28px); } .request { grid-template-columns:1fr; } .actions .button { flex:1; } .panel { padding:17px; } .stats { grid-template-columns:repeat(2,minmax(0,1fr)); } .stat { padding:14px; } .stat strong { font-size:23px; } .module-grid { grid-template-columns:1fr; } .welcome-panel { padding:20px; } }
+        @media(max-width:820px) {
+            .people-table { min-width:0; }
+            #people .people-table th,#people .people-table td,#admins .people-table th,#admins .people-table td { min-width:0; }
+            .people-table thead { display:none; }
+            .people-table,.people-table tbody { display:block; width:100%; }
+            .people-table tbody { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr)); gap:12px; }
+            .people-table tr { display:block; min-width:0; padding:9px 13px; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
+            .people-table td,.people-table td:nth-child(3),.people-table td:nth-child(4),.people-table td:nth-child(5),.people-table td:nth-child(6),.people-table td:last-child {
+                display:grid; grid-template-columns:minmax(92px,34%) minmax(0,1fr); align-items:center; gap:10px; width:100%; padding:9px 0; border-bottom:1px solid var(--line); white-space:normal;
+            }
+            .people-table td::before { content:attr(data-label); color:var(--muted); font-size:11px; font-weight:750; letter-spacing:.035em; text-transform:uppercase; }
+            .people-table td:last-child { border-bottom:0; }
+            .people-table td:last-child .button { justify-self:start; }
+            .panel-head { flex-wrap:wrap; }
+            .account-tools { justify-content:flex-start; }
+            .account-tools small { text-align:left; }
+        }
     </style>
     <script src="site-only.js" defer></script>
     <script defer src="update-notification.js?v=2"></script>
@@ -147,14 +179,14 @@
         <section class="panel" id="people" data-admin-view hidden aria-labelledby="accountsHeading">
             <div class="view-heading"><p class="eyebrow">Account management</p><h1>People</h1><p class="intro">Review registered farmers and customers. Account deletion requires a reason and notifies the user.</p></div>
             <div class="panel-head"><div><h2 id="accountsHeading">People on KITUI FARM</h2><p class="muted">Profile edits appear here within a few seconds. Enabled admins are listed separately below.</p></div><div class="account-tools"><span class="count" id="accountsCount">—</span><button class="refresh-data" id="refreshAccountsButton" type="button">Refresh</button><small id="accountsLastUpdated">Not refreshed yet</small></div></div>
-            <div class="table-wrap"><table><thead><tr><th>Photo</th><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Gender</th><th>Location</th><th>Created</th><th>Action</th></tr></thead><tbody id="accountsBody"></tbody></table></div>
+            <div class="table-wrap people-table-wrap"><table class="people-table"><thead><tr><th>Photo</th><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Gender</th><th>Location</th><th>Created</th><th>Action</th></tr></thead><tbody id="accountsBody"></tbody></table></div>
             <p class="empty" id="accountsEmpty" hidden>No farmers or customers found.</p>
         </section>
 
         <section class="panel" id="admins" data-admin-view hidden aria-labelledby="adminsHeading">
             <div class="view-heading"><p class="eyebrow">Access control</p><h1>Admin access</h1><p class="intro">See accounts currently authorized to use the Admin Console.</p></div>
             <div class="panel-head"><div><h2 id="adminsHeading">Enabled admins</h2><p class="muted">Admin profile edits are refreshed automatically while this console is open.</p></div><div class="admin-tools"><span class="count" id="adminsCount">—</span><button class="refresh-data" id="refreshAdminsButton" type="button">Refresh</button><small id="adminsLastUpdated">Not refreshed yet</small></div></div>
-            <div class="table-wrap"><table><thead><tr><th>Photo</th><th>Name</th><th>Email</th><th>Phone</th><th>Gender</th><th>Location</th><th>Admin access enabled</th></tr></thead><tbody id="adminsBody"></tbody></table></div>
+            <div class="table-wrap people-table-wrap"><table class="people-table"><thead><tr><th>Photo</th><th>Name</th><th>Email</th><th>Phone</th><th>Gender</th><th>Location</th><th>Admin access enabled</th></tr></thead><tbody id="adminsBody"></tbody></table></div>
             <p class="empty" id="adminsEmpty" hidden>No admin accounts are enabled.</p>
         </section>
 
@@ -246,9 +278,9 @@
                 const photo = account.profilePhoto
                     ? `<img src="${escapeHtml(account.profilePhoto)}" alt="" width="36" height="36" style="width:36px;height:36px;object-fit:cover;border-radius:50%">`
                     : '—';
-                return `<tr><td>${photo}</td><td>${escapeHtml(account.name)}</td><td>${escapeHtml(account.email)}</td><td>${escapeHtml(account.phone)}</td>
-                    <td>${escapeHtml(account.role)}</td><td>${escapeHtml(account.gender || '—')}</td><td>${escapeHtml(account.location || '—')}</td><td>${escapeHtml(displayDate(account.createdAt))}</td>
-                    <td><button class="button reject" type="button" data-delete-account="${escapeHtml(account.id)}" data-account-name="${escapeHtml(account.name)}">Delete</button></td></tr>`;
+                return `<tr><td data-label="Photo">${photo}</td><td data-label="Name">${escapeHtml(account.name)}</td><td data-label="Email">${escapeHtml(account.email)}</td><td data-label="Phone">${escapeHtml(account.phone)}</td>
+                    <td data-label="Role">${escapeHtml(account.role)}</td><td data-label="Gender">${escapeHtml(account.gender || '—')}</td><td data-label="Location">${escapeHtml(account.location || '—')}</td><td data-label="Created">${escapeHtml(displayDate(account.createdAt))}</td>
+                    <td data-label="Action"><button class="button reject" type="button" data-delete-account="${escapeHtml(account.id)}" data-account-name="${escapeHtml(account.name)}">Delete account</button></td></tr>`;
             }).join('');
 
             document.getElementById('adminsCount').textContent = admins.length;
@@ -257,8 +289,8 @@
                 const photo = admin.profilePhoto
                     ? `<img src="${escapeHtml(admin.profilePhoto)}" alt="" width="36" height="36" style="width:36px;height:36px;object-fit:cover;border-radius:50%">`
                     : '—';
-                return `<tr><td>${photo}</td><td>${escapeHtml(admin.name)}</td><td>${escapeHtml(admin.email)}</td><td>${escapeHtml(admin.phone)}</td>
-                    <td>${escapeHtml(admin.gender || '—')}</td><td>${escapeHtml(admin.location || '—')}</td><td>${escapeHtml(displayDate(admin.enabledAt))}</td></tr>`;
+                return `<tr><td data-label="Photo">${photo}</td><td data-label="Name">${escapeHtml(admin.name)}</td><td data-label="Email">${escapeHtml(admin.email)}</td><td data-label="Phone">${escapeHtml(admin.phone)}</td>
+                    <td data-label="Gender">${escapeHtml(admin.gender || '—')}</td><td data-label="Location">${escapeHtml(admin.location || '—')}</td><td data-label="Access enabled">${escapeHtml(displayDate(admin.enabledAt))}</td></tr>`;
             }).join('');
             document.getElementById('accountsLastUpdated').textContent = `Updated at ${refreshedAt}`;
             document.getElementById('adminsLastUpdated').textContent = `Updated at ${refreshedAt}`;
