@@ -2775,6 +2775,15 @@ function createApp(options = {}) {
                 } catch (error) {
                     details.paystackTransferError = text(error.message, 240);
                     if (error.status && error.status < 500) {
+                        // Some Paystack accounts cannot initiate third-party payouts yet.
+                        // Keep the reservation and place this request in the admin queue
+                        // so it can be paid manually or safely refunded.
+                        if (/third[\s-]?party payout|starter business/i.test(error.message)) {
+                            details.manualPayoutFallback = true;
+                            details.manualPayoutReason = 'Paystack has not enabled third-party payouts for this merchant account.';
+                            await store.run("UPDATE wallet_operations SET status = 'pending', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), id]);
+                            return res.status(201).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'pending', channel: operationChannel, automatic: false, manualFallback: true, createdAt: now } });
+                        }
                         const failedAt = new Date().toISOString();
                         await store.transaction(async () => {
                             const changed = await store.run("UPDATE wallet_operations SET status = 'failed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), failedAt, id]);
@@ -2851,6 +2860,12 @@ function createApp(options = {}) {
         try {
             const current = await store.get('SELECT * FROM wallet_operations WHERE id = ?', [req.params.id]);
             if (!current) throw walletError('Wallet request not found.', 404);
+            const currentDetails = JSON.parse(current.details_json || '{}');
+            const manualMpesaFallback = current.kind === 'withdrawal' && current.channel === 'paystack_mpesa_transfer' && currentDetails.manualPayoutFallback === true;
+            const manualPaymentReference = text(req.body?.paymentReference, 80);
+            if (manualMpesaFallback && decision === 'approve' && !/^[A-Za-z0-9-]{4,80}$/.test(manualPaymentReference)) {
+                throw walletError('Enter the M-Pesa confirmation code after sending the payout manually.', 400);
+            }
             if (current.kind === 'withdrawal' && current.channel === 'paypal' && decision === 'approve') {
                 // Validate credentials before changing state. Once claimed, a timed-out
                 // provider request stays processing and is safely recoverable by batch ID.
@@ -2893,10 +2908,11 @@ function createApp(options = {}) {
                     `, [crypto.randomUUID(), operation.user_id, operation.amount_cents, `wallet-deposit:${operation.id}`, operation.payment_reference,
                         `Wallet deposit approved (${operation.channel})`, req.user.id, now, operation.channel, operation.id]);
                 } else if (operation.kind === 'withdrawal' && decision === 'approve') {
-                    const finalized = await store.run(`
-                        UPDATE wallet_transactions SET status = 'completed' WHERE operation_id = ? AND event_type = 'withdrawal' AND status = 'pending'
-                    `, [operation.id]);
+                    const finalized = manualMpesaFallback
+                        ? await store.run("UPDATE wallet_transactions SET status = 'completed', payment_reference = ?, description = 'Manual M-Pesa payout sent by admin' WHERE operation_id = ? AND event_type = 'withdrawal' AND status = 'pending'", [manualPaymentReference, operation.id])
+                        : await store.run(`UPDATE wallet_transactions SET status = 'completed' WHERE operation_id = ? AND event_type = 'withdrawal' AND status = 'pending'`, [operation.id]);
                     if (!finalized.changes) throw walletError('The withdrawal ledger could not be finalized.', 409);
+                    if (manualMpesaFallback) await store.run('UPDATE wallet_operations SET payment_reference = ? WHERE id = ?', [manualPaymentReference, operation.id]);
                 } else if (operation.kind === 'withdrawal' && decision === 'reject') {
                     const credited = await store.run(`
                         UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
