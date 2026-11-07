@@ -483,7 +483,7 @@
                 return `<article class="request"><div><h3>${escapeHtml(item.name)} · ${money(item.amount)} · ${deposit ? 'Deposit' : 'Withdrawal'}${paypalProcessing ? ' · PayPal processing' : ''}${mpesaProcessing ? ' · M-Pesa processing' : ''}</h3>
                 <p>${escapeHtml(item.email)} · ${escapeHtml(item.phone)} · Wallet ${escapeHtml(item.walletId)}</p>
                 <p>Method: <strong>${escapeHtml(method)}</strong>${destination ? ` · ${escapeHtml(destination)}` : ''}</p>
-                ${deposit ? `<p>Payment reference: <strong>${escapeHtml(item.paymentReference || 'Not provided')}</strong>${details.bankName ? ` · Bank: ${escapeHtml(details.bankName)}` : ''}</p>` : `<p>${staleLegacyMpesa ? 'This older Safaricom payout has not returned a result for at least 15 minutes. Check the M-Pesa payout status before deciding. The wallet amount remains reserved.' : manualMpesaFallback ? 'Paystack could not send this payout for the merchant account. Send it manually to the saved M-Pesa number, then enter its confirmation code when marking it sent. The amount remains reserved.' : paypalProcessing ? 'Wallet amount reserved; waiting for PayPal confirmation.' : mpesaProcessing ? `Wallet amount reserved; waiting for ${item.channel === 'paystack_mpesa_transfer' ? 'Paystack transfer' : 'Safaricom B2C'} confirmation.` : 'Reserved payout amount.'} Fee: ${money(item.fee)}${paypalAmount}.</p>`}
+                ${deposit ? `<p>Payment reference: <strong>${escapeHtml(item.paymentReference || 'Not provided')}</strong>${details.bankName ? ` · Bank: ${escapeHtml(details.bankName)}` : ''}</p>` : `<p>${staleLegacyMpesa ? 'This older Safaricom payout has not returned a result for at least 15 minutes. Check the M-Pesa payout status before deciding. The wallet amount remains reserved.' : manualMpesaFallback ? 'Paystack cannot send payouts for this merchant account yet. Send the money manually to the saved M-Pesa number, then confirm it here. This app does not send the M-Pesa payment. The amount remains reserved.' : paypalProcessing ? 'Wallet amount reserved; waiting for PayPal confirmation.' : mpesaProcessing ? `Wallet amount reserved; waiting for ${item.channel === 'paystack_mpesa_transfer' ? 'Paystack transfer' : 'Safaricom B2C'} confirmation.` : 'Reserved payout amount.'} Fee: ${money(item.fee)}${paypalAmount}.</p>`}
                 ${item.paymentReference ? `<p>${['mpesa_b2c', 'paystack_mpesa_transfer'].includes(item.channel) ? 'M-Pesa payout reference' : item.channel === 'paystack_mpesa' ? 'Paystack charge reference' : 'PayPal batch reference'}: <strong>${escapeHtml(item.paymentReference)}</strong></p>` : ''}
                 <p>Submitted ${new Date(item.createdAt).toLocaleString('en-KE')}</p></div>
                 <div class="actions">${staleLegacyMpesa ? `<button class="button approve" data-resolve-mpesa="paid" data-id="${escapeHtml(item.id)}">Mark paid</button><button class="button reject" data-resolve-mpesa="refund" data-id="${escapeHtml(item.id)}">Refund wallet</button>` : mpesaProcessing ? '<span class="muted">Waiting for automatic M-Pesa confirmation</span>' : paypalProcessing ? `<button class="button approve" data-sync-paypal="${escapeHtml(item.id)}">Check PayPal status</button>` : `<button class="button approve" data-review="approve" data-type="${escapeHtml(item.type)}" data-channel="${escapeHtml(item.channel)}" data-manual-fallback="${manualMpesaFallback}" data-id="${escapeHtml(item.id)}">${deposit ? 'Verify &amp; credit' : item.channel === 'paypal' ? 'Send PayPal payout' : 'Mark payout sent'}</button>
@@ -551,16 +551,12 @@
             const approval = button.dataset.review === 'approve';
             const isDeposit = button.dataset.type === 'deposit';
             const isPaypal = button.dataset.channel === 'paypal';
-            const needsManualMpesaReceipt = approval && button.dataset.channel === 'paystack_mpesa_transfer' && button.dataset.manualFallback === 'true';
-            let paymentReference = '';
-            if (needsManualMpesaReceipt) {
-                paymentReference = window.prompt('Paystack could not send this payout. Send the money to the saved M-Pesa number manually, then enter the M-Pesa confirmation code here:') || '';
-                if (!paymentReference.trim()) return;
-            }
-            if (!window.confirm(approval ? (needsManualMpesaReceipt ? 'Confirm that you sent the M-Pesa payment and the confirmation code is correct?' : isDeposit ? 'Confirm you verified the external deposit and want to credit this wallet?' : isPaypal ? 'Send the reserved withdrawal to the saved PayPal email now? PayPal may charge fees and conversion costs.' : 'Confirm you sent the external payout and want to mark this withdrawal complete?') : (isDeposit ? 'Reject this deposit request?' : 'Reject this withdrawal and return the reserved amount to the wallet?'))) return;
+            const needsManualMpesaConfirmation = approval && button.dataset.channel === 'paystack_mpesa_transfer' && button.dataset.manualFallback === 'true';
+            if (needsManualMpesaConfirmation && !window.confirm('Paystack cannot send this payout for the merchant account. Send the money manually to the saved M-Pesa number outside KITUI FARM, then confirm it here. This action only records the payment; it does not send money. Continue?')) return;
+            if (!needsManualMpesaConfirmation && !window.confirm(approval ? (isDeposit ? 'Confirm you verified the external deposit and want to credit this wallet?' : isPaypal ? 'Send the reserved withdrawal to the saved PayPal email now? PayPal may charge fees and conversion costs.' : 'Confirm you sent the external payout and want to mark this withdrawal complete?') : (isDeposit ? 'Reject this deposit request?' : 'Reject this withdrawal and return the reserved amount to the wallet?'))) return;
             button.disabled = true;
             try {
-                const result = await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.id)}/review`, { method:'POST', body:JSON.stringify({ decision:button.dataset.review, paymentReference }) });
+                const result = await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.id)}/review`, { method:'POST', body:JSON.stringify({ decision:button.dataset.review }) });
                 setStatus(approval ? (isDeposit ? 'Deposit verified and wallet credited.' : isPaypal ? `PayPal payout started. Provider status: ${result.operation.providerStatus || 'processing'}.` : 'Withdrawal marked as paid.') : (isDeposit ? 'Deposit request rejected.' : 'Withdrawal rejected and funds refunded.'));
                 await loadRequests();
             } catch (error) { setStatus(error.message, true); button.disabled = false; }
@@ -568,16 +564,13 @@
         document.getElementById('requestList').addEventListener('click', async event => {
             const button = event.target.closest('button[data-resolve-mpesa]'); if (!button) return;
             const decision = button.dataset.resolveMpesa;
-            let paymentReference = '';
             if (decision === 'paid') {
-                paymentReference = window.prompt('Check the Safaricom payout first. Enter the M-Pesa confirmation code proving this payout reached the recipient:') || '';
-                if (!/^[A-Za-z0-9]{4,32}$/.test(paymentReference.trim())) return;
-                if (!window.confirm('Confirm that Safaricom shows this payout as successful and the confirmation code is correct?')) return;
+                if (!window.confirm('Check Safaricom first. Confirm that this M-Pesa payout reached the saved number, or send it manually outside KITUI FARM before marking it paid. This app does not send money. Continue?')) return;
             } else if (!window.confirm('Only refund after checking with Safaricom that the payout did not reach the recipient. Refund the reserved amount to the wallet?')) return;
             button.disabled = true;
             try {
-                const result = await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.id)}/resolve-mpesa`, { method:'POST', body:JSON.stringify({ decision, paymentReference }) });
-                setStatus(decision === 'paid' ? `M-Pesa payout marked paid with receipt ${result.operation.paymentReference}.` : 'M-Pesa payout resolved and the reserved amount refunded to the wallet.');
+                await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.id)}/resolve-mpesa`, { method:'POST', body:JSON.stringify({ decision }) });
+                setStatus(decision === 'paid' ? 'M-Pesa payout marked paid by admin confirmation.' : 'M-Pesa payout resolved and the reserved amount refunded to the wallet.');
                 await loadRequests();
             } catch (error) { setStatus(error.message || 'Could not resolve the delayed M-Pesa payout.', true); button.disabled = false; }
         });

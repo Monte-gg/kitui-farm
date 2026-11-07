@@ -2856,9 +2856,7 @@ function createApp(options = {}) {
 
     app.post('/api/wallet/admin/operations/:id/resolve-mpesa', auth, walletAdmin, async (req, res, next) => {
         const decision = text(req.body?.decision, 12);
-        const receipt = text(req.body?.paymentReference, 32).toUpperCase();
         if (!['paid', 'refund'].includes(decision)) return res.status(400).json({ error: 'Choose mark as paid or refund.' });
-        if (decision === 'paid' && !/^[A-Z0-9]{4,32}$/.test(receipt)) return res.status(400).json({ error: 'Enter a valid M-Pesa confirmation code.' });
         try {
             const current = await store.get("SELECT * FROM wallet_operations WHERE id = ? AND kind = 'withdrawal' AND channel = 'mpesa_b2c'", [req.params.id]);
             if (!current) throw walletError('Legacy M-Pesa payout not found.', 404);
@@ -2870,14 +2868,14 @@ function createApp(options = {}) {
             details.adminResolution = decision;
             details.adminResolutionAt = now;
             details.adminResolutionNote = decision === 'paid'
-                ? 'Administrator confirmed the external M-Pesa payout using its receipt code.'
+                ? 'Administrator confirmed the external M-Pesa payout. Receipt code was not recorded.'
                 : 'Administrator confirmed with the payout provider that no payment was made and refunded the wallet.';
             await store.transaction(async () => {
                 const changed = await store.run("UPDATE wallet_operations SET status = ?, details_json = ?, payment_reference = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ? WHERE id = ? AND status = 'processing'",
-                    [decision === 'paid' ? 'completed' : 'failed', JSON.stringify(details), decision === 'paid' ? receipt : current.payment_reference, req.user.id, now, now, current.id]);
+                    [decision === 'paid' ? 'completed' : 'failed', JSON.stringify(details), decision === 'paid' ? null : current.payment_reference, req.user.id, now, now, current.id]);
                 if (!changed.changes) throw walletError('This M-Pesa payout was already resolved.', 409);
                 if (decision === 'paid') {
-                    const finalized = await store.run("UPDATE wallet_transactions SET status = 'completed', payment_reference = ?, description = 'M-Pesa payout confirmed by admin' WHERE operation_id = ? AND event_type = 'withdrawal' AND status = 'pending'", [receipt, current.id]);
+                    const finalized = await store.run("UPDATE wallet_transactions SET status = 'completed', payment_reference = NULL, description = 'Manual M-Pesa payout confirmed by admin; receipt code not recorded' WHERE operation_id = ? AND event_type = 'withdrawal' AND status = 'pending'", [current.id]);
                     if (!finalized.changes) throw walletError('The withdrawal ledger could not be finalized.', 409);
                     return;
                 }
@@ -2889,7 +2887,7 @@ function createApp(options = {}) {
                     VALUES (?, ?, 'credit', 'refund', ?, ?, ?, 'Refund after admin confirmed M-Pesa payout was not made', ?, ?, 'completed', 'internal', ?)` ,
                 [crypto.randomUUID(), current.user_id, current.amount_cents, `wallet-withdrawal-refund:${current.id}`, current.payment_reference, req.user.id, now, current.id]);
             });
-            res.json({ operation: { id: current.id, status: decision === 'paid' ? 'completed' : 'failed', paymentReference: decision === 'paid' ? receipt : current.payment_reference } });
+            res.json({ operation: { id: current.id, status: decision === 'paid' ? 'completed' : 'failed' } });
         } catch (error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
             next(error);
@@ -2904,9 +2902,10 @@ function createApp(options = {}) {
             if (!current) throw walletError('Wallet request not found.', 404);
             const currentDetails = JSON.parse(current.details_json || '{}');
             const manualMpesaFallback = current.kind === 'withdrawal' && current.channel === 'paystack_mpesa_transfer' && currentDetails.manualPayoutFallback === true;
-            const manualPaymentReference = text(req.body?.paymentReference, 80);
-            if (manualMpesaFallback && decision === 'approve' && !/^[A-Za-z0-9-]{4,80}$/.test(manualPaymentReference)) {
-                throw walletError('Enter the M-Pesa confirmation code after sending the payout manually.', 400);
+            if (manualMpesaFallback && decision === 'approve') {
+                currentDetails.manualPayoutMarkedPaidAt = new Date().toISOString();
+                currentDetails.manualPayoutMarkedPaidBy = req.user.id;
+                currentDetails.manualPayoutReceiptRecorded = false;
             }
             if (current.kind === 'withdrawal' && current.channel === 'paypal' && decision === 'approve') {
                 // Validate credentials before changing state. Once claimed, a timed-out
@@ -2951,10 +2950,10 @@ function createApp(options = {}) {
                         `Wallet deposit approved (${operation.channel})`, req.user.id, now, operation.channel, operation.id]);
                 } else if (operation.kind === 'withdrawal' && decision === 'approve') {
                     const finalized = manualMpesaFallback
-                        ? await store.run("UPDATE wallet_transactions SET status = 'completed', payment_reference = ?, description = 'Manual M-Pesa payout sent by admin' WHERE operation_id = ? AND event_type = 'withdrawal' AND status = 'pending'", [manualPaymentReference, operation.id])
+                        ? await store.run("UPDATE wallet_transactions SET status = 'completed', payment_reference = NULL, description = 'Manual M-Pesa payout confirmed by admin; receipt code not recorded' WHERE operation_id = ? AND event_type = 'withdrawal' AND status = 'pending'", [operation.id])
                         : await store.run(`UPDATE wallet_transactions SET status = 'completed' WHERE operation_id = ? AND event_type = 'withdrawal' AND status = 'pending'`, [operation.id]);
                     if (!finalized.changes) throw walletError('The withdrawal ledger could not be finalized.', 409);
-                    if (manualMpesaFallback) await store.run('UPDATE wallet_operations SET payment_reference = ? WHERE id = ?', [manualPaymentReference, operation.id]);
+                    if (manualMpesaFallback) await store.run('UPDATE wallet_operations SET payment_reference = NULL, details_json = ? WHERE id = ?', [JSON.stringify(currentDetails), operation.id]);
                 } else if (operation.kind === 'withdrawal' && decision === 'reject') {
                     const credited = await store.run(`
                         UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
