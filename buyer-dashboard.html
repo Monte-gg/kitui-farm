@@ -158,7 +158,8 @@
         .product-actions .button { padding: 9px 8px; font-size: 12px; }
         .message-farmer { grid-column: 1 / -1; }
         .payment-note { margin: 8px 0 0; color: var(--muted); font-size: 10px; text-align: center; }
-        .empty-state, .notice { padding: 25px; border: 1px dashed #d5dfd0; border-radius: 12px; color: var(--muted); text-align: center; background: rgba(255,255,255,.6); }
+        .empty-state, .notice { padding: 25px; border: 1px dashed #d5dfd0; border-radius: 12px; color: #536050; text-align: center; background: #f5f8f1; }
+        :root[data-theme="dark"] .empty-state { border-color: var(--line); color: var(--ink); background: var(--surface); }
         .notice { margin-top: 15px; border-style: solid; text-align: left; }
         .panel { margin-top: 27px; overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: white; }
         .panel-header { padding: 18px 20px; border-bottom: 1px solid var(--line); }
@@ -215,7 +216,7 @@
     <script src="site-only.js" defer></script>
     <script defer src="update-notification.js?v=2"></script>
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
-    <link rel="stylesheet" href="brand-theme.css?v=4" data-brand-theme>
+    <link rel="stylesheet" href="brand-theme.css?v=5" data-brand-theme>
     <script src="brand.js?v=3" defer></script>
 </head>
 <body>
