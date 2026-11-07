@@ -2,10 +2,11 @@
   'use strict';
 
   var VERSION_KEY = 'kituiFarmSiteVersion';
-  var CHECK_INTERVAL_MS = 60 * 1000;
+  var CHECK_INTERVAL_MS = 15 * 1000;
   var latestVersion = '';
   var baselineVersion = '';
   var banner = null;
+  var checkInProgress = false;
   var scriptUrl = document.currentScript && document.currentScript.src
     ? document.currentScript.src
     : new URL('update-notification.js', document.baseURI).href;
@@ -83,6 +84,8 @@
   }
 
   async function checkVersion() {
+    if (checkInProgress) return;
+    checkInProgress = true;
     try {
       var requestUrl = new URL(versionUrl.href);
       requestUrl.searchParams.set('_', String(Date.now()));
@@ -103,10 +106,16 @@
       else baselineVersion = storedVersion;
     } catch (error) {
       // Update checks should never interrupt sign-in or normal page use.
+    } finally {
+      checkInProgress = false;
     }
   }
 
   baselineVersion = readStoredVersion();
   checkVersion();
   window.setInterval(checkVersion, CHECK_INTERVAL_MS);
+  window.addEventListener('pageshow', checkVersion);
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible') checkVersion();
+  });
 })();
