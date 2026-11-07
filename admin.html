@@ -107,6 +107,11 @@
         #wallet-transactions th:nth-child(9),#wallet-transactions td:nth-child(9) { width:140px; white-space:nowrap; }
         #wallet-transactions th:nth-child(10),#wallet-transactions td:nth-child(10) { width:300px; overflow-wrap:anywhere; }
         #wallet-transactions .transaction-user-email { display:inline-block; max-width:100%; color:var(--muted); overflow-wrap:anywhere; }
+        #deliveries .table-wrap { overflow-x:auto; }
+        #deliveries table { min-width:1080px; }
+        #deliveries td:nth-child(5),#deliveries td:last-child { white-space:nowrap; overflow-wrap:normal; }
+        #deliveries .delivery-status { display:inline-block; padding:4px 9px; border:1px solid var(--line); border-radius:99px; font-weight:700; white-space:nowrap; }
+        #deliveries .delivery-action { min-width:125px; white-space:nowrap; }
         table { width:100%; border-collapse:collapse; text-align:left; }
         th,td { padding:11px 12px; border-bottom:1px solid var(--line); vertical-align:top; font-size:13px; }
         th { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
@@ -144,7 +149,7 @@
     <link rel="stylesheet" href="mobile-layout.css?v=2">
 </head>
 <body>
-    <header class="topbar"><div class="topbar-inner"><a class="brand" href="#dashboard">🌱 KITUI FARM · Admin</a><div class="more-menu" id="moreMenu"><button class="more-toggle" id="moreToggle" type="button" aria-label="Open admin menu" aria-haspopup="menu" aria-expanded="false" aria-controls="morePanel">⋮</button><nav class="more-panel" id="morePanel" aria-label="Admin features" role="menu" hidden><a href="admin-profile.html" role="menuitem">Admin profile</a><a href="#dashboard" role="menuitem">Dashboard overview</a><a href="#people" role="menuitem">People</a><a href="#admins" role="menuitem">Admins</a><a href="#listings" role="menuitem">Product listings</a><a href="#orders" role="menuitem">Orders</a><a href="#deliveries" role="menuitem">Deliveries</a><a href="chat.html?admin=1" role="menuitem">User messages</a><a href="#wallet-accounts" role="menuitem">Wallets created</a><a href="#wallet-transactions" role="menuitem">Wallet transactions</a><a href="#wallet-approvals" role="menuitem">Wallet operations <span class="count" id="menuPendingCount">—</span></a><a href="#website-shortcuts" role="menuitem">Monitoring links</a><div class="menu-divider" role="separator"></div><button class="menu-logout" id="logoutButton" type="button" role="menuitem">Log out</button></nav></div></div></header>
+    <header class="topbar"><div class="topbar-inner"><a class="brand" href="#dashboard">🌱 KITUI FARM · Admin</a><div class="more-menu" id="moreMenu"><button class="more-toggle" id="moreToggle" type="button" aria-label="Open admin menu" aria-haspopup="menu" aria-expanded="false" aria-controls="morePanel">⋮</button><nav class="more-panel" id="morePanel" aria-label="Admin features" role="menu" hidden><a href="admin-profile.html" role="menuitem">Admin profile</a><a href="#dashboard" role="menuitem">Dashboard overview</a><a href="#people" role="menuitem">People</a><a href="#admins" role="menuitem">Admins</a><a href="#listings" role="menuitem">Product listings</a><a href="#orders" role="menuitem">Orders</a><a href="#receipts" role="menuitem">Receipts</a><a href="#deliveries" role="menuitem">Deliveries</a><a href="chat.html?admin=1" role="menuitem">User messages</a><a href="#wallet-accounts" role="menuitem">Wallets created</a><a href="#wallet-transactions" role="menuitem">Wallet transactions</a><a href="#wallet-approvals" role="menuitem">Wallet operations <span class="count" id="menuPendingCount">—</span></a><a href="#website-shortcuts" role="menuitem">Monitoring links</a><div class="menu-divider" role="separator"></div><button class="menu-logout" id="logoutButton" type="button" role="menuitem">Log out</button></nav></div></div></header>
     <main class="admin-layout">
         <aside class="admin-sidebar" aria-label="Admin console sections">
             <p class="sidebar-label">Workspace</p>
@@ -153,6 +158,7 @@
             <a class="admin-nav-link" href="#admins" data-admin-link="admins"><span class="nav-icon" aria-hidden="true">♧</span>Admins</a>
             <a class="admin-nav-link" href="#listings" data-admin-link="listings"><span class="nav-icon" aria-hidden="true">▤</span>Product listings</a>
             <a class="admin-nav-link" href="#orders" data-admin-link="orders"><span class="nav-icon" aria-hidden="true">▣</span>Orders</a>
+            <a class="admin-nav-link" href="#receipts" data-admin-link="receipts"><span class="nav-icon" aria-hidden="true">▤</span>Receipts</a>
             <a class="admin-nav-link" href="#deliveries" data-admin-link="deliveries"><span class="nav-icon" aria-hidden="true">➜</span>Deliveries</a>
             <a class="admin-nav-link" href="#wallet-accounts" data-admin-link="wallet-accounts"><span class="nav-icon" aria-hidden="true">◉</span>Wallets created</a>
             <a class="admin-nav-link" href="#wallet-transactions" data-admin-link="wallet-transactions"><span class="nav-icon" aria-hidden="true">↕</span>Wallet transactions</a>
@@ -171,6 +177,7 @@
             <a class="module-card" href="#admins" data-admin-link="admins"><span class="module-icon" aria-hidden="true">♧</span><span><strong>Admin access</strong><small>See which accounts are enabled for the Admin Console.</small></span></a>
             <a class="module-card" href="#listings" data-admin-link="listings"><span class="module-icon" aria-hidden="true">▤</span><span><strong>Product listings</strong><small>Review products, farmers, prices, and availability.</small></span></a>
             <a class="module-card" href="#orders" data-admin-link="orders"><span class="module-icon" aria-hidden="true">▣</span><span><strong>Orders</strong><small>Review recent customer orders and their status.</small></span></a>
+            <a class="module-card" href="#receipts" data-admin-link="receipts"><span class="module-icon" aria-hidden="true">▤</span><span><strong>Receipts</strong><small>Resend wallet payment receipts to customers by email.</small></span></a>
             <a class="module-card" href="#deliveries" data-admin-link="deliveries"><span class="module-icon" aria-hidden="true">➜</span><span><strong>Deliveries</strong><small>Track delivery progress and confirm arrivals that sellers have not updated.</small></span></a>
             <a class="module-card" href="#wallet-accounts" data-admin-link="wallet-accounts"><span class="module-icon" aria-hidden="true">◉</span><span><strong>User wallets</strong><small>See each created wallet, its owner, status, and current balance.</small></span></a>
             <a class="module-card" href="#wallet-transactions" data-admin-link="wallet-transactions"><span class="module-icon" aria-hidden="true">↕</span><span><strong>Wallet transactions</strong><small>Review wallet payments, transfers, deposits, refunds, and withdrawals.</small></span></a>
@@ -221,12 +228,20 @@
         </section>
 
         <section class="panel" id="deliveries" data-admin-view hidden aria-labelledby="deliveriesHeading">
-            <div class="view-heading"><p class="eyebrow">Fulfilment</p><h1 id="deliveriesHeading">Deliveries</h1><p class="intro">Monitor order progress and confirm an arrival when delivery is complete but the seller has not updated the status.</p></div>
-            <div class="panel-head"><div><h2>Order delivery tracking</h2><p class="muted">Customers can see each status update and its time in Track my orders.</p></div><div class="admin-tools"><span class="count" id="deliveriesCount">—</span><button class="refresh-data" id="refreshDeliveriesButton" type="button">Refresh</button></div></div>
-            <div class="notice">Only mark an order as delivered after confirming it reached the address provided by the customer.</div>
-            <div class="table-wrap"><table><thead><tr><th>Order</th><th>Buyer</th><th>Products</th><th>Delivery address</th><th>Status</th><th>Latest update</th><th>Return/refund request</th><th>Action</th></tr></thead><tbody id="deliveriesBody"></tbody></table></div>
+            <div class="view-heading"><p class="eyebrow">Order delivery</p><h1 id="deliveriesHeading">Deliveries</h1><p class="intro">Review delivery progress. If an order has arrived but the farmer has not updated it, confirm delivery here.</p></div>
+            <div class="panel-head"><div><h2>Orders and delivery status</h2><p class="muted">Buyers can follow updates under “Track my orders” on their dashboard.</p></div><div class="admin-tools"><span class="count" id="deliveriesCount">—</span><button class="refresh-data" id="refreshDeliveriesButton" type="button">Refresh</button></div></div>
+            <div class="notice">Confirm delivery only after verifying that the buyer received the order.</div>
+            <div class="table-wrap"><table><thead><tr><th>Order ID</th><th>Buyer</th><th>Products</th><th>Delivery address</th><th>Status</th><th>Last update</th><th>Return/refund</th><th>Action</th></tr></thead><tbody id="deliveriesBody"></tbody></table></div>
             <p class="empty" id="deliveriesEmpty" hidden>No active deliveries are being tracked.</p>
             <p class="status" id="deliveriesStatus" role="status" aria-live="polite"></p>
+        </section>
+
+        <section class="panel" id="receipts" data-admin-view hidden aria-labelledby="receiptsHeading">
+            <div class="view-heading"><p class="eyebrow">Payments</p><h1 id="receiptsHeading">Receipts</h1><p class="intro">Find wallet-paid orders and resend the receipt if a customer did not receive the email. Customers can also print or save receipts from My receipts.</p></div>
+            <div class="panel-head"><div><h2>Wallet payment receipts</h2><p class="muted">Resending emails the receipt to the address on the customer’s account.</p></div><div class="admin-tools"><span class="count" id="receiptsCount">—</span><button class="refresh-data" id="refreshReceiptsButton" type="button">Refresh</button></div></div>
+            <div class="table-wrap"><table><thead><tr><th>Receipt / order</th><th>Customer</th><th>Email</th><th>Products</th><th>Total paid</th><th>Order date</th><th>Action</th></tr></thead><tbody id="receiptsBody"></tbody></table></div>
+            <p class="empty" id="receiptsEmpty" hidden>No wallet-paid orders are available yet.</p>
+            <p class="status" id="receiptsStatus" role="status" aria-live="polite"></p>
         </section>
 
         <section class="panel" id="wallet-approvals" data-admin-view hidden aria-labelledby="approvalHeading">
@@ -341,14 +356,14 @@
             if (dashboardRefreshInProgress) return;
             dashboardRefreshInProgress = true;
             const dashboardStatus = document.getElementById('dashboardStatus');
-            const refreshButtons = ['refreshAccountsButton', 'refreshAdminsButton', 'refreshOverviewButton', 'refreshWalletsButton', 'refreshWalletTransactionsButton', 'refreshDeliveriesButton'].map(id => document.getElementById(id)).filter(Boolean);
+            const refreshButtons = ['refreshAccountsButton', 'refreshAdminsButton', 'refreshOverviewButton', 'refreshWalletsButton', 'refreshWalletTransactionsButton', 'refreshDeliveriesButton', 'refreshReceiptsButton'].map(id => document.getElementById(id)).filter(Boolean);
             if (!options.silent) dashboardStatus.textContent = 'Refreshing current account and marketplace data…';
             refreshButtons.forEach(button => { button.disabled = true; });
             try {
-            const [overviewData, accountData, adminData, listingData, orderData, walletData, walletTransactionData, deliveryData] = await Promise.all([
+            const [overviewData, accountData, adminData, listingData, orderData, walletData, walletTransactionData, deliveryData, receiptData] = await Promise.all([
                 apiRequest('/api/admin/overview'), apiRequest('/api/admin/accounts'),
                 apiRequest('/api/admin/admins'), apiRequest('/api/admin/listings'), apiRequest('/api/admin/orders'),
-                apiRequest('/api/admin/wallets'), apiRequest('/api/admin/wallet-transactions'), apiRequest('/api/admin/deliveries')
+                apiRequest('/api/admin/wallets'), apiRequest('/api/admin/wallet-transactions'), apiRequest('/api/admin/deliveries'), apiRequest('/api/admin/receipts')
             ]);
             const overview = overviewData.overview;
             document.getElementById('accountCount').textContent = overview.accounts;
@@ -388,15 +403,28 @@
                 const latest = order.deliveryUpdates?.at(-1);
                 const request = order.returnRequest;
                 const requestMarkup = request ? `<strong>${escapeHtml(request.status)}</strong><br>${escapeHtml(request.reason)}${request.hasPhoto ? `<br><a href="${escapeHtml(request.photoUrl)}" data-return-photo>View attached photo</a>` : ''}${request.response ? `<br>${escapeHtml(request.response)}` : ''}` : '—';
-                const action = ['Delivered', 'Completed'].includes(order.status)
-                    ? 'Arrival recorded'
-                    : `<button class="button approve" type="button" data-mark-delivered="${escapeHtml(order.id)}">Confirm delivered</button>`;
+                const action = order.status === 'Completed'
+                    ? 'Buyer confirmed receipt'
+                    : order.status === 'Delivered'
+                        ? 'Delivery confirmed'
+                        : `<button class="button approve delivery-action" type="button" data-mark-delivered="${escapeHtml(order.id)}">Mark delivered</button>`;
+                const statusLabel = order.status === 'Completed' ? 'Received by buyer' : order.status;
+                const latestStatus = latest?.status === 'Completed' ? 'Buyer confirmed receipt' : latest?.status;
                 return `<tr><td>${escapeHtml(order.id)}</td><td>${escapeHtml(order.buyerName)}</td>
                     <td>${order.items.map(item => `${escapeHtml(item.name)} × ${Number(item.quantity)} kg`).join('<br>')}</td>
-                    <td>${escapeHtml(order.address)}</td><td>${escapeHtml(order.status)}</td>
-                    <td>${latest ? `${escapeHtml(latest.status)}<br><small>${escapeHtml(displayDate(latest.createdAt))}</small><br>${escapeHtml(latest.note || '')}` : 'No updates recorded'}</td>
+                    <td>${escapeHtml(order.address)}</td><td><span class="delivery-status">${escapeHtml(statusLabel)}</span></td>
+                    <td>${latest ? `<strong>${escapeHtml(latestStatus)}</strong><br><small>${escapeHtml(displayDate(latest.createdAt))}</small><br>${escapeHtml(latest.note || '')}` : 'No updates recorded'}</td>
                     <td>${requestMarkup}</td><td>${action}</td></tr>`;
             }).join('');
+            const receipts = receiptData.receipts || [];
+            document.getElementById('receiptsCount').textContent = receipts.length;
+            document.getElementById('receiptsEmpty').hidden = receipts.length > 0;
+            document.getElementById('receiptsBody').innerHTML = receipts.map(order => `<tr>
+                <td>${escapeHtml(order.id)}</td><td>${escapeHtml(order.buyerName)}</td><td>${escapeHtml(order.buyerEmail)}</td>
+                <td>${order.items.map(item => `${escapeHtml(item.name)} × ${Number(item.quantity)} kg`).join('<br>')}</td>
+                <td>${money(order.total)}</td><td>${escapeHtml(displayDate(order.createdAt))}</td>
+                <td><button class="button approve" type="button" data-resend-receipt="${escapeHtml(order.id)}">Resend receipt</button></td>
+            </tr>`).join('');
             const wallets = walletData.wallets || [];
             document.getElementById('walletAccountsCount').textContent = wallets.length;
             document.getElementById('walletAccountsEmpty').hidden = wallets.length > 0;
@@ -536,6 +564,20 @@
         document.getElementById('refreshWalletsButton').addEventListener('click', () => loadDashboard().catch(() => {}));
         document.getElementById('refreshWalletTransactionsButton').addEventListener('click', () => loadDashboard().catch(() => {}));
         document.getElementById('refreshDeliveriesButton').addEventListener('click', () => loadDashboard().catch(() => {}));
+        document.getElementById('refreshReceiptsButton').addEventListener('click', () => loadDashboard().catch(() => {}));
+        document.getElementById('receiptsBody').addEventListener('click', async event => {
+            const button = event.target.closest('[data-resend-receipt]');
+            if (!button) return;
+            if (!window.confirm(`Resend the receipt for order ${button.dataset.resendReceipt} to the customer’s account email?`)) return;
+            button.disabled = true;
+            try {
+                const result = await apiRequest(`/api/admin/receipts/${encodeURIComponent(button.dataset.resendReceipt)}/resend`, { method:'POST' });
+                document.getElementById('receiptsStatus').textContent = result.message || 'Receipt email sent.';
+            } catch (error) {
+                document.getElementById('receiptsStatus').textContent = error.message || 'Could not resend the receipt.';
+                button.disabled = false;
+            }
+        });
         document.getElementById('deliveriesBody').addEventListener('click', async event => {
             const photo = event.target.closest('[data-return-photo]');
             if (photo) {

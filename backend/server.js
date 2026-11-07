@@ -20,7 +20,7 @@ const PAYMENT_METHODS = new Set([
 ]);
 const PAGES = [
     'about-us.html', 'admin-register.html', 'admin-signin.html', 'buyer-dashboard.html', 'chat.html', 'customer-service.html', 'email-verify.html', 'farmer-dashboard.html', 'farmer-store.html',
-    'forgot-password.html', 'index.html', 'login.html', 'payment.html', 'profile.html',
+    'forgot-password.html', 'index.html', 'login.html', 'payment.html', 'profile.html', 'receipt.html', 'receipts.html',
     'settings.html', 'signup.html', 'wallet.html'
 ];
 
@@ -864,6 +864,24 @@ async function sendAdminWelcomeEmail({ email, name, baseUrl }) {
             ctaUrl: adminSignInUrl,
             note: 'Keep your password and admin access details private. Never share them by email or with another user.'
         })
+    });
+}
+
+async function sendOrderReceiptEmail({ email, name, order, baseUrl }) {
+    const configuredUrl = (process.env.PUBLIC_APP_URL || baseUrl).trim().replace(/\/$/, '');
+    const receiptUrl = `${configuredUrl}/receipt.html?id=${encodeURIComponent(order.id)}`;
+    const itemRows = order.items.map(item => {
+        const lineTotal = Number(item.quantity) * Number(item.price);
+        return `<tr><td style="padding:10px 8px;border-bottom:1px solid #e5dcc6">${escapeEmailHtml(item.name)}</td><td style="padding:10px 8px;border-bottom:1px solid #e5dcc6;text-align:right">${Number(item.quantity).toLocaleString('en-KE')} kg</td><td style="padding:10px 8px;border-bottom:1px solid #e5dcc6;text-align:right">KES ${Number(item.price).toLocaleString('en-KE')}</td><td style="padding:10px 8px;border-bottom:1px solid #e5dcc6;text-align:right">KES ${lineTotal.toLocaleString('en-KE')}</td></tr>`;
+    }).join('');
+    const date = new Date(order.createdAt).toLocaleString('en-KE', { dateStyle:'medium', timeStyle:'short', timeZone:'Africa/Nairobi' });
+    const total = Number(order.total).toLocaleString('en-KE', { minimumFractionDigits:2, maximumFractionDigits:2 });
+    const html = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><body style="margin:0;padding:24px 12px;background:#fbf8ed;font-family:Arial,sans-serif;color:#342718"><main style="max-width:640px;margin:auto;border:1px solid #e5dcc6;border-radius:16px;background:#fffdf7;overflow:hidden"><header style="padding:22px 26px;background:#17472c;color:#fff2c7"><strong style="font-size:20px">KITUI FARM</strong><div style="margin-top:4px;font-size:13px;color:#e5f0d8">Purchase receipt</div></header><section style="padding:26px"><h1 style="margin:0 0 8px;color:#17472c;font-size:25px">Your order receipt</h1><p style="margin:0 0 20px;color:#657064">Hello ${escapeEmailHtml(name)}, your wallet payment was successful.</p><p><strong>Receipt / order ID:</strong> ${escapeEmailHtml(order.id)}<br><strong>Date:</strong> ${escapeEmailHtml(date)}<br><strong>Payment:</strong> KITUI FARM Wallet<br><strong>Delivery address:</strong> ${escapeEmailHtml(order.address)}</p><table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-size:14px"><thead><tr><th align="left" style="padding:9px 8px;border-bottom:2px solid #17472c">Product</th><th align="right" style="padding:9px 8px;border-bottom:2px solid #17472c">Qty</th><th align="right" style="padding:9px 8px;border-bottom:2px solid #17472c">Price</th><th align="right" style="padding:9px 8px;border-bottom:2px solid #17472c">Total</th></tr></thead><tbody>${itemRows}</tbody></table><p style="margin:20px 0;font-size:19px;text-align:right"><strong>Total paid: KES ${total}</strong></p><p style="margin:0;color:#657064">Order status: ${escapeEmailHtml(order.status)}</p><p style="margin:22px 0"><a href="${escapeEmailHtml(receiptUrl)}" style="display:inline-block;padding:12px 18px;border-radius:8px;background:#08723d;color:white;font-weight:700;text-decoration:none">View or print receipt</a></p><p style="color:#657064;font-size:13px">Need help? Call KITUI FARM Customer Service on 0114 583 373.</p></section></main></body></html>`;
+    const textLines = order.items.map(item => `${item.name} — ${item.quantity} kg × KES ${item.price} = KES ${(Number(item.quantity) * Number(item.price)).toFixed(2)}`);
+    await sendGmailMessage({
+        email, subject:`KITUI FARM receipt for order ${order.id}`,
+        body:`Hello ${name},\n\nYour KITUI FARM Wallet payment was successful.\nReceipt / order ID: ${order.id}\nDate: ${date}\nDelivery address: ${order.address}\n\n${textLines.join('\n')}\n\nTotal paid: KES ${total}\nOrder status: ${order.status}\n\nView or print your receipt: ${receiptUrl}\n\nKITUI FARM Customer Service: 0114 583 373`,
+        html
     });
 }
 
@@ -2124,6 +2142,35 @@ function createApp(options = {}) {
         } catch (error) { next(error); }
     });
 
+    app.get('/api/admin/receipts', auth, walletAdmin, async (req, res, next) => {
+        try {
+            const rows = await store.all(`SELECT orders.*, users.email AS buyer_email
+                FROM orders JOIN users ON users.id = orders.buyer_id
+                WHERE orders.payment_method = 'KITUI FARM Wallet'
+                ORDER BY orders.created_at DESC LIMIT 500`);
+            res.json({ receipts: await Promise.all(rows.map(async row => ({
+                ...(await publicOrder(store, row)), buyerEmail: row.buyer_email
+            }))) });
+        } catch (error) { next(error); }
+    });
+
+    app.post('/api/admin/receipts/:id/resend', auth, walletAdmin, async (req, res, next) => {
+        try {
+            const row = await store.get(`SELECT orders.*, users.email AS buyer_email, users.name AS account_name
+                FROM orders JOIN users ON users.id = orders.buyer_id WHERE orders.id = ?`, [req.params.id]);
+            if (!row) return res.status(404).json({ error: 'The paid order could not be found.' });
+            if (row.payment_method !== 'KITUI FARM Wallet') {
+                return res.status(409).json({ error: 'A payment receipt is only available for an order paid with the KITUI FARM Wallet.' });
+            }
+            const order = await publicOrder(store, row);
+            await sendOrderReceiptEmail({ email:row.buyer_email, name:row.account_name || row.buyer_name, order, baseUrl:appBaseUrl(req) });
+            res.json({ message:`Receipt sent to ${row.buyer_email}.`, email:row.buyer_email, orderId:order.id });
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error:error.message });
+            next(error);
+        }
+    });
+
     app.get('/api/admin/deliveries', auth, walletAdmin, async (req, res, next) => {
         try {
             const rows = await store.all("SELECT * FROM orders WHERE status NOT IN ('Cancelled', 'Refunded') ORDER BY created_at DESC LIMIT 500");
@@ -2907,6 +2954,15 @@ function createApp(options = {}) {
                 }
                 return { replayed: false, orders: createdOrders };
             });
+            if (!result.replayed && paymentMethod === 'KITUI FARM Wallet') {
+                for (const row of result.orders) {
+                    const receipt = await publicOrder(store, row);
+                    sendOrderReceiptEmail({ email:req.user.email, name:req.user.name, order:receipt, baseUrl:appBaseUrl(req) })
+                        .catch(error => console.error('[order-receipt] Automatic receipt email failed', {
+                            orderId:row.id, status:Number.isInteger(error.status) ? error.status : 'delivery_error'
+                        }));
+                }
+            }
             res.status(result.replayed ? 200 : 201)
                 .json({ orders: await Promise.all(result.orders.map(row => publicOrder(store, row))) });
         } catch (error) {

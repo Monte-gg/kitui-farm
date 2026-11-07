@@ -281,6 +281,7 @@
                         <a class="menu-profile" href="profile.html" role="menuitem"><span class="profile-chip-avatar" id="buyerAvatar"></span><span class="menu-profile-copy"><strong id="buyerName"></strong><small>My profile</small></span></a>
                         <a href="farmer-dashboard.html" id="farmerHomeLink" role="menuitem" hidden>Back to farmer dashboard</a>
                         <a href="#wishlist" id="wishlistMenuLink" role="menuitem">Wishlist <span id="wishlistMenuCount">(0)</span></a>
+                        <a href="receipts.html" role="menuitem">My receipts</a>
                         <a href="chat.html" role="menuitem">Messages</a>
                         <a href="wallet.html" role="menuitem">Wallet</a>
                         <a href="settings.html" role="menuitem">Settings</a>
@@ -540,7 +541,7 @@
                 return `<tr><td>${escapeHtml(order.id)}</td><td>${escapeHtml(orderedAt)}</td><td>${escapeHtml(sellers)}</td><td>${products}</td>
                     <td>${escapeHtml(order.paymentMethod || 'Not recorded')}${order.paymentStatus ? `<br><small>${escapeHtml(order.paymentStatus)}</small>` : ''}</td><td><span class="status-pill">${dispatch}</span></td>
                     <td>${escapeHtml(order.estimatedDelivery)}</td><td>${paid}</td>
-                    <td><div class="return-actions"><button class="button secondary" type="button" data-track-order="${escapeHtml(order.id)}">Track order</button>
+                    <td><div class="return-actions">${order.paymentMethod === 'KITUI FARM Wallet' ? `<a class="button secondary" href="receipt.html?id=${encodeURIComponent(order.id)}">View receipt</a>` : ''}<button class="button secondary" type="button" data-track-order="${escapeHtml(order.id)}">Track order</button>
                     <button class="button secondary" type="button" data-return-order="${escapeHtml(order.id)}" ${!canReturn && !hasReturn ? `disabled title="${['Delivered', 'Completed'].includes(order.status) ? 'Automatic refunds are available for wallet-paid orders.' : 'Available after delivery'}"` : ''}>${hasReturn ? 'View request' : 'Return/refund'}</button>
                     ${order.status === 'Delivered' ? `<button class="button" type="button" data-confirm-received="${escapeHtml(order.id)}">Confirm received</button>` : ''}
                     ${canCancel ? `<button class="button secondary" type="button" data-cancel-order="${escapeHtml(order.id)}">Cancel order</button>` : ''}</div></td></tr>`;
