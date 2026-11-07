@@ -47,6 +47,7 @@
             --bg: #151b15; --danger: #ff9a8f;
         }
         * { box-sizing: border-box; }
+        [hidden] { display: none !important; }
         body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); }
         button, select { font: inherit; }
         .topbar { background: var(--surface); border-bottom: 1px solid var(--line); }
@@ -153,7 +154,7 @@
                 <form id="paymentMethodForm">
                     <div class="setting-row" style="padding:12px 0;border:0"><label>Method <select id="methodKind"><option value="mpesa">M-Pesa</option><option value="airtel">Airtel Money</option><option value="bank">Bank account</option><option value="paypal">PayPal</option></select></label><label>Use for <select id="methodUse"><option value="both">Deposits and withdrawals</option><option value="deposit">Deposits only</option><option value="withdrawal">Withdrawals only</option></select></label></div>
                     <div class="field"><label for="methodLabel">Name this method</label><input id="methodLabel" maxlength="60" required placeholder="e.g. My M-Pesa number"></div>
-                    <div class="field" data-method="phone"><label for="methodPhone">Kenyan phone number</label><input id="methodPhone" type="tel" placeholder="0712 345 678"></div>
+                    <div class="field" data-method="mpesa airtel" hidden><label for="methodPhone">Kenyan phone number</label><input id="methodPhone" type="tel" inputmode="tel" placeholder="0712 345 678"></div>
                     <div class="field" data-method="bank" hidden><label for="methodAccountName">Account name</label><input id="methodAccountName" maxlength="100"></div>
                     <div class="field" data-method="bank" hidden><label for="methodAccountNumber">Account number</label><input id="methodAccountNumber" maxlength="34"></div>
                     <div class="field" data-method="bank" hidden><label for="methodBankName">Bank name</label><input id="methodBankName" maxlength="80"></div>
@@ -177,7 +178,19 @@
         const methodApi = async (url, options = {}) => { const response = await fetch(url, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } }); const result = response.status === 204 ? {} : await response.json(); if (!response.ok) throw new Error(result.error || 'Request failed.'); return result; };
         const methodKind = document.getElementById('methodKind');
         const methodUse = document.getElementById('methodUse');
-        const methodFields = () => { const kind=methodKind.value; document.querySelectorAll('[data-method]').forEach(field=>field.hidden=!field.dataset.method.split(' ').includes(kind)); methodUse.value=kind==='paypal'?'withdrawal':'both'; methodUse.disabled=kind==='paypal'; };
+        const methodFields = () => {
+            const kind = methodKind.value;
+            document.querySelectorAll('#paymentMethodForm [data-method]').forEach(field => {
+                const visible = field.dataset.method.split(' ').includes(kind);
+                field.hidden = !visible;
+                field.querySelectorAll('input').forEach(input => {
+                    input.required = visible && input.id !== 'methodBranch';
+                    if (!visible) input.value = '';
+                });
+            });
+            methodUse.value = kind === 'paypal' ? 'withdrawal' : 'both';
+            methodUse.disabled = kind === 'paypal';
+        };
         const loadPaymentMethods = async () => { const result=await methodApi('/api/wallet/payment-methods'); const list=document.getElementById('paymentMethodList'); list.innerHTML=result.paymentMethods.length?result.paymentMethods.map(method=>`<div class="entry"><span><strong>${method.label.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</strong><small>${method.kind.toUpperCase()} · ${method.useFor==='both'?'Deposits and withdrawals':method.useFor}</small></span><button class="button secondary" type="button" data-delete-method="${method.id}">Remove</button></div>`).join(''):'<p class="empty">No payment methods saved yet.</p>'; };
         methodKind.addEventListener('change',methodFields); methodFields();
         document.getElementById('paymentMethodForm').addEventListener('submit',async event=>{event.preventDefault();const kind=methodKind.value;const body={kind,label:document.getElementById('methodLabel').value.trim(),useFor:methodUse.value};if(kind==='mpesa'||kind==='airtel')body.phone=document.getElementById('methodPhone').value;else if(kind==='bank')Object.assign(body,{accountName:document.getElementById('methodAccountName').value,accountNumber:document.getElementById('methodAccountNumber').value,bankName:document.getElementById('methodBankName').value,branch:document.getElementById('methodBranch').value});else body.email=document.getElementById('methodPaypalEmail').value;try{await methodApi('/api/wallet/payment-methods',{method:'POST',body:JSON.stringify(body)});document.getElementById('methodMessage').textContent='Payment method saved securely to your account.';event.currentTarget.reset();methodFields();await loadPaymentMethods();}catch(error){document.getElementById('methodMessage').textContent=error.message;document.getElementById('methodMessage').classList.add('error');}});
