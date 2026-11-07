@@ -47,6 +47,9 @@ services:
       # Update this rate before payouts when your chosen FX rate changes.
       - key: PAYPAL_KES_TO_USD_RATE
         sync: false
+      # Paystack webhook signing secret from Developers > API configuration.
+      - key: PAYSTACK_WEBHOOK_SECRET
+        sync: false
       # Daraja Business-to-Customer payouts. Requires Safaricom B2C approval;
       # keep SecurityCredential private and use the encrypted credential supplied for the app.
       - key: MPESA_B2C_ENABLED

@@ -138,12 +138,40 @@ async function mpesaRequest(endpoint, { method = 'GET', body, config = mpesaConf
 
 function paystackConfig() {
     const secretKey = String(process.env.PAYSTACK_SECRET_KEY || '').trim();
+    const webhookSecret = String(process.env.PAYSTACK_WEBHOOK_SECRET || '').trim();
     const enabled = String(process.env.PAYSTACK_BANK_ENABLED || '').trim().toLowerCase() === 'true';
     if (!enabled || !secretKey) {
         const error = new Error('Paystack Pesalink deposits are not enabled. Configure an approved Paystack account and credentials in Render.');
         error.status = 503; throw error;
     }
-    return { secretKey };
+    return { secretKey, webhookSecret };
+}
+
+function validPaystackWebhookSignature(req, config) {
+    const rawBody = req.rawBody || Buffer.alloc(0);
+    const signedHeader = String(req.get('Paystack-Signature') || '');
+    if (config.webhookSecret && signedHeader) {
+        const fields = signedHeader.split(',').map(part => part.trim());
+        const timestamp = fields.find(part => part.startsWith('t='))?.slice(2) || '';
+        const timestampSeconds = Number(timestamp);
+        if (!/^\d+$/.test(timestamp) || !Number.isSafeInteger(timestampSeconds) || Math.abs(Date.now() / 1000 - timestampSeconds) > 300) return false;
+        const expected = crypto.createHmac('sha512', config.webhookSecret).update(`${timestamp}.`).update(rawBody).digest();
+        return fields.filter(part => part.startsWith('v1=')).some(part => {
+            const value = part.slice(3);
+            const separator = value.indexOf(':');
+            const signature = separator >= 0 ? value.slice(separator + 1) : value;
+            if (!/^[a-f0-9]{128}$/i.test(signature)) return false;
+            const received = Buffer.from(signature, 'hex');
+            return received.length === expected.length && crypto.timingSafeEqual(received, expected);
+        });
+    }
+    // Support existing Paystack integrations that still send the legacy header.
+    const legacySignature = String(req.get('x-paystack-signature') || '');
+    if (!legacySignature) return false;
+    const expected = crypto.createHmac('sha512', config.secretKey).update(rawBody).digest();
+    if (!/^[a-f0-9]{128}$/i.test(legacySignature)) return false;
+    const received = Buffer.from(legacySignature, 'hex');
+    return received.length === expected.length && crypto.timingSafeEqual(received, expected);
 }
 
 async function paystackRequest(endpoint, { method = 'GET', body, config = paystackConfig() } = {}) {
@@ -1915,9 +1943,7 @@ function createApp(options = {}) {
     app.post('/api/paystack/webhook', async (req, res) => {
         let config;
         try { config = paystackConfig(); } catch { return res.status(503).send('Webhook not configured.'); }
-        const signature = String(req.get('x-paystack-signature') || '');
-        const expected = crypto.createHmac('sha512', config.secretKey).update(req.rawBody || Buffer.alloc(0)).digest('hex');
-        if (!signature || signature.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return res.status(401).send('Invalid signature.');
+        if (!validPaystackWebhookSignature(req, config)) return res.status(401).send('Invalid signature.');
         try {
             const event = req.body;
             const data = event?.data || {};
