@@ -106,6 +106,8 @@
             <a class="admin-nav-link" href="#admins" data-admin-link="admins"><span class="nav-icon" aria-hidden="true">♧</span>Admins</a>
             <a class="admin-nav-link" href="#listings" data-admin-link="listings"><span class="nav-icon" aria-hidden="true">▤</span>Product listings</a>
             <a class="admin-nav-link" href="#orders" data-admin-link="orders"><span class="nav-icon" aria-hidden="true">▣</span>Orders</a>
+            <a class="admin-nav-link" href="#wallet-accounts" data-admin-link="wallet-accounts"><span class="nav-icon" aria-hidden="true">◉</span>Wallets created</a>
+            <a class="admin-nav-link" href="#wallet-transactions" data-admin-link="wallet-transactions"><span class="nav-icon" aria-hidden="true">↕</span>Wallet transactions</a>
             <a class="admin-nav-link" href="#wallet-approvals" data-admin-link="wallet-approvals"><span class="nav-icon" aria-hidden="true">◎</span>Wallet operations <span class="count" id="sidebarPendingCount">—</span></a>
             <a class="admin-nav-link" href="chat.html?admin=1"><span class="nav-icon" aria-hidden="true">✉</span>User messages</a>
             <a class="admin-nav-link" href="#website-shortcuts" data-admin-link="website-shortcuts"><span class="nav-icon" aria-hidden="true">↗</span>Monitoring links</a>
@@ -121,6 +123,8 @@
             <a class="module-card" href="#admins" data-admin-link="admins"><span class="module-icon" aria-hidden="true">♧</span><span><strong>Admin access</strong><small>See which accounts are enabled for the Admin Console.</small></span></a>
             <a class="module-card" href="#listings" data-admin-link="listings"><span class="module-icon" aria-hidden="true">▤</span><span><strong>Product listings</strong><small>Review products, farmers, prices, and availability.</small></span></a>
             <a class="module-card" href="#orders" data-admin-link="orders"><span class="module-icon" aria-hidden="true">▣</span><span><strong>Orders</strong><small>Review recent customer orders and their status.</small></span></a>
+            <a class="module-card" href="#wallet-accounts" data-admin-link="wallet-accounts"><span class="module-icon" aria-hidden="true">◉</span><span><strong>User wallets</strong><small>See each created wallet, its owner, status, and current balance.</small></span></a>
+            <a class="module-card" href="#wallet-transactions" data-admin-link="wallet-transactions"><span class="module-icon" aria-hidden="true">↕</span><span><strong>Wallet transactions</strong><small>Review wallet payments, transfers, deposits, refunds, and withdrawals.</small></span></a>
             <a class="module-card" href="#wallet-approvals" data-admin-link="wallet-approvals"><span class="module-icon" aria-hidden="true">◎</span><span><strong>Wallet operations</strong><small>Verify top-ups and review withdrawal requests.</small></span></a>
             <a class="module-card" href="chat.html?admin=1"><span class="module-icon" aria-hidden="true">✉</span><span><strong>User messages</strong><small>Review conversations and reply as KITUI FARM Support.</small></span></a>
             <a class="module-card" href="admin-profile.html"><span class="module-icon" aria-hidden="true">⚙</span><span><strong>Admin profile</strong><small>View and update your administrator profile.</small></span></a>
@@ -175,6 +179,20 @@
             <div id="requestList" aria-label="Pending wallet operations"></div>
         </section>
 
+        <section class="panel" id="wallet-accounts" data-admin-view hidden aria-labelledby="walletAccountsHeading">
+            <div class="view-heading"><p class="eyebrow">Wallet management</p><h1>User wallets</h1><p class="intro">View wallets created by farmers and customers, including current balances and status.</p></div>
+            <div class="panel-head"><div><h2 id="walletAccountsHeading">Wallets created by users</h2><p class="muted">Read-only overview of active and closed wallets. Updated automatically while this console is open.</p></div><div class="admin-tools"><span class="count" id="walletAccountsCount">—</span><button class="refresh-data" id="refreshWalletsButton" type="button">Refresh</button><small id="walletsLastUpdated">Not refreshed yet</small></div></div>
+            <div class="table-wrap"><table><thead><tr><th>Owner</th><th>Email</th><th>Phone</th><th>Role</th><th>Wallet ID</th><th>Balance</th><th>Status</th><th>Created</th></tr></thead><tbody id="walletAccountsBody"></tbody></table></div>
+            <p class="empty" id="walletAccountsEmpty" hidden>No users have created a wallet yet.</p>
+        </section>
+
+        <section class="panel" id="wallet-transactions" data-admin-view hidden aria-labelledby="walletTransactionsHeading">
+            <div class="view-heading"><p class="eyebrow">Wallet management</p><h1>Wallet transactions</h1><p class="intro">Review recent wallet ledger activity across KITUI FARM.</p></div>
+            <div class="panel-head"><div><h2 id="walletTransactionsHeading">Transactions on the platform</h2><p class="muted">Includes wallet purchases, transfers, deposits, refunds, and withdrawal entries.</p></div><div class="admin-tools"><span class="count" id="walletTransactionsCount">—</span><button class="refresh-data" id="refreshWalletTransactionsButton" type="button">Refresh</button><small id="walletTransactionsLastUpdated">Not refreshed yet</small></div></div>
+            <div class="table-wrap"><table><thead><tr><th>Date</th><th>User</th><th>Role</th><th>Wallet ID</th><th>Type</th><th>Direction</th><th>Amount</th><th>Method</th><th>Status</th><th>Reference</th></tr></thead><tbody id="walletTransactionsBody"></tbody></table></div>
+            <p class="empty" id="walletTransactionsEmpty" hidden>No wallet transactions have been recorded yet.</p>
+        </section>
+
         <section class="panel" id="website-shortcuts" data-admin-view hidden aria-labelledby="quickLinksHeading">
             <div class="view-heading"><p class="eyebrow">Monitoring</p><h1>Marketplace monitoring</h1><p class="intro">Admins review marketplace activity here without entering a customer or farmer dashboard.</p></div>
             <h2 id="quickLinksHeading">Monitoring sections</h2>
@@ -225,13 +243,14 @@
             if (dashboardRefreshInProgress) return;
             dashboardRefreshInProgress = true;
             const dashboardStatus = document.getElementById('dashboardStatus');
-            const refreshButtons = ['refreshAccountsButton', 'refreshAdminsButton', 'refreshOverviewButton'].map(id => document.getElementById(id)).filter(Boolean);
+            const refreshButtons = ['refreshAccountsButton', 'refreshAdminsButton', 'refreshOverviewButton', 'refreshWalletsButton', 'refreshWalletTransactionsButton'].map(id => document.getElementById(id)).filter(Boolean);
             if (!options.silent) dashboardStatus.textContent = 'Refreshing current account and marketplace data…';
             refreshButtons.forEach(button => { button.disabled = true; });
             try {
-            const [overviewData, accountData, adminData, listingData, orderData] = await Promise.all([
+            const [overviewData, accountData, adminData, listingData, orderData, walletData, walletTransactionData] = await Promise.all([
                 apiRequest('/api/admin/overview'), apiRequest('/api/admin/accounts'),
-                apiRequest('/api/admin/admins'), apiRequest('/api/admin/listings'), apiRequest('/api/admin/orders')
+                apiRequest('/api/admin/admins'), apiRequest('/api/admin/listings'), apiRequest('/api/admin/orders'),
+                apiRequest('/api/admin/wallets'), apiRequest('/api/admin/wallet-transactions')
             ]);
             const overview = overviewData.overview;
             document.getElementById('accountCount').textContent = overview.accounts;
@@ -278,9 +297,29 @@
                 <td>${money(order.total)}</td><td>${escapeHtml(order.paymentMethod)}</td>
                 <td>${escapeHtml(order.status)}</td><td>${escapeHtml(displayDate(order.createdAt))}</td>
             </tr>`).join('');
+            const wallets = walletData.wallets || [];
+            document.getElementById('walletAccountsCount').textContent = wallets.length;
+            document.getElementById('walletAccountsEmpty').hidden = wallets.length > 0;
+            document.getElementById('walletAccountsBody').innerHTML = wallets.map(wallet => `<tr>
+                <td>${escapeHtml(wallet.name)}</td><td>${escapeHtml(wallet.email)}</td><td>${escapeHtml(wallet.phone)}</td>
+                <td>${escapeHtml(wallet.role)}</td><td>${escapeHtml(wallet.walletId)}</td><td>${money(wallet.balance)}</td>
+                <td>${escapeHtml(wallet.status)}</td><td>${escapeHtml(displayDate(wallet.createdAt))}</td>
+            </tr>`).join('');
+
+            const walletTransactions = walletTransactionData.transactions || [];
+            document.getElementById('walletTransactionsCount').textContent = walletTransactions.length;
+            document.getElementById('walletTransactionsEmpty').hidden = walletTransactions.length > 0;
+            document.getElementById('walletTransactionsBody').innerHTML = walletTransactions.map(transaction => `<tr>
+                <td>${escapeHtml(displayDate(transaction.createdAt))}</td><td>${escapeHtml(transaction.name)}<br><span class="muted">${escapeHtml(transaction.email)}</span></td>
+                <td>${escapeHtml(transaction.role)}</td><td>${escapeHtml(transaction.walletId)}</td><td>${escapeHtml(transaction.type)}</td>
+                <td>${escapeHtml(transaction.direction)}</td><td>${money(transaction.amount)}</td><td>${escapeHtml(transaction.channel)}</td>
+                <td>${escapeHtml(transaction.status)}</td><td>${escapeHtml(transaction.reference)}</td>
+            </tr>`).join('');
             const refreshedAt = new Date().toLocaleString('en-KE', { dateStyle:'medium', timeStyle:'short' });
             document.getElementById('accountsLastUpdated').textContent = `Updated at ${refreshedAt}`;
             document.getElementById('adminsLastUpdated').textContent = `Admin console data updated at ${refreshedAt}`;
+            document.getElementById('walletsLastUpdated').textContent = `Updated at ${refreshedAt}`;
+            document.getElementById('walletTransactionsLastUpdated').textContent = `Updated at ${refreshedAt}`;
             dashboardStatus.textContent = `Admin data updated at ${refreshedAt}. Automatic refresh runs every 30 seconds while this page is open.`;
             dashboardStatus.classList.remove('error');
             } catch (error) {
@@ -394,6 +433,8 @@
         document.getElementById('refreshAccountsButton').addEventListener('click', () => loadDashboard().catch(() => {}));
         document.getElementById('refreshAdminsButton').addEventListener('click', () => loadDashboard().catch(() => {}));
         document.getElementById('refreshOverviewButton').addEventListener('click', () => loadDashboard().catch(() => {}));
+        document.getElementById('refreshWalletsButton').addEventListener('click', () => loadDashboard().catch(() => {}));
+        document.getElementById('refreshWalletTransactionsButton').addEventListener('click', () => loadDashboard().catch(() => {}));
         loadDashboard().catch(() => {});
         window.addEventListener('focus', () => loadDashboard({ silent:true }).catch(() => {}));
         document.addEventListener('visibilitychange', () => {

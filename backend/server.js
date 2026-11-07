@@ -1976,6 +1976,50 @@ function createApp(options = {}) {
         } catch (error) { next(error); }
     });
 
+    app.get('/api/admin/wallets', auth, walletAdmin, async (req, res, next) => {
+        try {
+            const rows = await store.all(`
+                SELECT wallet_accounts.wallet_id, wallet_accounts.balance_cents, wallet_accounts.currency,
+                    wallet_accounts.status, wallet_accounts.created_at, wallet_accounts.updated_at,
+                    users.id AS user_id, users.name, users.email, users.phone, users.role
+                FROM wallet_accounts JOIN users ON users.id = wallet_accounts.user_id
+                WHERE NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)
+                ORDER BY wallet_accounts.created_at DESC LIMIT 1000
+            `);
+            res.json({ wallets: rows.map(row => ({
+                walletId: row.wallet_id, balance: Number(row.balance_cents) / 100, currency: row.currency,
+                status: row.status, createdAt: row.created_at, updatedAt: row.updated_at,
+                userId: row.user_id, name: row.name, email: row.email, phone: row.phone, role: row.role
+            })) });
+        } catch (error) { next(error); }
+    });
+
+    app.get('/api/admin/wallet-transactions', auth, walletAdmin, async (req, res, next) => {
+        try {
+            const rows = await store.all(`
+                SELECT wallet_transactions.id, wallet_transactions.kind, wallet_transactions.event_type,
+                    wallet_transactions.amount_cents, wallet_transactions.reference_key,
+                    wallet_transactions.payment_reference, wallet_transactions.description,
+                    wallet_transactions.status, wallet_transactions.channel,
+                    wallet_transactions.counterparty_wallet_id, wallet_transactions.operation_id,
+                    wallet_transactions.created_at, users.name, users.email, users.role,
+                    wallet_accounts.wallet_id
+                FROM wallet_transactions
+                JOIN users ON users.id = wallet_transactions.user_id
+                LEFT JOIN wallet_accounts ON wallet_accounts.user_id = wallet_transactions.user_id
+                WHERE NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)
+                ORDER BY wallet_transactions.created_at DESC LIMIT 1000
+            `);
+            res.json({ transactions: rows.map(row => ({
+                id: row.id, type: row.event_type, direction: row.kind, amount: Number(row.amount_cents) / 100,
+                reference: row.payment_reference || row.reference_key, description: row.description,
+                status: row.status, channel: row.channel, counterpartyWalletId: row.counterparty_wallet_id || '',
+                operationId: row.operation_id || '', createdAt: row.created_at,
+                name: row.name, email: row.email, role: row.role, walletId: row.wallet_id || '—'
+            })) });
+        } catch (error) { next(error); }
+    });
+
     async function chatIsAdmin(userId) {
         return Boolean(await store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [userId]));
     }

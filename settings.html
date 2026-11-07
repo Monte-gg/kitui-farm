@@ -193,7 +193,32 @@
         };
         const loadPaymentMethods = async () => { const result=await methodApi('/api/wallet/payment-methods'); const list=document.getElementById('paymentMethodList'); list.innerHTML=result.paymentMethods.length?result.paymentMethods.map(method=>`<div class="entry"><span><strong>${method.label.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</strong><small>${method.kind.toUpperCase()} · ${method.useFor==='both'?'Deposits and withdrawals':method.useFor}</small></span><button class="button secondary" type="button" data-delete-method="${method.id}">Remove</button></div>`).join(''):'<p class="empty">No payment methods saved yet.</p>'; };
         methodKind.addEventListener('change',methodFields); methodFields();
-        document.getElementById('paymentMethodForm').addEventListener('submit',async event=>{event.preventDefault();const kind=methodKind.value;const body={kind,label:document.getElementById('methodLabel').value.trim(),useFor:methodUse.value};if(kind==='mpesa'||kind==='airtel')body.phone=document.getElementById('methodPhone').value;else if(kind==='bank')Object.assign(body,{accountName:document.getElementById('methodAccountName').value,accountNumber:document.getElementById('methodAccountNumber').value,bankName:document.getElementById('methodBankName').value,branch:document.getElementById('methodBranch').value});else body.email=document.getElementById('methodPaypalEmail').value;try{await methodApi('/api/wallet/payment-methods',{method:'POST',body:JSON.stringify(body)});document.getElementById('methodMessage').textContent='Payment method saved securely to your account.';event.currentTarget.reset();methodFields();await loadPaymentMethods();}catch(error){document.getElementById('methodMessage').textContent=error.message;document.getElementById('methodMessage').classList.add('error');}});
+        document.getElementById('paymentMethodForm').addEventListener('submit', async event => {
+            event.preventDefault();
+            const paymentMethodForm = event.currentTarget;
+            const kind = methodKind.value;
+            const body = { kind, label:document.getElementById('methodLabel').value.trim(), useFor:methodUse.value };
+            if (kind === 'mpesa' || kind === 'airtel') body.phone = document.getElementById('methodPhone').value;
+            else if (kind === 'bank') Object.assign(body, {
+                accountName:document.getElementById('methodAccountName').value,
+                accountNumber:document.getElementById('methodAccountNumber').value,
+                bankName:document.getElementById('methodBankName').value,
+                branch:document.getElementById('methodBranch').value
+            });
+            else body.email = document.getElementById('methodPaypalEmail').value;
+            try {
+                await methodApi('/api/wallet/payment-methods', { method:'POST', body:JSON.stringify(body) });
+                const methodMessage = document.getElementById('methodMessage');
+                methodMessage.textContent = 'Payment method saved securely to your account.';
+                methodMessage.classList.remove('error');
+                paymentMethodForm.reset();
+                methodFields();
+                await loadPaymentMethods();
+            } catch (error) {
+                document.getElementById('methodMessage').textContent = error.message;
+                document.getElementById('methodMessage').classList.add('error');
+            }
+        });
         document.getElementById('paymentMethodList').addEventListener('click',async event=>{const button=event.target.closest('[data-delete-method]');if(!button)return;if(!confirm('Remove this saved payment method?'))return;try{await methodApi(`/api/wallet/payment-methods/${encodeURIComponent(button.dataset.deleteMethod)}`,{method:'DELETE'});await loadPaymentMethods();}catch(error){document.getElementById('methodMessage').textContent=error.message;}});
         loadPaymentMethods().catch(error=>{document.getElementById('paymentMethodList').innerHTML=`<p class="message error">${error.message}</p>`;});
 
