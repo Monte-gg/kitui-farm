@@ -87,6 +87,28 @@ function mpesaConfig() {
         transactionType: String(process.env.MPESA_TRANSACTION_TYPE || 'CustomerPayBillOnline').trim() };
 }
 
+function mpesaB2CConfig(baseConfig = mpesaConfig()) {
+    const enabled = String(process.env.MPESA_B2C_ENABLED || '').trim().toLowerCase() === 'true';
+    const initiatorName = String(process.env.MPESA_B2C_INITIATOR_NAME || '').trim();
+    const securityCredential = String(process.env.MPESA_B2C_SECURITY_CREDENTIAL || '').trim();
+    if (!enabled || !initiatorName || !securityCredential) {
+        const error = new Error('Automatic M-Pesa payouts are not configured. The request will be sent to the admin for manual handling.');
+        error.status = 503;
+        throw error;
+    }
+    const callbackBase = String(process.env.MPESA_CALLBACK_BASE_URL || process.env.RENDER_EXTERNAL_URL || '').trim();
+    const callbackPath = `/api/payments/mpesa/b2c/${encodeURIComponent(baseConfig.callbackSecret)}`;
+    return {
+        ...baseConfig,
+        initiatorName,
+        securityCredential,
+        commandId: String(process.env.MPESA_B2C_COMMAND_ID || 'BusinessPayment').trim(),
+        partyA: String(process.env.MPESA_B2C_PARTY_A || baseConfig.shortCode).trim(),
+        resultUrl: new URL(`${callbackPath}/result`, callbackBase).toString(),
+        timeoutUrl: new URL(`${callbackPath}/timeout`, callbackBase).toString()
+    };
+}
+
 async function mpesaRequest(endpoint, { method = 'GET', body, config = mpesaConfig() } = {}) {
     if (!mpesaAccessToken || Date.now() >= mpesaAccessTokenExpiresAt - 60_000) {
         const credentials = Buffer.from(`${config.consumerKey}:${config.consumerSecret}`).toString('base64');
@@ -1992,6 +2014,87 @@ function createApp(options = {}) {
         }
     });
 
+    app.post('/api/payments/mpesa/b2c/:token/result', async (req, res) => {
+        let config;
+        try { config = mpesaConfig(); } catch { return res.status(503).json({ ResultCode: 1, ResultDesc: 'Callback is not configured.' }); }
+        const token = String(req.params.token || '');
+        if (token.length !== config.callbackSecret.length || !crypto.timingSafeEqual(Buffer.from(token), Buffer.from(config.callbackSecret))) return res.status(404).json({ ResultCode: 1, ResultDesc: 'Not found.' });
+        try {
+            const result = req.body?.Result;
+            const originatorId = text(result?.OriginatorConversationID, 120);
+            if (!result || !originatorId) return res.status(400).json({ ResultCode: 1, ResultDesc: 'Invalid B2C result payload.' });
+            const operation = await store.get("SELECT * FROM wallet_operations WHERE kind = 'withdrawal' AND channel = 'mpesa_b2c' AND payment_reference = ?", [originatorId]);
+            if (!operation || operation.status !== 'processing') return res.json({ ResultCode: 0, ResultDesc: 'Callback already handled or request not found.' });
+            const now = new Date().toISOString();
+            const details = JSON.parse(operation.details_json || '{}');
+            details.mpesaB2CResultCode = Number(result.ResultCode);
+            details.mpesaB2CResultDescription = text(result.ResultDesc, 240);
+            details.mpesaB2CTransactionId = text(result.TransactionID, 80);
+            if (Number(result.ResultCode) === 0) {
+                const parameters = result.ResultParameters?.ResultParameter || [];
+                const parameterValue = key => {
+                    const item = (Array.isArray(parameters) ? parameters : [parameters]).find(entry => entry?.Key === key);
+                    return item?.Value;
+                };
+                const callbackAmount = parameterValue('TransactionAmount');
+                const recipientName = String(parameterValue('ReceiverPartyPublicName') || '');
+                const phoneMatch = recipientName.match(/254\d{9}/);
+                if (!details.mpesaB2CTransactionId || (callbackAmount != null && Math.round(Number(callbackAmount) * 100) !== Number(operation.amount_cents))
+                    || (phoneMatch && phoneMatch[0] !== details.mpesaB2CRecipientPhone)) {
+                    details.mpesaB2CReviewNeeded = 'Safaricom reported success, but the receipt, amount, or recipient could not be verified automatically.';
+                    await store.run("UPDATE wallet_operations SET status = 'pending', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, operation.id]);
+                    return res.json({ ResultCode: 0, ResultDesc: 'Payout result requires merchant review.' });
+                }
+                await store.transaction(async () => {
+                    const changed = await store.run("UPDATE wallet_operations SET status = 'completed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, operation.id]);
+                    if (!changed.changes) return;
+                    const finalized = await store.run("UPDATE wallet_transactions SET status = 'completed', payment_reference = ? WHERE operation_id = ? AND event_type = 'withdrawal' AND status = 'pending'", [details.mpesaB2CTransactionId || originatorId, operation.id]);
+                    if (!finalized.changes) throw new Error('M-Pesa withdrawal ledger could not be finalized.');
+                });
+            } else {
+                await store.transaction(async () => {
+                    const changed = await store.run("UPDATE wallet_operations SET status = 'failed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, operation.id]);
+                    if (!changed.changes) return;
+                    const refunded = await store.run("UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ? WHERE user_id = ? AND status = 'active' AND balance_cents <= ?", [operation.amount_cents, now, operation.user_id, 2147483647 - operation.amount_cents]);
+                    if (!refunded.changes) throw new Error('M-Pesa payout failed but the wallet could not be refunded automatically.');
+                    await store.run("UPDATE wallet_transactions SET status = 'failed' WHERE operation_id = ? AND event_type = 'withdrawal' AND status = 'pending'", [operation.id]);
+                    await store.run(`INSERT INTO wallet_transactions
+                        (id, user_id, kind, event_type, amount_cents, reference_key, payment_reference, description, created_at, status, channel, operation_id)
+                        VALUES (?, ?, 'credit', 'refund', ?, ?, ?, ?, ?, 'completed', 'internal', ?)`,
+                    [crypto.randomUUID(), operation.user_id, operation.amount_cents, `wallet-withdrawal-refund:${operation.id}`, details.mpesaB2CTransactionId || originatorId,
+                        'Automatic refund after M-Pesa payout failed', now, operation.id]);
+                });
+            }
+            return res.json({ ResultCode: 0, ResultDesc: 'B2C result processed.' });
+        } catch (error) {
+            console.error('M-Pesa B2C result processing failed', error.message);
+            return res.status(500).json({ ResultCode: 1, ResultDesc: 'B2C result could not be processed.' });
+        }
+    });
+
+    app.post('/api/payments/mpesa/b2c/:token/timeout', async (req, res) => {
+        let config;
+        try { config = mpesaConfig(); } catch { return res.status(503).json({ ResultCode: 1, ResultDesc: 'Callback is not configured.' }); }
+        const token = String(req.params.token || '');
+        if (token.length !== config.callbackSecret.length || !crypto.timingSafeEqual(Buffer.from(token), Buffer.from(config.callbackSecret))) return res.status(404).json({ ResultCode: 1, ResultDesc: 'Not found.' });
+        try {
+            const originatorId = text(req.body?.Result?.OriginatorConversationID || req.body?.OriginatorConversationID, 120);
+            if (originatorId) {
+                const operation = await store.get("SELECT * FROM wallet_operations WHERE kind = 'withdrawal' AND channel = 'mpesa_b2c' AND payment_reference = ?", [originatorId]);
+                if (operation?.status === 'processing') {
+                    const details = JSON.parse(operation.details_json || '{}');
+                    details.mpesaB2CTimeout = true;
+                    details.mpesaB2CTimeoutAt = new Date().toISOString();
+                    await store.run("UPDATE wallet_operations SET status = 'pending', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), operation.id]);
+                }
+            }
+            return res.json({ ResultCode: 0, ResultDesc: 'B2C timeout acknowledged.' });
+        } catch (error) {
+            console.error('M-Pesa B2C timeout processing failed', error.message);
+            return res.status(500).json({ ResultCode: 1, ResultDesc: 'B2C timeout could not be processed.' });
+        }
+    });
+
     app.post('/api/wallet/create', auth, async (req, res, next) => {
         try {
             const wallet = await createWallet(req.user.id);
@@ -2522,16 +2625,23 @@ function createApp(options = {}) {
         const cents = amountCents(req.body?.amount);
         const methodId = text(req.body?.paymentMethodId, 80);
         let channel = '';
+        let b2cConfig = null;
         const idempotencyKey = text(req.body?.idempotencyKey, 80);
         if (!cents) return res.status(400).json({ error: 'Enter an amount from KES 0.01 to KES 1,000,000.00.' });
         if (!/^[A-Za-z0-9-]{16,80}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Refresh the page and try the withdrawal request again.' });
         try {
             const prior = await store.get('SELECT id, kind, amount_cents, fee_cents, status, channel, created_at FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
-            if (prior) return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, fee: Number(prior.fee_cents) / 100, status: prior.status, channel: prior.channel, createdAt: prior.created_at } });
+            if (prior) return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, fee: Number(prior.fee_cents) / 100, status: prior.status, channel: prior.channel, automatic: prior.channel === 'mpesa_b2c' && ['processing', 'completed'].includes(prior.status), createdAt: prior.created_at } });
             await getActiveWallet(req.user.id);
             const method = await ownedPaymentMethod(req.user.id, methodId, 'withdrawal');
             channel = method.kind;
             const details = JSON.parse(method.details_json || '{}');
+            if (channel === 'mpesa') {
+                if (cents % 100 !== 0) return res.status(400).json({ error: 'M-Pesa payouts must be a whole KES amount.' });
+                try { b2cConfig = mpesaB2CConfig(); } catch { /* Leave the request for admin processing until B2C is configured. */ }
+                if (b2cConfig && (cents < 1000 || cents > 25_000_000)) return res.status(400).json({ error: 'Automatic M-Pesa payouts must be between KES 10 and KES 250,000 per transaction.' });
+                if (b2cConfig) details.mpesaB2CRecipientPhone = details.phone;
+            }
             if (channel === 'paypal') {
                 const config = paypalConfig({ requireRate: true });
                 const quote = paypalQuote(cents, config.kesToUsdRate);
@@ -2543,6 +2653,7 @@ function createApp(options = {}) {
             const id = crypto.randomUUID();
             const now = new Date().toISOString();
             const description = `Withdrawal request via ${channel === 'mpesa' ? 'M-Pesa' : channel === 'airtel' ? 'Airtel Money' : channel === 'paypal' ? 'PayPal' : 'bank transfer'}`;
+            const operationChannel = b2cConfig ? 'mpesa_b2c' : channel;
             await store.transaction(async () => {
                 const debited = await store.run(`
                     UPDATE wallet_accounts SET balance_cents = balance_cents - ?, updated_at = ?
@@ -2553,18 +2664,53 @@ function createApp(options = {}) {
                     INSERT INTO wallet_operations
                         (id, user_id, kind, amount_cents, fee_cents, currency, channel, details_json, status, idempotency_key, created_at, updated_at)
                     VALUES (?, ?, 'withdrawal', ?, 0, 'KES', ?, ?, 'pending', ?, ?, ?)
-                `, [id, req.user.id, cents, channel, JSON.stringify(details), idempotencyKey, now, now]);
+                `, [id, req.user.id, cents, operationChannel, JSON.stringify(details), idempotencyKey, now, now]);
                 await store.run(`
                     INSERT INTO wallet_transactions
                         (id, user_id, kind, event_type, amount_cents, reference_key, description, created_at, status, channel, operation_id)
                     VALUES (?, ?, 'debit', 'withdrawal', ?, ?, ?, ?, 'pending', ?, ?)
-                `, [crypto.randomUUID(), req.user.id, cents, `wallet-withdrawal:${id}`, description, now, channel, id]);
+                `, [crypto.randomUUID(), req.user.id, cents, `wallet-withdrawal:${id}`, description, now, operationChannel, id]);
             });
-            res.status(201).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'pending', channel, createdAt: now } });
+            if (b2cConfig) {
+                const originatorId = `KF${crypto.randomBytes(8).toString('hex').toUpperCase()}`;
+                details.mpesaB2COriginatorConversationId = originatorId;
+                await store.run("UPDATE wallet_operations SET status = 'processing', payment_reference = ?, details_json = ?, updated_at = ? WHERE id = ? AND status = 'pending'", [originatorId, JSON.stringify(details), new Date().toISOString(), id]);
+                try {
+                    const result = await mpesaRequest('/mpesa/b2c/v3/paymentrequest', { config: b2cConfig, method: 'POST', body: {
+                        InitiatorName: b2cConfig.initiatorName,
+                        SecurityCredential: b2cConfig.securityCredential,
+                        CommandID: b2cConfig.commandId,
+                        Amount: cents / 100,
+                        PartyA: b2cConfig.partyA,
+                        PartyB: details.phone,
+                        Remarks: `KITUI FARM wallet withdrawal ${id.slice(0, 8)}`,
+                        QueueTimeOutURL: b2cConfig.timeoutUrl,
+                        ResultURL: b2cConfig.resultUrl,
+                        Occassion: 'KITUI FARM wallet payout',
+                        OriginatorConversationID: originatorId
+                    }});
+                    details.mpesaB2CResponseDescription = text(result.ResponseDescription, 240);
+                    details.mpesaB2CConversationId = text(result.ConversationID, 120);
+                    if (String(result.ResponseCode) !== '0') {
+                        details.mpesaB2CInitiationError = text(result.ResponseDescription || result.errorMessage, 240);
+                        await store.run("UPDATE wallet_operations SET status = 'pending', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), id]);
+                        return res.status(201).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'pending', channel: operationChannel, automatic: false, createdAt: now } });
+                    }
+                    await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), id]);
+                    return res.status(201).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'processing', channel: operationChannel, automatic: true, createdAt: now } });
+                } catch (error) {
+                    // The request may have reached Safaricom even if our HTTP call timed out.
+                    // Keep funds reserved and wait for Daraja callback/admin reconciliation.
+                    details.mpesaB2CSubmissionNote = text(error.message, 240);
+                    await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), id]);
+                    return res.status(201).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'processing', channel: operationChannel, automatic: true, createdAt: now } });
+                }
+            }
+            res.status(201).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'pending', channel, automatic: false, createdAt: now } });
         } catch (error) {
             if (error.errcode === 2067) {
                 const prior = await store.get('SELECT id, kind, amount_cents, fee_cents, status, channel, created_at FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
-                if (prior) return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, fee: Number(prior.fee_cents) / 100, status: prior.status, channel: prior.channel, createdAt: prior.created_at } });
+                if (prior) return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, fee: Number(prior.fee_cents) / 100, status: prior.status, channel: prior.channel, automatic: prior.channel === 'mpesa_b2c' && ['processing', 'completed'].includes(prior.status), createdAt: prior.created_at } });
             }
             if (error.status) return res.status(error.status).json({ error: error.message });
             next(error);
@@ -2598,7 +2744,7 @@ function createApp(options = {}) {
                 JOIN users ON users.id = wallet_operations.user_id
                 JOIN wallet_accounts ON wallet_accounts.user_id = wallet_operations.user_id
                 WHERE wallet_operations.status = 'pending'
-                   OR (wallet_operations.status = 'processing' AND wallet_operations.channel = 'paypal' AND wallet_operations.kind = 'withdrawal')
+                   OR (wallet_operations.status = 'processing' AND wallet_operations.kind = 'withdrawal' AND wallet_operations.channel IN ('paypal', 'mpesa_b2c'))
                 ORDER BY wallet_operations.created_at ASC LIMIT 100
             `);
             res.json({ requests: rows.map(row => ({
