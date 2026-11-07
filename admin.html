@@ -145,15 +145,15 @@
 
         <section class="panel" id="people" data-admin-view hidden aria-labelledby="accountsHeading">
             <div class="view-heading"><p class="eyebrow">Account management</p><h1>People</h1><p class="intro">Review registered farmers and customers. Account deletion requires a reason and notifies the user.</p></div>
-            <div class="panel-head"><div><h2 id="accountsHeading">People on KITUI FARM</h2><p class="muted">Registered farmers and customers. Enabled admins are listed separately below.</p></div><div class="account-tools"><span class="count" id="accountsCount">—</span><button class="refresh-data" id="refreshAccountsButton" type="button">Refresh</button><small id="accountsLastUpdated">Not refreshed yet</small></div></div>
-            <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Location</th><th>Created</th><th>Action</th></tr></thead><tbody id="accountsBody"></tbody></table></div>
+            <div class="panel-head"><div><h2 id="accountsHeading">People on KITUI FARM</h2><p class="muted">Profile edits appear here within a few seconds. Enabled admins are listed separately below.</p></div><div class="account-tools"><span class="count" id="accountsCount">—</span><button class="refresh-data" id="refreshAccountsButton" type="button">Refresh</button><small id="accountsLastUpdated">Not refreshed yet</small></div></div>
+            <div class="table-wrap"><table><thead><tr><th>Photo</th><th>Name</th><th>Email</th><th>Phone</th><th>Role</th><th>Gender</th><th>Location</th><th>Created</th><th>Action</th></tr></thead><tbody id="accountsBody"></tbody></table></div>
             <p class="empty" id="accountsEmpty" hidden>No farmers or customers found.</p>
         </section>
 
         <section class="panel" id="admins" data-admin-view hidden aria-labelledby="adminsHeading">
             <div class="view-heading"><p class="eyebrow">Access control</p><h1>Admin access</h1><p class="intro">See accounts currently authorized to use the Admin Console.</p></div>
-            <div class="panel-head"><div><h2 id="adminsHeading">Enabled admins</h2><p class="muted">Accounts currently authorized to access the admin console.</p></div><div class="admin-tools"><span class="count" id="adminsCount">—</span><button class="refresh-data" id="refreshAdminsButton" type="button">Refresh</button><small id="adminsLastUpdated">Not refreshed yet</small></div></div>
-            <div class="table-wrap"><table><thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Location</th><th>Admin access enabled</th></tr></thead><tbody id="adminsBody"></tbody></table></div>
+            <div class="panel-head"><div><h2 id="adminsHeading">Enabled admins</h2><p class="muted">Admin profile edits are refreshed automatically while this console is open.</p></div><div class="admin-tools"><span class="count" id="adminsCount">—</span><button class="refresh-data" id="refreshAdminsButton" type="button">Refresh</button><small id="adminsLastUpdated">Not refreshed yet</small></div></div>
+            <div class="table-wrap"><table><thead><tr><th>Photo</th><th>Name</th><th>Email</th><th>Phone</th><th>Gender</th><th>Location</th><th>Admin access enabled</th></tr></thead><tbody id="adminsBody"></tbody></table></div>
             <p class="empty" id="adminsEmpty" hidden>No admin accounts are enabled.</p>
         </section>
 
@@ -238,6 +238,46 @@
             const date = new Date(value);
             return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('en-KE', { dateStyle:'medium', timeStyle:'short' });
         }
+        function renderPeople(accounts, admins, refreshedAt = new Date().toLocaleString('en-KE', { dateStyle:'medium', timeStyle:'short' })) {
+            document.getElementById('accountsCount').textContent = accounts.length;
+            document.getElementById('accountsEmpty').hidden = accounts.length > 0;
+            document.getElementById('accountsBody').innerHTML = accounts.map(account => {
+                const photo = account.profilePhoto
+                    ? `<img src="${escapeHtml(account.profilePhoto)}" alt="" width="36" height="36" style="width:36px;height:36px;object-fit:cover;border-radius:50%">`
+                    : '—';
+                return `<tr><td>${photo}</td><td>${escapeHtml(account.name)}</td><td>${escapeHtml(account.email)}</td><td>${escapeHtml(account.phone)}</td>
+                    <td>${escapeHtml(account.role)}</td><td>${escapeHtml(account.gender || '—')}</td><td>${escapeHtml(account.location || '—')}</td><td>${escapeHtml(displayDate(account.createdAt))}</td>
+                    <td><button class="button reject" type="button" data-delete-account="${escapeHtml(account.id)}" data-account-name="${escapeHtml(account.name)}">Delete</button></td></tr>`;
+            }).join('');
+
+            document.getElementById('adminsCount').textContent = admins.length;
+            document.getElementById('adminsEmpty').hidden = admins.length > 0;
+            document.getElementById('adminsBody').innerHTML = admins.map(admin => {
+                const photo = admin.profilePhoto
+                    ? `<img src="${escapeHtml(admin.profilePhoto)}" alt="" width="36" height="36" style="width:36px;height:36px;object-fit:cover;border-radius:50%">`
+                    : '—';
+                return `<tr><td>${photo}</td><td>${escapeHtml(admin.name)}</td><td>${escapeHtml(admin.email)}</td><td>${escapeHtml(admin.phone)}</td>
+                    <td>${escapeHtml(admin.gender || '—')}</td><td>${escapeHtml(admin.location || '—')}</td><td>${escapeHtml(displayDate(admin.enabledAt))}</td></tr>`;
+            }).join('');
+            document.getElementById('accountsLastUpdated').textContent = `Updated at ${refreshedAt}`;
+            document.getElementById('adminsLastUpdated').textContent = `Updated at ${refreshedAt}`;
+        }
+        let peopleRefreshInProgress = false;
+        async function refreshPeople() {
+            if (peopleRefreshInProgress || document.visibilityState !== 'visible') return;
+            peopleRefreshInProgress = true;
+            try {
+                const [accountData, adminData] = await Promise.all([
+                    apiRequest('/api/admin/accounts'), apiRequest('/api/admin/admins')
+                ]);
+                renderPeople(accountData.accounts || [], adminData.admins || []);
+            } catch (error) {
+                console.warn('Could not refresh account profiles in the admin console.', error);
+            } finally {
+                peopleRefreshInProgress = false;
+            }
+        }
+
         let dashboardRefreshInProgress = false;
         async function loadDashboard(options = {}) {
             if (dashboardRefreshInProgress) return;
@@ -263,22 +303,7 @@
             document.getElementById('menuPendingCount').textContent = overview.pendingWalletOperations;
             document.getElementById('sidebarPendingCount').textContent = overview.pendingWalletOperations;
 
-            const accounts = accountData.accounts || [];
-            document.getElementById('accountsCount').textContent = accounts.length;
-            document.getElementById('accountsEmpty').hidden = accounts.length > 0;
-            document.getElementById('accountsBody').innerHTML = accounts.map(account => `<tr>
-                <td>${escapeHtml(account.name)}</td><td>${escapeHtml(account.email)}</td><td>${escapeHtml(account.phone)}</td>
-                <td>${escapeHtml(account.role)}</td><td>${escapeHtml(account.location || '—')}</td><td>${escapeHtml(displayDate(account.createdAt))}</td>
-                <td><button class="button reject" type="button" data-delete-account="${escapeHtml(account.id)}" data-account-name="${escapeHtml(account.name)}">Delete</button></td>
-            </tr>`).join('');
-
-            const admins = adminData.admins || [];
-            document.getElementById('adminsCount').textContent = admins.length;
-            document.getElementById('adminsEmpty').hidden = admins.length > 0;
-            document.getElementById('adminsBody').innerHTML = admins.map(admin => `<tr>
-                <td>${escapeHtml(admin.name)}</td><td>${escapeHtml(admin.email)}</td><td>${escapeHtml(admin.phone)}</td>
-                <td>${escapeHtml(admin.location || '—')}</td><td>${escapeHtml(displayDate(admin.enabledAt))}</td>
-            </tr>`).join('');
+            renderPeople(accountData.accounts || [], adminData.admins || []);
 
             const listings = listingData.listings || [];
             document.getElementById('listingsCount').textContent = listings.length;
@@ -443,6 +468,7 @@
         window.setInterval(() => {
             if (document.visibilityState === 'visible') loadDashboard({ silent:true }).catch(() => {});
         }, 30000);
+        window.setInterval(refreshPeople, 5000);
     </script>
 </body>
 </html>

@@ -2015,12 +2015,14 @@ function createApp(options = {}) {
     app.get('/api/admin/admins', auth, walletAdmin, async (req, res, next) => {
         try {
             const rows = await store.all(`
-                SELECT users.id, users.name, users.email, users.phone, users.location, wallet_admins.created_at AS enabled_at
+                SELECT users.id, users.name, users.email, users.phone, users.location, users.gender, users.profile_photo,
+                    wallet_admins.created_at AS enabled_at
                 FROM wallet_admins JOIN users ON users.id = wallet_admins.user_id
                 ORDER BY wallet_admins.created_at DESC LIMIT 200
             `);
             res.json({ admins: rows.map(row => ({
                 id: row.id, name: row.name, email: row.email, phone: row.phone, location: row.location,
+                gender: row.gender || '', profilePhoto: row.profile_photo || '',
                 enabledAt: row.enabled_at
             })) });
         } catch (error) { next(error); }
