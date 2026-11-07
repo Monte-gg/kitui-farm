@@ -232,6 +232,28 @@ test('wallet checkout debits the buyer and credits each farmer exactly once', as
     assert.equal((await request('/api/wallet', { cookie: farmer.cookie })).data.wallet.balance, 350);
 });
 
+test('wallet-to-wallet transfers credit the recipient once and debit the sender', async () => {
+    const sender = await signup('buyer', 31);
+    const recipient = await signup('farmer', 31);
+    await fundWallet(sender, 100000);
+    const recipientWallet = await fundWallet(recipient, 0);
+    const idempotencyKey = crypto.randomUUID();
+    const body = { recipient: recipientWallet.id, amount: 100, idempotencyKey };
+
+    const transfer = await request('/api/wallet/transfers', { method: 'POST', cookie: sender.cookie, body });
+    assert.equal(transfer.status, 201);
+    assert.equal(transfer.data.transfer.status, 'completed');
+    assert.equal((await request('/api/wallet', { cookie: sender.cookie })).data.wallet.balance, 900);
+    const recipientWalletAfter = (await request('/api/wallet', { cookie: recipient.cookie })).data;
+    assert.equal(recipientWalletAfter.wallet.balance, 100);
+    assert.equal(recipientWalletAfter.transactions.filter(row => row.type === 'transfer' && row.direction === 'credit').length, 1);
+
+    const replay = await request('/api/wallet/transfers', { method: 'POST', cookie: sender.cookie, body });
+    assert.equal(replay.status, 200);
+    assert.equal((await request('/api/wallet', { cookie: sender.cookie })).data.wallet.balance, 900);
+    assert.equal((await request('/api/wallet', { cookie: recipient.cookie })).data.wallet.balance, 100);
+});
+
 test('splits multi-farmer checkouts so each farmer controls only their own order', async () => {
     const firstFarmer = await signup('farmer', 5);
     const secondFarmer = await signup('farmer', 6);
