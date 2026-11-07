@@ -2393,7 +2393,9 @@ function createApp(options = {}) {
                 await store.run('UPDATE wallet_operations SET status = ?, details_json = ?, updated_at = ? WHERE id = ? AND status = \'processing\'', [status, JSON.stringify(details), new Date().toISOString(), id]);
                 return res.status(status === 'failed' ? 502 : 202).json({
                     operation: { id, status, amount: cents / 100 },
-                    error: status === 'processing' ? 'Paystack is still processing this request. Do not submit another transfer; refresh your wallet shortly.' : 'Paystack rejected the bank deposit request. Check that Pesalink is enabled on your account.'
+                    error: status === 'processing'
+                        ? 'Paystack is still processing this request. Do not submit another transfer; refresh your wallet shortly.'
+                        : `Paystack rejected the bank deposit request: ${text(error.message, 200)}`
                 });
             }
         } catch (error) {
