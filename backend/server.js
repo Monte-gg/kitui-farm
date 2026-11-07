@@ -136,12 +136,17 @@ async function mpesaRequest(endpoint, { method = 'GET', body, config = mpesaConf
     return data;
 }
 
-function paystackConfig() {
+function paystackConfig({ requireBankEligibility = false } = {}) {
     const secretKey = String(process.env.PAYSTACK_SECRET_KEY || '').trim();
     const webhookSecret = String(process.env.PAYSTACK_WEBHOOK_SECRET || '').trim();
-    const enabled = String(process.env.PAYSTACK_BANK_ENABLED || '').trim().toLowerCase() === 'true';
-    if (!enabled || !secretKey) {
-        const error = new Error('Paystack Pesalink deposits are not enabled. Configure an approved Paystack account and credentials in Render.');
+    const bankEnabled = String(process.env.PAYSTACK_BANK_ENABLED || '').trim().toLowerCase() === 'true';
+    const merchantEligible = String(process.env.PAYSTACK_BANK_ELIGIBLE || '').trim().toLowerCase() === 'true';
+    if (!secretKey) {
+        const error = new Error('Paystack is not configured. Add PAYSTACK_SECRET_KEY in Render.');
+        error.status = 503; throw error;
+    }
+    if (requireBankEligibility && (!bankEnabled || !merchantEligible)) {
+        const error = new Error('Paystack bank transfer is disabled until Paystack confirms Live Pesalink eligibility for this merchant. Use M-Pesa STK instead.');
         error.status = 503; throw error;
     }
     return { secretKey, webhookSecret };
@@ -1936,7 +1941,7 @@ function createApp(options = {}) {
     });
 
     app.get('/api/wallet/paystack/config', auth, (req, res) => {
-        try { paystackConfig(); res.json({ bankTransferEnabled: true }); }
+        try { paystackConfig({ requireBankEligibility: true }); res.json({ bankTransferEnabled: true }); }
         catch { res.json({ bankTransferEnabled: false }); }
     });
 
@@ -2316,6 +2321,7 @@ function createApp(options = {}) {
             await getActiveWallet(req.user.id);
             const method = await ownedPaymentMethod(req.user.id, methodId, 'deposit');
             if (method.kind === 'paypal') return res.status(400).json({ error: 'PayPal deposits are not enabled; use PayPal only for manual payout requests.' });
+            if (method.kind === 'bank') return res.status(503).json({ error: 'Bank transfer deposits are temporarily disabled until Paystack confirms Live Pesalink eligibility. Use M-Pesa STK instead.' });
             channel = method.kind === 'mpesa' ? 'mpesa_stk_simulation' : 'bank_transfer';
             const details = JSON.parse(method.details_json || '{}');
             const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND status IN ('pending', 'processing')", [req.user.id]);
@@ -2344,7 +2350,7 @@ function createApp(options = {}) {
         if (!cents) return res.status(400).json({ error: 'Enter a bank deposit amount from KES 0.01 to KES 1,000,000.00.' });
         if (!/^[A-Za-z0-9-]{16,80}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Refresh the page and try the bank deposit again.' });
         let config;
-        try { config = paystackConfig(); } catch (error) { return res.status(error.status || 503).json({ error: error.message }); }
+        try { config = paystackConfig({ requireBankEligibility: true }); } catch (error) { return res.status(error.status || 503).json({ error: error.message }); }
         try {
             const prior = await store.get('SELECT * FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
             if (prior) {

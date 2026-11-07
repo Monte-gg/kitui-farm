@@ -30,7 +30,7 @@
         <div class="grid" id="walletContent">
             <section class="card balance-card"><p class="label">Available balance</p><p class="balance" id="walletBalance">KES —</p><div class="wallet-meta"><span>Wallet ID: <strong id="walletId">Loading…</strong></span><span>Status: <strong id="walletStatus">—</strong></span></div><p class="hint">Internal wallet transfers and marketplace wallet payments update instantly.</p></section>
 
-            <section class="card"><h2>Add money</h2><p class="hint">Choose PayPal Checkout, an M-Pesa STK prompt, or a temporary Pesalink bank transfer when enabled. Other deposits use a receipt and administrator verification. Wallet funds are added only after payment is confirmed.</p>
+            <section class="card"><h2>Add money</h2><p class="hint">M-Pesa STK is the primary deposit option. PayPal Checkout is also available. Bank transfer is temporarily unavailable while Paystack confirms Pesalink eligibility. Wallet funds are added only after payment is confirmed.</p>
                 <form id="depositForm"><div class="field"><label for="depositMethodId">Deposit method</label><select id="depositMethodId" required><option value="">Choose a deposit method</option></select><input id="depositChannel" type="hidden" value=""></div>
                     <div class="field"><label for="depositAmount">Amount (KES)</label><input id="depositAmount" type="number" min="0.01" max="1000000" step="0.01" required></div>
                     <div class="field" id="depositPhoneField" hidden><label for="depositPhone">M-Pesa phone number</label><input id="depositPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678"><p class="hint">Enter the phone that should receive the payment prompt.</p></div>
@@ -95,9 +95,12 @@
             group.querySelectorAll('input').forEach(input => { input.required = active && !input.placeholder.includes('optional'); });
         });
         function fillWalletPaymentMethods(methods) {
-            const deposits=methods.filter(item=>['deposit','both'].includes(item.useFor)&&item.kind!=='paypal'&&item.kind!=='airtel'&&!(paystackBankEnabled&&item.kind==='bank'));
+            // Bank details may still be saved for payouts, but never offer bank deposits
+            // until Paystack has explicitly confirmed Pesalink eligibility.
+            const deposits=methods.filter(item=>['deposit','both'].includes(item.useFor)&&!['paypal','airtel','bank'].includes(item.kind));
             const withdrawals=methods.filter(item=>['withdrawal','both'].includes(item.useFor)&&item.kind!=='airtel');
             const option=item=>`<option value="${escapeHtml(item.id)}" data-kind="${escapeHtml(item.kind)}">${escapeHtml(item.label)} · ${item.kind==='mpesa'?'M-Pesa':item.kind==='paypal'?'PayPal':'Bank'}</option>`;
+            const previousDepositMethod=$('depositMethodId').value;
             $('depositMethodId').innerHTML='<option value="">Choose a deposit method</option>'+deposits.map(option).join('')+'<option value="paypal" data-kind="paypal">PayPal · secure checkout</option>'+(paystackBankEnabled?'<option value="paystack_bank" data-kind="paystack_bank">Bank transfer · Pesalink</option>':'');
             $('withdrawMethodId').innerHTML=withdrawals.length?'<option value="">Choose a payout destination</option>'+withdrawals.map(option).join(''):'<option value="">No payout methods — add one in Settings</option>';
             $('depositMethodId').onchange=()=>{
@@ -105,7 +108,24 @@
                 $('depositChannel').value=kind==='paypal'?'paypal':kind==='paystack_bank'?'paystack_bank':kind==='mpesa'&&mpesaStkEnabled?'mpesa_stk':({mpesa:'mpesa_stk_simulation',bank:'bank_transfer'})[kind]||'';
                 updateDepositMethodUi();
             };
+            const hasPrevious=[...$('depositMethodId').options].some(item=>item.value===previousDepositMethod);
+            const primaryMpesa=deposits.find(item=>item.kind==='mpesa'&&mpesaStkEnabled);
+            $('depositMethodId').value=hasPrevious?previousDepositMethod:primaryMpesa?.id||'';
+            if($('depositMethodId').value)$('depositMethodId').dispatchEvent(new Event('change'));
             $('withdrawMethodId').onchange=()=>{$('withdrawChannel').value=$('withdrawMethodId').selectedOptions[0]?.dataset.kind||''; updatePayPalQuote();};
+        }
+        function switchToMpesaFallback(paystackError) {
+            if(!mpesaStkEnabled)return false;
+            const option=[...$('depositMethodId').options].find(item=>item.dataset.kind==='mpesa');
+            if(!option)return false;
+            $('paystackBankInstructions').hidden=true;
+            $('depositMethodId').value=option.value;
+            $('depositChannel').value='mpesa_stk';
+            if(!$('depositPhone').value&&currentUser?.phone)$('depositPhone').value=currentUser.phone;
+            updateDepositMethodUi();
+            setMessage('depositMessage',`Paystack bank transfer is unavailable: ${paystackError}. M-Pesa STK is selected. Confirm the phone number and tap “Send M-Pesa prompt” to continue.`);
+            $('depositPhone').focus();
+            return true;
         }
         function updateDepositMethodUi() {
             const isPaypal=$('depositChannel').value==='paypal';
@@ -280,7 +300,7 @@
                     if(data.operation.status==='completed'){
                         depositSubmissionKey=crypto.randomUUID();$('paystackBankInstructions').hidden=true;$('depositAmount').value='';await loadWallet();setMessage('depositMessage',`Bank payment confirmed. ${money(data.operation.amount)} was added to your wallet.`);
                     }
-                }catch(error){if([409,502,503].includes(error.status))depositSubmissionKey=crypto.randomUUID();setMessage('depositMessage',error.message,true);}
+                }catch(error){if([409,502,503].includes(error.status))depositSubmissionKey=crypto.randomUUID();if(!switchToMpesaFallback(error.message))setMessage('depositMessage',error.message,true);}
                 finally{button.disabled=currentWallet?.status!=='active';}
                 return;
             }
