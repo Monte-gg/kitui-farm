@@ -45,12 +45,12 @@
     var style = document.createElement('style');
     style.id = 'kitui-update-styles';
     style.textContent = [
-      '.kitui-update-banner{position:sticky;top:0;z-index:2147483000;display:flex;align-items:center;justify-content:center;gap:14px;padding:10px 16px;background:#17472c;color:#fff2c7;box-shadow:0 2px 10px rgba(20,45,24,.18);font:600 15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}',
+      '.kitui-update-banner{position:fixed;top:max(10px,env(safe-area-inset-top));left:0;right:0;z-index:2147483000;box-sizing:border-box;width:100%;display:flex;align-items:center;justify-content:center;gap:14px;padding:10px 16px;background:#17472c;color:#fff2c7;box-shadow:0 3px 16px rgba(20,45,24,.24);font:600 15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}',
       '.kitui-update-banner[hidden]{display:none}',
-      '.kitui-update-banner__text{margin:0}',
-      '.kitui-update-banner__button{min-height:36px;padding:7px 14px;border:0;border-radius:8px;background:#fff2c7;color:#17472c;font:700 14px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer}',
+      '.kitui-update-banner__text{min-width:0;flex:1;margin:0}',
+      '.kitui-update-banner__button{flex:0 0 auto;min-height:40px;padding:8px 14px;border:0;border-radius:9px;background:#fff2c7;color:#17472c;font:700 14px/1.2 system-ui,-apple-system,"Segoe UI",sans-serif;white-space:nowrap;cursor:pointer}',
       '.kitui-update-banner__button:focus-visible{outline:3px solid #d77b20;outline-offset:2px}',
-      '@media(max-width:520px){.kitui-update-banner{justify-content:space-between;gap:10px;padding:9px 12px;font-size:14px}.kitui-update-banner__button{white-space:nowrap;padding:7px 10px;font-size:13px}}'
+      '@media(max-width:520px){.kitui-update-banner{left:12px;right:12px;width:auto;max-width:500px;margin-inline:auto;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;justify-content:initial;gap:10px;padding:11px 12px;border:1px solid rgba(255,242,199,.2);border-radius:13px;font-size:14px;line-height:1.35}.kitui-update-banner__text{overflow-wrap:normal}.kitui-update-banner__button{min-height:42px;padding:8px 11px;font-size:13px}}'
     ].join('\n');
     document.head.appendChild(style);
   }
