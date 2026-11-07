@@ -40,7 +40,7 @@ function paypalConfig({ requireRate = false } = {}) {
     const kesToUsdRate = Number(process.env.PAYPAL_KES_TO_USD_RATE);
     if (!clientId || !clientSecret) throw paypalError('PayPal is not configured yet. Add PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET in Render.', 503);
     if (requireRate && (!Number.isFinite(kesToUsdRate) || kesToUsdRate <= 0 || kesToUsdRate > 1000)) {
-        throw paypalError('PayPal withdrawals are temporarily unavailable until a valid KES-to-USD payout rate is configured in Render.', 503);
+        throw paypalError('PayPal wallet payments are temporarily unavailable until a valid KES-to-USD rate is configured in Render.', 503);
     }
     return { mode, clientId, clientSecret, kesToUsdRate };
 }
@@ -51,7 +51,7 @@ function paypalQuote(amountCents, rate) {
     return { currency: 'USD', amount: (usdCents / 100).toFixed(2), rate };
 }
 
-async function paypalRequest(endpoint, { method = 'GET', body, config = paypalConfig() } = {}) {
+async function paypalRequest(endpoint, { method = 'GET', body, config = paypalConfig(), requestId } = {}) {
     const origin = config.mode === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
     if (!paypalAccessToken || Date.now() >= paypalAccessTokenExpiresAt - 60_000) {
         const tokenResponse = await fetch(`${origin}/v1/oauth2/token`, {
@@ -77,7 +77,8 @@ async function paypalRequest(endpoint, { method = 'GET', body, config = paypalCo
         headers: {
             Authorization: `Bearer ${paypalAccessToken}`,
             'Content-Type': 'application/json',
-            ...(method === 'POST' ? { 'PayPal-Request-Id': body?.sender_batch_header?.sender_batch_id || '' } : {})
+            ...(method === 'POST' && (requestId || body?.sender_batch_header?.sender_batch_id)
+                ? { 'PayPal-Request-Id': requestId || body.sender_batch_header.sender_batch_id } : {})
         },
         ...(body ? { body: JSON.stringify(body) } : {}),
         signal: AbortSignal.timeout(20_000)
@@ -1989,7 +1990,7 @@ function createApp(options = {}) {
             if (method.kind === 'paypal') return res.status(400).json({ error: 'PayPal deposits are not enabled; use PayPal only for manual payout requests.' });
             channel = method.kind === 'mpesa' ? 'mpesa_stk_simulation' : method.kind === 'airtel' ? 'airtel_money' : 'bank_transfer';
             const details = JSON.parse(method.details_json || '{}');
-            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND status = 'pending'", [req.user.id]);
+            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND status IN ('pending', 'processing')", [req.user.id]);
             if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several deposits awaiting review. Wait for those to be resolved first.' });
             const id = crypto.randomUUID();
             const now = new Date().toISOString();
@@ -2012,10 +2013,155 @@ function createApp(options = {}) {
     app.get('/api/wallet/paypal-quote', auth, async (req, res) => {
         try {
             const cents = amountCents(req.query?.amount);
-            if (!cents) return res.status(400).json({ error: 'Enter a valid KES amount to see the PayPal payout estimate.' });
+            if (!cents) return res.status(400).json({ error: 'Enter a valid KES amount to see the PayPal estimate.' });
             const config = paypalConfig({ requireRate: true });
             res.json({ quote: paypalQuote(cents, config.kesToUsdRate) });
         } catch (error) { res.status(error.status || 503).json({ error: error.message }); }
+    });
+
+    app.get('/api/wallet/paypal/config', auth, async (req, res) => {
+        try {
+            const config = paypalConfig({ requireRate: true });
+            res.json({ clientId: config.clientId, mode: config.mode, currency: 'USD', kesToUsdRate: config.kesToUsdRate });
+        } catch (error) { res.status(error.status || 503).json({ error: error.message }); }
+    });
+
+    app.post('/api/wallet/paypal/deposits/order', auth, async (req, res, next) => {
+        const cents = amountCents(req.body?.amount);
+        const idempotencyKey = text(req.body?.idempotencyKey, 80);
+        if (!cents) return res.status(400).json({ error: 'Enter a wallet deposit amount from KES 0.01 to KES 1,000,000.00.' });
+        if (!/^[A-Za-z0-9-]{16,80}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Refresh the page and try the PayPal deposit again.' });
+        try {
+            await getActiveWallet(req.user.id);
+            const prior = await store.get('SELECT id, kind, amount_cents, status, channel, details_json, payment_reference, created_at FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
+            if (prior) {
+                const priorDetails = JSON.parse(prior.details_json || '{}');
+                if (prior.kind !== 'deposit' || prior.channel !== 'paypal' || Number(prior.amount_cents) !== cents) return res.status(409).json({ error: 'This deposit attempt was already used for a different request. Refresh and try again.' });
+                if (prior.status === 'completed') return res.json({ operation: { id: prior.id, status: prior.status, amount: cents / 100, captureReference: prior.payment_reference || '' } });
+                if (prior.status !== 'processing') return res.status(409).json({ error: 'This PayPal deposit is no longer active. Refresh the wallet and try again.' });
+                if (priorDetails.paypalOrderId) return res.json({ operation: { id: prior.id, status: prior.status, amount: cents / 100, orderId: priorDetails.paypalOrderId, quote: { currency: 'USD', amount: priorDetails.paypalDepositAmountUsd, rate: priorDetails.paypalKesToUsdRate } } });
+            }
+            const config = paypalConfig({ requireRate: true });
+            const priorDetails = prior ? JSON.parse(prior.details_json || '{}') : null;
+            const quote = priorDetails?.paypalDepositAmountUsd
+                ? { currency: 'USD', amount: String(priorDetails.paypalDepositAmountUsd), rate: Number(priorDetails.paypalKesToUsdRate) }
+                : paypalQuote(cents, config.kesToUsdRate);
+            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND status IN ('pending', 'processing')", [req.user.id]);
+            if (!prior && Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several deposits awaiting review or PayPal confirmation. Resolve those first.' });
+            const id = prior?.id || idempotencyKey;
+            const now = new Date().toISOString();
+            const details = prior ? priorDetails : {
+                paypalDepositAmountUsd: quote.amount,
+                paypalKesToUsdRate: quote.rate
+            };
+            if (!prior) {
+                await store.run(`INSERT INTO wallet_operations
+                    (id, user_id, kind, amount_cents, fee_cents, currency, channel, details_json, status, idempotency_key, created_at, updated_at)
+                    VALUES (?, ?, 'deposit', ?, 0, 'KES', 'paypal', ?, 'processing', ?, ?, ?)`,
+                [id, req.user.id, cents, JSON.stringify(details), idempotencyKey, now, now]);
+            }
+            let order;
+            try {
+                order = await paypalRequest('/v2/checkout/orders', {
+                    method: 'POST', config, requestId: id,
+                    body: {
+                        intent: 'CAPTURE',
+                        purchase_units: [{
+                            reference_id: id,
+                            custom_id: id,
+                            description: 'KITUI FARM wallet deposit',
+                            amount: { currency_code: 'USD', value: quote.amount }
+                        }],
+                        application_context: { shipping_preference: 'NO_SHIPPING', user_action: 'PAY_NOW' }
+                    }
+                });
+            } catch (error) {
+                // A retry with the same PayPal-Request-Id returns the same order,
+                // so a lost response cannot create an extra charge.
+                console.error('PayPal wallet deposit order creation failed', id, error.message);
+                return res.status(502).json({ error: 'PayPal could not start checkout. Retry this deposit; the same safe request will be reused.' });
+            }
+            if (!order.id) throw walletError('PayPal did not return a checkout order ID.', 502);
+            details.paypalOrderId = order.id;
+            await store.run(`UPDATE wallet_operations SET amount_cents = ?, details_json = ?, payment_reference = ?, updated_at = ? WHERE id = ? AND user_id = ? AND status = 'processing'`,
+                [cents, JSON.stringify(details), order.id, new Date().toISOString(), id, req.user.id]);
+            res.status(201).json({ operation: { id, status: 'processing', amount: cents / 100, orderId: order.id, quote } });
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
+    app.post('/api/wallet/paypal/deposits/:id/capture', auth, async (req, res, next) => {
+        try {
+            const operation = await store.get("SELECT * FROM wallet_operations WHERE id = ? AND user_id = ? AND kind = 'deposit' AND channel = 'paypal'", [text(req.params.id, 80), req.user.id]);
+            if (!operation) throw walletError('PayPal wallet deposit not found.', 404);
+            if (operation.status === 'completed') return res.json({ operation: { id: operation.id, status: 'completed', amount: Number(operation.amount_cents) / 100, captureReference: operation.payment_reference || '' } });
+            if (operation.status !== 'processing') throw walletError('This PayPal deposit is no longer awaiting capture.', 409);
+            const details = JSON.parse(operation.details_json || '{}');
+            const orderId = text(req.body?.orderId, 80);
+            if (!orderId || orderId !== details.paypalOrderId || orderId !== operation.payment_reference) throw walletError('The PayPal order does not match this wallet deposit.', 400);
+            const config = paypalConfig();
+            let capture;
+            try {
+                const captureRequestId = `c${operation.id.replaceAll('-', '')}`;
+                capture = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`, { method: 'POST', config, requestId: captureRequestId, body: {} });
+            } catch (error) {
+                // The payer may have completed checkout even if the first capture
+                // response was lost. Read the authoritative order before retrying.
+                const order = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(orderId)}`, { config }).catch(() => null);
+                if (order?.status === 'COMPLETED') capture = order;
+                else throw error;
+            }
+            const capturedUnit = capture.purchase_units?.find(unit => unit.reference_id === operation.id || unit.custom_id === operation.id) || capture.purchase_units?.[0];
+            const capturedPayment = capturedUnit?.payments?.captures?.find(item => item.status === 'COMPLETED') || capturedUnit?.payments?.captures?.[0];
+            const capturedAmount = capturedPayment?.amount;
+            if (capture.status !== 'COMPLETED' || capturedPayment?.status !== 'COMPLETED') {
+                return res.status(202).json({ operation: { id: operation.id, status: 'processing', providerStatus: capture.status || capturedPayment?.status || 'PENDING' }, message: 'PayPal is still processing this payment. The wallet has not been credited yet.' });
+            }
+            if (capturedAmount?.currency_code !== 'USD' || Number(capturedAmount?.value) !== Number(details.paypalDepositAmountUsd)) {
+                throw walletError('The captured PayPal amount does not match the wallet deposit. The wallet was not credited; contact customer service.', 409);
+            }
+            const now = new Date().toISOString();
+            await store.transaction(async () => {
+                const completed = await store.run(`UPDATE wallet_operations SET status = 'completed', payment_reference = ?, updated_at = ? WHERE id = ? AND user_id = ? AND status = 'processing'`, [capturedPayment.id || orderId, now, operation.id, req.user.id]);
+                if (!completed.changes) {
+                    const existing = await store.get("SELECT status FROM wallet_operations WHERE id = ?", [operation.id]);
+                    if (existing?.status === 'completed') return;
+                    throw walletError('The PayPal deposit could not be finalized. Contact customer service.', 409);
+                }
+                const credited = await store.run(`UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ? WHERE user_id = ? AND status = 'active' AND balance_cents <= ?`, [operation.amount_cents, now, req.user.id, 2147483647 - operation.amount_cents]);
+                if (!credited.changes) throw walletError('The PayPal payment succeeded, but the wallet could not accept the funds. Contact customer service.', 409);
+                await store.run(`INSERT INTO wallet_transactions
+                    (id, user_id, kind, event_type, amount_cents, reference_key, payment_reference, description, created_by, created_at, status, channel, operation_id)
+                    VALUES (?, ?, 'credit', 'deposit', ?, ?, ?, ?, ?, ?, 'completed', 'paypal', ?)`,
+                [crypto.randomUUID(), req.user.id, operation.amount_cents, `wallet-deposit:${operation.id}`, capturedPayment.id || orderId, 'Wallet deposit via PayPal', req.user.id, now, operation.id]);
+            });
+            res.json({ operation: { id: operation.id, status: 'completed', amount: Number(operation.amount_cents) / 100, captureReference: capturedPayment.id || orderId } });
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
+    app.post('/api/wallet/paypal/deposits/:id/cancel', auth, async (req, res, next) => {
+        try {
+            const operation = await store.get("SELECT * FROM wallet_operations WHERE id = ? AND user_id = ? AND kind = 'deposit' AND channel = 'paypal'", [text(req.params.id, 80), req.user.id]);
+            if (!operation) throw walletError('PayPal wallet deposit not found.', 404);
+            if (operation.status !== 'processing') return res.json({ operation: { id: operation.id, status: operation.status } });
+            const details = JSON.parse(operation.details_json || '{}');
+            if (!details.paypalOrderId) {
+                await store.run(`UPDATE wallet_operations SET status = 'failed', updated_at = ? WHERE id = ? AND user_id = ? AND status = 'processing'`, [new Date().toISOString(), operation.id, req.user.id]);
+                return res.json({ operation: { id: operation.id, status: 'failed' } });
+            }
+            const order = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(details.paypalOrderId)}`);
+            if (order.status !== 'CREATED') throw walletError('PayPal has already advanced this payment. The deposit was left open to protect your payment.', 409);
+            await store.run(`UPDATE wallet_operations SET status = 'failed', updated_at = ? WHERE id = ? AND user_id = ? AND status = 'processing'`, [new Date().toISOString(), operation.id, req.user.id]);
+            res.json({ operation: { id: operation.id, status: 'failed' } });
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
     });
 
     app.post('/api/wallet/withdrawals', auth, async (req, res, next) => {
@@ -2098,7 +2244,7 @@ function createApp(options = {}) {
                 JOIN users ON users.id = wallet_operations.user_id
                 JOIN wallet_accounts ON wallet_accounts.user_id = wallet_operations.user_id
                 WHERE wallet_operations.status = 'pending'
-                   OR (wallet_operations.status = 'processing' AND wallet_operations.channel = 'paypal')
+                   OR (wallet_operations.status = 'processing' AND wallet_operations.channel = 'paypal' AND wallet_operations.kind = 'withdrawal')
                 ORDER BY wallet_operations.created_at ASC LIMIT 100
             `);
             res.json({ requests: rows.map(row => ({
@@ -2246,7 +2392,7 @@ function createApp(options = {}) {
                 store.get(`SELECT COUNT(*) AS total FROM listings
                     WHERE quantity > 0 AND EXISTS (SELECT 1 FROM users WHERE users.id = listings.farmer_id AND users.role = 'farmer')`),
                 store.get('SELECT COUNT(*) AS total FROM orders'),
-                store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE status = 'pending'"),
+                store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE status IN ('pending', 'processing')"),
                 store.get('SELECT COUNT(*) AS total FROM wallet_admins')
             ]);
             res.json({ overview: {

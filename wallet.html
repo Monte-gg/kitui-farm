@@ -30,11 +30,13 @@
         <div class="grid" id="walletContent">
             <section class="card balance-card"><p class="label">Available balance</p><p class="balance" id="walletBalance">KES —</p><div class="wallet-meta"><span>Wallet ID: <strong id="walletId">Loading…</strong></span><span>Status: <strong id="walletStatus">—</strong></span></div><p class="hint">Internal wallet transfers and marketplace wallet payments update instantly.</p></section>
 
-            <section class="card"><h2>Add money</h2><p class="hint">Requests stay pending until an administrator verifies the payment. Make the payment using customer-service instructions, then enter its receipt. No real STK prompt or external charge is triggered on this page.</p>
-                <form id="depositForm"><div class="field"><label for="depositMethodId">Saved deposit method</label><select id="depositMethodId" required><option value="">Add a deposit method in Settings first</option></select><input id="depositChannel" type="hidden" value="mpesa_stk_simulation"></div>
+            <section class="card"><h2>Add money</h2><p class="hint">PayPal deposits use secure PayPal Checkout. The wallet is credited only after PayPal confirms the payment. M-Pesa, Airtel Money, and bank deposits still need a receipt and administrator verification.</p>
+                <form id="depositForm"><div class="field"><label for="depositMethodId">Deposit method</label><select id="depositMethodId" required><option value="">Choose a deposit method</option></select><input id="depositChannel" type="hidden" value=""></div>
                     <div class="field"><label for="depositAmount">Amount (KES)</label><input id="depositAmount" type="number" min="0.01" max="1000000" step="0.01" required></div>
-                    <p class="hint" id="phoneHint">Requests are manually verified. M-Pesa STK Push is not connected.</p>
-                    <div class="field"><label for="depositReference">Payment receipt/reference</label><input id="depositReference" maxlength="32" autocomplete="off" placeholder="e.g. QAB12CD34E" required><p class="hint">Enter the receipt from your payment message. The M-Pesa prompt is not connected yet.</p></div>
+                    <p class="hint" id="phoneHint">M-Pesa STK Push is not connected. Enter the receipt/reference after paying.</p>
+                    <p class="hint" id="depositQuote" hidden></p>
+                    <div class="field" id="depositReferenceField"><label for="depositReference">Payment receipt/reference</label><input id="depositReference" maxlength="32" autocomplete="off" placeholder="e.g. QAB12CD34E" required><p class="hint">Enter the receipt/reference from your payment message.</p></div>
+                    <div id="paypalDepositContainer" hidden></div>
                     <button class="button primary" id="depositButton" type="submit">Submit deposit request</button><p class="message" id="depositMessage" role="status" aria-live="polite"></p>
                 </form>
             </section>
@@ -68,6 +70,11 @@
         let withdrawalSubmissionKey = crypto.randomUUID();
         let transferSubmissionKey = crypto.randomUUID();
         let quoteRequestId = 0;
+        let depositQuoteRequestId = 0;
+        let activePaypalDepositId = '';
+        let paypalSdkPromise = null;
+        let paypalButtonsReady = false;
+        let paypalPublicConfig = null;
         const apiRequest = async (url, options = {}) => {
             const response = await fetch(url, { ...options, headers: { ...(options.body ? { 'Content-Type':'application/json' } : {}), ...options.headers } });
             let data = null; try { data = response.status === 204 ? null : await response.json(); } catch { data = null; }
@@ -86,10 +93,105 @@
             const deposits=methods.filter(item=>['deposit','both'].includes(item.useFor)&&item.kind!=='paypal');
             const withdrawals=methods.filter(item=>['withdrawal','both'].includes(item.useFor));
             const option=item=>`<option value="${escapeHtml(item.id)}" data-kind="${escapeHtml(item.kind)}">${escapeHtml(item.label)} · ${item.kind==='mpesa'?'M-Pesa':item.kind==='airtel'?'Airtel Money':item.kind==='paypal'?'PayPal':'Bank'}</option>`;
-            $('depositMethodId').innerHTML=deposits.length?'<option value="">Choose a saved method</option>'+deposits.map(option).join(''):'<option value="">No deposit methods — add one in Settings</option>';
+            $('depositMethodId').innerHTML='<option value="">Choose a deposit method</option>'+deposits.map(option).join('')+'<option value="paypal" data-kind="paypal">PayPal · secure checkout</option>';
             $('withdrawMethodId').innerHTML=withdrawals.length?'<option value="">Choose a payout destination</option>'+withdrawals.map(option).join(''):'<option value="">No payout methods — add one in Settings</option>';
-            $('depositMethodId').onchange=()=>{$('depositChannel').value=({mpesa:'mpesa_stk_simulation',airtel:'airtel_money',bank:'bank_transfer'})[$('depositMethodId').selectedOptions[0]?.dataset.kind]||'';};
+            $('depositMethodId').onchange=()=>{
+                const kind=$('depositMethodId').selectedOptions[0]?.dataset.kind||'';
+                $('depositChannel').value=kind==='paypal'?'paypal':({mpesa:'mpesa_stk_simulation',airtel:'airtel_money',bank:'bank_transfer'})[kind]||'';
+                updateDepositMethodUi();
+            };
             $('withdrawMethodId').onchange=()=>{$('withdrawChannel').value=$('withdrawMethodId').selectedOptions[0]?.dataset.kind||''; updatePayPalQuote();};
+        }
+        function updateDepositMethodUi() {
+            const isPaypal=$('depositChannel').value==='paypal';
+            $('depositReferenceField').hidden=isPaypal;
+            $('depositReference').required=!isPaypal;
+            $('depositButton').hidden=isPaypal;
+            $('paypalDepositContainer').hidden=!isPaypal;
+            $('depositQuote').hidden=!isPaypal;
+            $('phoneHint').textContent=isPaypal?'Pay securely with PayPal. The amount is converted to USD using the rate shown below.':'M-Pesa STK Push is not connected. Enter the receipt/reference after paying.';
+            if(isPaypal){updatePaypalDepositQuote();renderPaypalButtons().catch(error=>setMessage('depositMessage',error.message,true));}
+        }
+        async function updatePaypalDepositQuote() {
+            const output=$('depositQuote');
+            if($('depositChannel').value!=='paypal')return;
+            const amount=$('depositAmount').value;
+            if(!amount){output.textContent='Enter an amount to see the PayPal checkout total in USD.';return;}
+            const requestId=++depositQuoteRequestId;
+            output.textContent='Calculating PayPal checkout total…';
+            try{
+                const result=await apiRequest(`/api/wallet/paypal-quote?amount=${encodeURIComponent(amount)}`);
+                if(requestId!==depositQuoteRequestId||$('depositChannel').value!=='paypal')return;
+                output.textContent=`PayPal will charge USD ${Number(result.quote.amount).toFixed(2)} for a KES ${Number(amount).toLocaleString('en-KE',{minimumFractionDigits:2,maximumFractionDigits:2})} wallet deposit at KES 1 = USD ${Number(result.quote.rate).toFixed(6)}. PayPal may apply its own fees.`;
+            }catch(error){if(requestId===depositQuoteRequestId)output.textContent=error.message;}
+        }
+        async function loadPaypalSdk() {
+            if(window.paypal)return;
+            if(!paypalSdkPromise){
+                paypalSdkPromise=(async()=>{
+                    paypalPublicConfig=await apiRequest('/api/wallet/paypal/config');
+                    await new Promise((resolve,reject)=>{
+                        const script=document.createElement('script');
+                        script.src=`https://www.paypal.com/sdk/js?client-id=${encodeURIComponent(paypalPublicConfig.clientId)}&currency=USD&intent=capture&components=buttons`;
+                        script.async=true;script.onload=resolve;script.onerror=()=>reject(new Error('Could not load PayPal Checkout. Check your connection and try again.'));
+                        document.head.appendChild(script);
+                    });
+                })().catch(error=>{paypalSdkPromise=null;throw error;});
+            }
+            await paypalSdkPromise;
+        }
+        async function renderPaypalButtons() {
+            if(paypalButtonsReady||$('depositChannel').value!=='paypal')return;
+            await loadPaypalSdk();
+            if($('depositChannel').value!=='paypal'||!window.paypal)return;
+            paypalButtonsReady=true;
+            $('paypalDepositContainer').replaceChildren();
+            try{
+                await window.paypal.Buttons({
+                    style:{layout:'vertical',shape:'rect',label:'paypal'},
+                    createOrder:async()=>{
+                        const amount=$('depositAmount').value;
+                        if(!amount||Number(amount)<=0)throw new Error('Enter a valid KES deposit amount first.');
+                        $('depositAmount').disabled=true;
+                        setMessage('depositMessage','Starting secure PayPal checkout…');
+                        let result;
+                        try{result=await apiRequest('/api/wallet/paypal/deposits/order',{method:'POST',body:JSON.stringify({amount,idempotencyKey:depositSubmissionKey})});}
+                        catch(error){$('depositAmount').disabled=false;throw error;}
+                        if(result.operation.status==='completed'){$('depositAmount').disabled=false;throw new Error('This deposit was already completed. Refresh your wallet balance.');}
+                        activePaypalDepositId=result.operation.id;
+                        return result.operation.orderId;
+                    },
+                    onApprove:async(data)=>{
+                        if(!activePaypalDepositId){setMessage('depositMessage','This checkout could not be matched to a wallet deposit. Refresh the wallet and try again.',true);return;}
+                        setMessage('depositMessage','Confirming payment with PayPal…');
+                        try{
+                            const result=await apiRequest(`/api/wallet/paypal/deposits/${encodeURIComponent(activePaypalDepositId)}/capture`,{method:'POST',body:JSON.stringify({orderId:data.orderID})});
+                            if(result.operation.status!=='completed'){setMessage('depositMessage','PayPal is still processing the payment. The wallet has not been credited yet.');return;}
+                            const success=`PayPal deposit completed. ${money(result.operation.amount)} was added to your wallet.`;
+                            depositSubmissionKey=crypto.randomUUID();activePaypalDepositId='';paypalButtonsReady=false;
+                            $('depositAmount').value='';$('depositAmount').disabled=false;$('paypalDepositContainer').replaceChildren();
+                            await loadWallet();setMessage('depositMessage',success);
+                            if($('depositChannel').value==='paypal')renderPaypalButtons().catch(error=>setMessage('depositMessage',error.message,true));
+                        }catch(error){setMessage('depositMessage',error.message||'PayPal could not confirm this deposit. You can retry the confirmation.',true);}
+                    },
+                    onCancel:async()=>{
+                        const operationId=activePaypalDepositId;
+                        if(!operationId){depositSubmissionKey=crypto.randomUUID();$('depositAmount').disabled=false;setMessage('depositMessage','PayPal checkout was cancelled. Your wallet was not charged.');return;}
+                        try{
+                            const result=await apiRequest(`/api/wallet/paypal/deposits/${encodeURIComponent(operationId)}/cancel`,{method:'POST',body:'{}'});
+                            if(result.operation.status==='failed'){
+                                activePaypalDepositId='';depositSubmissionKey=crypto.randomUUID();$('depositAmount').disabled=false;
+                                setMessage('depositMessage','PayPal checkout was cancelled. Your wallet was not charged. You can start another deposit.');
+                            }else setMessage('depositMessage','PayPal has not confirmed cancellation. Keep this amount and reopen PayPal Checkout to finish or contact customer service.');
+                        }catch(error){setMessage('depositMessage',error.message||'Could not confirm the PayPal checkout status. The deposit remains open and your wallet has not been credited.');}
+                    },
+                    onError:error=>{
+                        console.error('PayPal wallet deposit checkout error',error);
+                        if(!activePaypalDepositId)$('depositAmount').disabled=false;
+                        setMessage('depositMessage','PayPal checkout could not finish. If you approved payment, retry and the app will verify it before crediting your wallet.',true);
+                    }
+                }).render('#paypalDepositContainer');
+            }catch(error){paypalButtonsReady=false;throw error;}
         }
         async function updatePayPalQuote() {
             const output = $('paypalQuote');
@@ -145,11 +247,13 @@
         $('depositForm').addEventListener('submit', async event => {
             event.preventDefault(); const form = event.currentTarget; const button = $('depositButton'); button.disabled = true; setMessage('depositMessage','Submitting deposit request…');
             const channel = $('depositChannel').value;
+            if(channel==='paypal'){button.disabled=false;setMessage('depositMessage','Use the PayPal Checkout button above to complete this deposit.');return;}
             const body = { amount:$('depositAmount').value, channel, paymentReference:$('depositReference').value.trim(), idempotencyKey:depositSubmissionKey };
             body.paymentMethodId=$('depositMethodId').value;
             try { const data = await apiRequest('/api/wallet/deposits',{method:'POST',body:JSON.stringify(body)}); const success=`Request ${data.operation.id.slice(0,8)} submitted as pending. Funds appear after admin verification.`; depositSubmissionKey=crypto.randomUUID();form.reset(); try { await loadWallet(); setMessage('depositMessage',success); } catch { setMessage('depositMessage',`${success} Your wallet summary could not refresh; use Refresh to reload it.`); } }
             catch(error){setMessage('depositMessage',error.message,true);} finally{button.disabled=currentWallet?.status!=='active';}
         });
+        $('depositAmount').addEventListener('input',updatePaypalDepositQuote);
         $('recipientForm').addEventListener('submit', async event => {
             event.preventDefault(); checkedRecipient = null; $('recipientPreview').textContent = 'Checking recipient…';
             try { const data = await apiRequest(`/api/wallet/recipient?identifier=${encodeURIComponent($('recipient').value.trim())}`); checkedRecipient=data.recipient; $('recipientPreview').textContent=`Sending to ${data.recipient.name} · ${data.recipient.walletId}. Check the name before proceeding.`; }
