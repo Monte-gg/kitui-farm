@@ -247,7 +247,7 @@
         <section class="panel" id="wallet-approvals" data-admin-view hidden aria-labelledby="approvalHeading">
             <div class="view-heading"><p class="eyebrow">Wallet management</p><h1>Wallet operations</h1><p class="intro">Review pending deposits and withdrawals.</p></div>
             <div class="panel-head"><div><h2 id="approvalHeading">Wallet operation approvals</h2><p class="muted">Verify deposits and process requested payouts. Internal wallet transfers complete automatically.</p></div><span class="count" id="pendingCount" aria-label="Pending requests">—</span></div>
-            <p class="notice">Verify a deposit receipt before crediting the wallet. Mark a withdrawal complete only after sending the payout through the selected external service.</p>
+            <p class="notice">Verify deposit receipts before crediting wallets. Approving a PayPal withdrawal sends the USD payout to the saved email; use “Check PayPal status” until it succeeds or fails. Other withdrawals remain manual.</p>
             <p class="status" id="status" role="status" aria-live="polite">Checking admin access…</p>
             <div id="requestList" aria-label="Pending wallet operations"></div>
         </section>
@@ -462,22 +462,27 @@
         async function loadRequests() {
             const data = await apiRequest('/api/wallet/admin/operations');
             const list = document.getElementById('requestList');
-            document.getElementById('pendingCount').textContent = data.requests.length;
-            document.getElementById('menuPendingCount').textContent = data.requests.length;
-            document.getElementById('sidebarPendingCount').textContent = data.requests.length;
-            setStatus(data.requests.length ? `${data.requests.length} request${data.requests.length === 1 ? '' : 's'} need review.` : 'You’re signed in as an administrator. There are no pending wallet operations.');
+            const awaitingReview = data.requests.filter(item => item.status === 'pending').length;
+            document.getElementById('pendingCount').textContent = awaitingReview;
+            document.getElementById('menuPendingCount').textContent = awaitingReview;
+            document.getElementById('sidebarPendingCount').textContent = awaitingReview;
+            const processing = data.requests.length - awaitingReview;
+            setStatus(awaitingReview || processing ? `${awaitingReview} request${awaitingReview === 1 ? '' : 's'} need review; ${processing} PayPal payout${processing === 1 ? '' : 's'} awaiting confirmation.` : 'You’re signed in as an administrator. There are no pending wallet operations.');
             list.innerHTML = data.requests.map(item => {
                 const details = item.details || {};
                 const deposit = item.type === 'deposit';
                 const method = item.channel === 'mpesa_stk_simulation' ? 'M-Pesa (simulation)' : item.channel === 'airtel_money' || item.channel === 'airtel' ? 'Airtel Money' : item.channel === 'bank_transfer' || item.channel === 'bank' ? 'Bank transfer' : item.channel;
-                const destination = details.phone || [details.accountName, details.accountNumber, details.bankName, details.branch].filter(Boolean).join(' · ');
-                return `<article class="request"><div><h3>${escapeHtml(item.name)} · ${money(item.amount)} · ${deposit ? 'Deposit' : 'Withdrawal'}</h3>
+                const destination = details.email || details.phone || [details.accountName, details.accountNumber, details.bankName, details.branch].filter(Boolean).join(' · ');
+                const paypalProcessing = item.channel === 'paypal' && item.status === 'processing';
+                const paypalAmount = details.paypalPayoutAmountUsd ? ` · PayPal payout: USD ${escapeHtml(details.paypalPayoutAmountUsd)}` : '';
+                return `<article class="request"><div><h3>${escapeHtml(item.name)} · ${money(item.amount)} · ${deposit ? 'Deposit' : 'Withdrawal'}${paypalProcessing ? ' · PayPal processing' : ''}</h3>
                 <p>${escapeHtml(item.email)} · ${escapeHtml(item.phone)} · Wallet ${escapeHtml(item.walletId)}</p>
                 <p>Method: <strong>${escapeHtml(method)}</strong>${destination ? ` · ${escapeHtml(destination)}` : ''}</p>
-                ${deposit ? `<p>Payment reference: <strong>${escapeHtml(item.paymentReference || 'Not provided')}</strong>${details.bankName ? ` · Bank: ${escapeHtml(details.bankName)}` : ''}</p>` : `<p>Reserved payout amount. Fee: ${money(item.fee)}.</p>`}
+                ${deposit ? `<p>Payment reference: <strong>${escapeHtml(item.paymentReference || 'Not provided')}</strong>${details.bankName ? ` · Bank: ${escapeHtml(details.bankName)}` : ''}</p>` : `<p>${paypalProcessing ? 'Wallet amount reserved; waiting for PayPal confirmation.' : 'Reserved payout amount.'} Fee: ${money(item.fee)}${paypalAmount}.</p>`}
+                ${item.paymentReference ? `<p>PayPal batch reference: <strong>${escapeHtml(item.paymentReference)}</strong></p>` : ''}
                 <p>Submitted ${new Date(item.createdAt).toLocaleString('en-KE')}</p></div>
-                <div class="actions"><button class="button approve" data-review="approve" data-type="${escapeHtml(item.type)}" data-id="${escapeHtml(item.id)}">${deposit ? 'Verify &amp; credit' : 'Mark payout sent'}</button>
-                <button class="button reject" data-review="reject" data-type="${escapeHtml(item.type)}" data-id="${escapeHtml(item.id)}">${deposit ? 'Reject deposit' : 'Reject &amp; refund'}</button></div></article>`;
+                <div class="actions">${paypalProcessing ? `<button class="button approve" data-sync-paypal="${escapeHtml(item.id)}">Check PayPal status</button>` : `<button class="button approve" data-review="approve" data-type="${escapeHtml(item.type)}" data-channel="${escapeHtml(item.channel)}" data-id="${escapeHtml(item.id)}">${deposit ? 'Verify &amp; credit' : item.channel === 'paypal' ? 'Send PayPal payout' : 'Mark payout sent'}</button>
+                <button class="button reject" data-review="reject" data-type="${escapeHtml(item.type)}" data-id="${escapeHtml(item.id)}">${deposit ? 'Reject deposit' : 'Reject &amp; refund'}</button>`}</div></article>`;
             }).join('');
         }
         const moreMenu = document.getElementById('moreMenu');
@@ -540,13 +545,24 @@
             const button = event.target.closest('button[data-review]'); if (!button) return;
             const approval = button.dataset.review === 'approve';
             const isDeposit = button.dataset.type === 'deposit';
-            if (!window.confirm(approval ? (isDeposit ? 'Confirm you verified the external deposit and want to credit this wallet?' : 'Confirm you sent the external payout and want to mark this withdrawal complete?') : (isDeposit ? 'Reject this deposit request?' : 'Reject this withdrawal and return the reserved amount to the wallet?'))) return;
+            const isPaypal = button.dataset.channel === 'paypal';
+            if (!window.confirm(approval ? (isDeposit ? 'Confirm you verified the external deposit and want to credit this wallet?' : isPaypal ? 'Send the reserved withdrawal to the saved PayPal email now? PayPal may charge fees and conversion costs.' : 'Confirm you sent the external payout and want to mark this withdrawal complete?') : (isDeposit ? 'Reject this deposit request?' : 'Reject this withdrawal and return the reserved amount to the wallet?'))) return;
             button.disabled = true;
             try {
-                await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.id)}/review`, { method:'POST', body:JSON.stringify({ decision:button.dataset.review }) });
-                setStatus(approval ? (isDeposit ? 'Deposit verified and wallet credited.' : 'Withdrawal marked as paid.') : (isDeposit ? 'Deposit request rejected.' : 'Withdrawal rejected and funds refunded.'));
+                const result = await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.id)}/review`, { method:'POST', body:JSON.stringify({ decision:button.dataset.review }) });
+                setStatus(approval ? (isDeposit ? 'Deposit verified and wallet credited.' : isPaypal ? `PayPal payout started. Provider status: ${result.operation.providerStatus || 'processing'}.` : 'Withdrawal marked as paid.') : (isDeposit ? 'Deposit request rejected.' : 'Withdrawal rejected and funds refunded.'));
                 await loadRequests();
             } catch (error) { setStatus(error.message, true); button.disabled = false; }
+        });
+        document.getElementById('requestList').addEventListener('click', async event => {
+            const button = event.target.closest('button[data-sync-paypal]'); if (!button) return;
+            button.disabled = true;
+            try {
+                const result = await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.syncPaypal)}/sync-paypal`, { method:'POST', body:'{}' });
+                const payoutStatus = result.operation.providerStatus || result.operation.status;
+                setStatus(`PayPal payout status: ${payoutStatus}. ${result.operation.status === 'completed' ? 'The wallet withdrawal is complete.' : result.operation.status === 'failed' ? 'The reserved wallet amount has been returned.' : 'The wallet amount remains reserved while PayPal processes it.'}`);
+                await loadRequests();
+            } catch (error) { setStatus(error.message || 'Could not check the PayPal payout.', true); button.disabled = false; }
         });
         loadRequests().catch(error => {
             document.getElementById('pendingCount').textContent = '—';
@@ -558,6 +574,7 @@
                 document.getElementById('requestList').replaceChildren(link);
             }
         });
+        window.setInterval(() => { if (!document.hidden) loadRequests().catch(() => {}); }, 30_000);
         document.getElementById('refreshAccountsButton').addEventListener('click', () => loadDashboard().catch(() => {}));
         document.getElementById('refreshAdminsButton').addEventListener('click', () => loadDashboard().catch(() => {}));
         document.getElementById('refreshOverviewButton').addEventListener('click', () => loadDashboard().catch(() => {}));

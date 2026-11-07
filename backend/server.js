@@ -18,11 +18,124 @@ const CATEGORIES = new Set(['Fruits', 'Vegetables', 'Grains & Pulses', 'Roots & 
 const PAYMENT_METHODS = new Set([
     'KITUI FARM Wallet'
 ]);
+let paypalAccessToken = '';
+let paypalAccessTokenExpiresAt = 0;
 const PAGES = [
     'about-us.html', 'admin-register.html', 'admin-signin.html', 'buyer-dashboard.html', 'chat.html', 'customer-service.html', 'email-verify.html', 'farmer-dashboard.html', 'farmer-store.html',
     'forgot-password.html', 'index.html', 'login.html', 'payment.html', 'profile.html', 'receipt.html', 'receipts.html',
     'settings.html', 'signup.html', 'wallet.html'
 ];
+
+function paypalError(message, status) {
+    const error = new Error(message);
+    error.status = status;
+    return error;
+}
+
+function paypalConfig({ requireRate = false } = {}) {
+    const mode = String(process.env.PAYPAL_MODE || 'sandbox').trim().toLowerCase();
+    if (!['sandbox', 'live'].includes(mode)) throw paypalError('PAYPAL_MODE must be set to sandbox or live.', 503);
+    const clientId = String(process.env.PAYPAL_CLIENT_ID || '').trim();
+    const clientSecret = String(process.env.PAYPAL_CLIENT_SECRET || '').trim();
+    const kesToUsdRate = Number(process.env.PAYPAL_KES_TO_USD_RATE);
+    if (!clientId || !clientSecret) throw paypalError('PayPal is not configured yet. Add PAYPAL_CLIENT_ID and PAYPAL_CLIENT_SECRET in Render.', 503);
+    if (requireRate && (!Number.isFinite(kesToUsdRate) || kesToUsdRate <= 0 || kesToUsdRate > 1000)) {
+        throw paypalError('PayPal withdrawals are temporarily unavailable until a valid KES-to-USD payout rate is configured in Render.', 503);
+    }
+    return { mode, clientId, clientSecret, kesToUsdRate };
+}
+
+function paypalQuote(amountCents, rate) {
+    const usdCents = Math.round((amountCents / 100) * rate * 100);
+    if (usdCents < 1) throw paypalError('This KES amount is too small for a PayPal payout at the current rate.', 400);
+    return { currency: 'USD', amount: (usdCents / 100).toFixed(2), rate };
+}
+
+async function paypalRequest(endpoint, { method = 'GET', body, config = paypalConfig() } = {}) {
+    const origin = config.mode === 'live' ? 'https://api-m.paypal.com' : 'https://api-m.sandbox.paypal.com';
+    if (!paypalAccessToken || Date.now() >= paypalAccessTokenExpiresAt - 60_000) {
+        const tokenResponse = await fetch(`${origin}/v1/oauth2/token`, {
+            method: 'POST',
+            headers: {
+                Authorization: `Basic ${Buffer.from(`${config.clientId}:${config.clientSecret}`).toString('base64')}`,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: 'grant_type=client_credentials',
+            signal: AbortSignal.timeout(15_000)
+        });
+        const tokenData = await tokenResponse.json().catch(() => ({}));
+        if (!tokenResponse.ok || !tokenData.access_token) {
+            paypalAccessToken = '';
+            paypalAccessTokenExpiresAt = 0;
+            throw paypalError('PayPal could not authorize this payout. Check the PayPal API credentials and Payouts access in Render.', 502);
+        }
+        paypalAccessToken = tokenData.access_token;
+        paypalAccessTokenExpiresAt = Date.now() + Number(tokenData.expires_in || 300) * 1000;
+    }
+    const response = await fetch(`${origin}${endpoint}`, {
+        method,
+        headers: {
+            Authorization: `Bearer ${paypalAccessToken}`,
+            'Content-Type': 'application/json',
+            ...(method === 'POST' ? { 'PayPal-Request-Id': body?.sender_batch_header?.sender_batch_id || '' } : {})
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(20_000)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const error = new Error(String(data.message || 'PayPal could not process this payout.'));
+        error.status = response.status;
+        error.paypalData = data;
+        throw error;
+    }
+    return data;
+}
+
+async function createOrRecoverPayPalPayout(operation) {
+    const details = JSON.parse(operation.details_json || '{}');
+    const config = paypalConfig({ requireRate: !details.paypalPayoutAmountUsd });
+    const paypalEmail = details.email || details.paypalEmail;
+    if (!paypalEmail || !/^\S+@\S+\.\S+$/.test(paypalEmail)) throw paypalError('The saved PayPal payout email is missing or invalid.', 400);
+    const quote = details.paypalPayoutAmountUsd
+        ? { currency: 'USD', amount: String(details.paypalPayoutAmountUsd), rate: Number(details.paypalKesToUsdRate) }
+        : paypalQuote(Number(operation.amount_cents), config.kesToUsdRate);
+    const senderBatchId = operation.id;
+    try {
+        return await paypalRequest('/v1/payments/payouts', {
+            method: 'POST', config,
+            body: {
+                sender_batch_header: {
+                    sender_batch_id: senderBatchId,
+                    recipient_type: 'EMAIL',
+                    email_subject: 'Your KITUI FARM wallet withdrawal',
+                    email_message: 'Your KITUI FARM wallet payout has been sent. PayPal may ask you to accept it.'
+                },
+                items: [{
+                    recipient_type: 'EMAIL',
+                    amount: { value: quote.amount, currency: quote.currency },
+                    receiver: paypalEmail,
+                    sender_item_id: operation.id,
+                    note: `KITUI FARM wallet withdrawal ${operation.id.slice(0, 8)}`
+                }]
+            }
+        });
+    } catch (error) {
+        // A timed-out request may have reached PayPal. Reuse the stable batch id;
+        // PayPal prevents duplicate payouts and returns a link to the first batch.
+        const duplicateLink = error.paypalData?.links?.find(link => /payout/i.test(`${link.rel} ${link.href}`));
+        if (!duplicateLink?.href) throw error;
+        const match = duplicateLink.href.match(/\/v1\/payments\/payouts\/([^/?]+)/);
+        if (!match) throw error;
+        return paypalRequest(`/v1/payments/payouts/${encodeURIComponent(match[1])}`, { config });
+    }
+}
+
+function isDefinitivePayPalRejection(error) {
+    if (!error?.status || error.status < 400 || error.status >= 500) return false;
+    const description = JSON.stringify(error.paypalData || {}).toLowerCase();
+    return !description.includes('duplicate') && !description.includes('sender_batch_id');
+}
 
 // ---------------------------------------------------------------------------
 // Data stores
@@ -1896,6 +2009,15 @@ function createApp(options = {}) {
         }
     });
 
+    app.get('/api/wallet/paypal-quote', auth, async (req, res) => {
+        try {
+            const cents = amountCents(req.query?.amount);
+            if (!cents) return res.status(400).json({ error: 'Enter a valid KES amount to see the PayPal payout estimate.' });
+            const config = paypalConfig({ requireRate: true });
+            res.json({ quote: paypalQuote(cents, config.kesToUsdRate) });
+        } catch (error) { res.status(error.status || 503).json({ error: error.message }); }
+    });
+
     app.post('/api/wallet/withdrawals', auth, async (req, res, next) => {
         const cents = amountCents(req.body?.amount);
         const methodId = text(req.body?.paymentMethodId, 80);
@@ -1910,7 +2032,13 @@ function createApp(options = {}) {
             const method = await ownedPaymentMethod(req.user.id, methodId, 'withdrawal');
             channel = method.kind;
             const details = JSON.parse(method.details_json || '{}');
-            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'withdrawal' AND status = 'pending'", [req.user.id]);
+            if (channel === 'paypal') {
+                const config = paypalConfig({ requireRate: true });
+                const quote = paypalQuote(cents, config.kesToUsdRate);
+                details.paypalPayoutAmountUsd = quote.amount;
+                details.paypalKesToUsdRate = quote.rate;
+            }
+            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'withdrawal' AND status IN ('pending', 'processing')", [req.user.id]);
             if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several withdrawals awaiting review. Wait for those to be resolved first.' });
             const id = crypto.randomUUID();
             const now = new Date().toISOString();
@@ -1970,6 +2098,7 @@ function createApp(options = {}) {
                 JOIN users ON users.id = wallet_operations.user_id
                 JOIN wallet_accounts ON wallet_accounts.user_id = wallet_operations.user_id
                 WHERE wallet_operations.status = 'pending'
+                   OR (wallet_operations.status = 'processing' AND wallet_operations.channel = 'paypal')
                 ORDER BY wallet_operations.created_at ASC LIMIT 100
             `);
             res.json({ requests: rows.map(row => ({
@@ -1985,6 +2114,29 @@ function createApp(options = {}) {
         const decision = text(req.body?.decision, 12);
         if (!['approve', 'reject'].includes(decision)) return res.status(400).json({ error: 'Choose approve or reject.' });
         try {
+            const current = await store.get('SELECT * FROM wallet_operations WHERE id = ?', [req.params.id]);
+            if (!current) throw walletError('Wallet request not found.', 404);
+            if (current.kind === 'withdrawal' && current.channel === 'paypal' && decision === 'approve') {
+                // Validate credentials before changing state. Once claimed, a timed-out
+                // provider request stays processing and is safely recoverable by batch ID.
+                paypalConfig();
+                const now = new Date().toISOString();
+                const claimed = await store.run(`UPDATE wallet_operations SET status = 'processing', reviewed_by = ?, reviewed_at = ?, updated_at = ? WHERE id = ? AND status = 'pending'`, [req.user.id, now, now, current.id]);
+                if (!claimed.changes) throw walletError('This wallet request has already been reviewed.', 409);
+                try {
+                    const payout = await createOrRecoverPayPalPayout(current);
+                    const batchId = payout.batch_header?.payout_batch_id || payout.payout_batch_id || '';
+                    if (batchId) await store.run(`UPDATE wallet_operations SET payment_reference = ?, updated_at = ? WHERE id = ? AND status = 'processing'`, [batchId, new Date().toISOString(), current.id]);
+                    return res.json({ operation: { id: current.id, type: current.kind, status: 'processing', paymentReference: batchId, providerStatus: payout.batch_header?.batch_status || 'PENDING' } });
+                } catch (error) {
+                    console.error('PayPal payout submission failed for wallet operation', current.id, error.message);
+                    if (isDefinitivePayPalRejection(error)) {
+                        await store.run(`UPDATE wallet_operations SET status = 'pending', reviewed_by = NULL, reviewed_at = NULL, updated_at = ? WHERE id = ? AND status = 'processing' AND payment_reference IS NULL`, [new Date().toISOString(), current.id]);
+                        return res.status(502).json({ error: 'PayPal rejected the payout before accepting it. The request is back in the pending list so you can fix the PayPal setup or reject and refund it.' });
+                    }
+                    return res.status(502).json({ error: 'PayPal has not confirmed the payout request. It remains in processing so an administrator can safely retry or check its status.' });
+                }
+            }
             let reviewedOperation;
             await store.transaction(async () => {
                 const operation = await store.get('SELECT * FROM wallet_operations WHERE id = ?', [req.params.id]);
@@ -2030,6 +2182,56 @@ function createApp(options = {}) {
             });
             res.json({ operation: reviewedOperation });
         } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
+    app.post('/api/wallet/admin/operations/:id/sync-paypal', auth, walletAdmin, async (req, res, next) => {
+        try {
+            const operation = await store.get("SELECT * FROM wallet_operations WHERE id = ? AND kind = 'withdrawal' AND channel = 'paypal'", [req.params.id]);
+            if (!operation) throw walletError('PayPal withdrawal request not found.', 404);
+            if (operation.status !== 'processing') throw walletError('This PayPal payout is not awaiting confirmation.', 409);
+            let payout;
+            const knownBatchId = operation.payment_reference;
+            if (knownBatchId) {
+                payout = await paypalRequest(`/v1/payments/payouts/${encodeURIComponent(knownBatchId)}`);
+            } else {
+                payout = await createOrRecoverPayPalPayout(operation);
+                const batchId = payout.batch_header?.payout_batch_id || payout.payout_batch_id;
+                if (!batchId) throw walletError('PayPal has not returned a payout batch ID yet. Try checking again shortly.', 502);
+                await store.run(`UPDATE wallet_operations SET payment_reference = ?, updated_at = ? WHERE id = ? AND status = 'processing'`, [batchId, new Date().toISOString(), operation.id]);
+                payout = await paypalRequest(`/v1/payments/payouts/${encodeURIComponent(batchId)}`);
+            }
+            const header = payout.batch_header || {};
+            const item = (payout.items || []).find(candidate => candidate.payout_item?.sender_item_id === operation.id || candidate.sender_item_id === operation.id) || payout.items?.[0];
+            const providerStatus = String(item?.transaction_status || header.batch_status || 'PENDING').toUpperCase();
+            if (providerStatus === 'SUCCESS') {
+                await store.transaction(async () => {
+                    const changed = await store.run(`UPDATE wallet_operations SET status = 'completed', updated_at = ? WHERE id = ? AND status = 'processing'`, [new Date().toISOString(), operation.id]);
+                    if (changed.changes) await store.run(`UPDATE wallet_transactions SET status = 'completed', payment_reference = ? WHERE operation_id = ? AND event_type = 'withdrawal' AND status = 'pending'`, [header.payout_batch_id || operation.payment_reference, operation.id]);
+                });
+                return res.json({ operation: { id: operation.id, status: 'completed', providerStatus, paymentReference: header.payout_batch_id || operation.payment_reference } });
+            }
+            const failed = ['FAILED', 'RETURNED', 'BLOCKED', 'REFUNDED', 'CANCELED'].includes(providerStatus) || ['DENIED', 'CANCELED'].includes(header.batch_status);
+            if (failed) {
+                await store.transaction(async () => {
+                    const now = new Date().toISOString();
+                    const changed = await store.run(`UPDATE wallet_operations SET status = 'failed', updated_at = ? WHERE id = ? AND status = 'processing'`, [now, operation.id]);
+                    if (!changed.changes) return;
+                    const credited = await store.run(`UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ? WHERE user_id = ? AND status = 'active' AND balance_cents <= ?`, [operation.amount_cents, now, operation.user_id, 2147483647 - operation.amount_cents]);
+                    if (!credited.changes) throw walletError('The PayPal payout failed, but the wallet could not be refunded automatically. Contact support.', 409);
+                    await store.run("UPDATE wallet_transactions SET status = 'failed' WHERE operation_id = ? AND event_type = 'withdrawal' AND status = 'pending'", [operation.id]);
+                    await store.run(`INSERT INTO wallet_transactions (id, user_id, kind, event_type, amount_cents, reference_key, payment_reference, description, created_by, created_at, status, channel, operation_id) VALUES (?, ?, 'credit', 'refund', ?, ?, ?, ?, ?, ?, 'completed', 'internal', ?)`, [crypto.randomUUID(), operation.user_id, operation.amount_cents, `wallet-withdrawal-refund:${operation.id}`, header.payout_batch_id || operation.payment_reference, 'Automatic wallet refund after PayPal payout failure', req.user.id, now, operation.id]);
+                });
+                return res.json({ operation: { id: operation.id, status: 'failed', providerStatus, paymentReference: header.payout_batch_id || operation.payment_reference } });
+            }
+            res.json({ operation: { id: operation.id, status: 'processing', providerStatus, paymentReference: header.payout_batch_id || operation.payment_reference } });
+        } catch (error) {
+            if (isDefinitivePayPalRejection(error)) {
+                const pendingOperation = await store.get("SELECT id FROM wallet_operations WHERE id = ? AND kind = 'withdrawal' AND channel = 'paypal' AND status = 'processing' AND payment_reference IS NULL", [req.params.id]).catch(() => null);
+                if (pendingOperation) await store.run(`UPDATE wallet_operations SET status = 'pending', reviewed_by = NULL, reviewed_at = NULL, updated_at = ? WHERE id = ? AND status = 'processing' AND payment_reference IS NULL`, [new Date().toISOString(), pendingOperation.id]).catch(() => {});
+            }
             if (error.status) return res.status(error.status).json({ error: error.message });
             next(error);
         }

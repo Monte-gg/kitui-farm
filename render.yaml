@@ -35,3 +35,15 @@ services:
         sync: false
       - key: PUBLIC_APP_URL
         value: https://monte-gg.github.io/kitui-farm
+      # PayPal REST API credentials. Keep these private in the Render dashboard.
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      # Set to live only after the PayPal business account is approved for Payouts.
+      - key: PAYPAL_MODE
+        sync: false
+      # USD paid to a PayPal recipient for each 1 KES reserved from a wallet.
+      # Update this rate before payouts when your chosen FX rate changes.
+      - key: PAYPAL_KES_TO_USD_RATE
+        sync: false

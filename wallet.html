@@ -44,10 +44,10 @@
                 <form id="transferForm"><div class="field"><label for="transferAmount">Amount (KES)</label><input id="transferAmount" type="number" min="0.01" max="1000000" step="0.01" required></div><button class="button primary" type="submit">Transfer funds</button><p class="message" id="transferMessage" role="status" aria-live="polite"></p></form>
             </section>
 
-            <section class="card"><h2>Withdraw funds</h2><p class="hint">Your wallet is reserved for the requested amount. The payout is processed manually; rejecting the request refunds the amount. Current fee: KES 0.00.</p>
+            <section class="card"><h2>Withdraw funds</h2><p class="hint">Your KES wallet amount is reserved while the request is reviewed. M-Pesa, Airtel Money, and bank withdrawals are processed manually. PayPal withdrawals are sent automatically after an administrator approves them, then confirmed by PayPal. Current wallet fee: KES 0.00.</p>
                 <form id="withdrawalForm"><div class="field"><label for="withdrawMethodId">Payout destination</label><select id="withdrawMethodId" required><option value="">Add a withdrawal method in Settings first</option></select><input id="withdrawChannel" type="hidden" value="mpesa"></div>
                     <div class="field"><label for="withdrawAmount">Amount (KES)</label><input id="withdrawAmount" type="number" min="0.01" max="1000000" step="0.01" required></div>
-                    <p class="hint">Payout requests are reviewed and processed manually. PayPal is a saved payout destination, not an automated PayPal integration.</p>
+                    <p class="hint" id="paypalQuote" hidden></p>
                     <button class="button primary" type="submit">Request withdrawal</button><p class="message" id="withdrawMessage" role="status" aria-live="polite"></p>
                 </form>
             </section>
@@ -67,6 +67,7 @@
         let depositSubmissionKey = crypto.randomUUID();
         let withdrawalSubmissionKey = crypto.randomUUID();
         let transferSubmissionKey = crypto.randomUUID();
+        let quoteRequestId = 0;
         const apiRequest = async (url, options = {}) => {
             const response = await fetch(url, { ...options, headers: { ...(options.body ? { 'Content-Type':'application/json' } : {}), ...options.headers } });
             let data = null; try { data = response.status === 204 ? null : await response.json(); } catch { data = null; }
@@ -88,7 +89,24 @@
             $('depositMethodId').innerHTML=deposits.length?'<option value="">Choose a saved method</option>'+deposits.map(option).join(''):'<option value="">No deposit methods — add one in Settings</option>';
             $('withdrawMethodId').innerHTML=withdrawals.length?'<option value="">Choose a payout destination</option>'+withdrawals.map(option).join(''):'<option value="">No payout methods — add one in Settings</option>';
             $('depositMethodId').onchange=()=>{$('depositChannel').value=({mpesa:'mpesa_stk_simulation',airtel:'airtel_money',bank:'bank_transfer'})[$('depositMethodId').selectedOptions[0]?.dataset.kind]||'';};
-            $('withdrawMethodId').onchange=()=>{$('withdrawChannel').value=$('withdrawMethodId').selectedOptions[0]?.dataset.kind||'';};
+            $('withdrawMethodId').onchange=()=>{$('withdrawChannel').value=$('withdrawMethodId').selectedOptions[0]?.dataset.kind||''; updatePayPalQuote();};
+        }
+        async function updatePayPalQuote() {
+            const output = $('paypalQuote');
+            const selected = $('withdrawChannel').value === 'paypal';
+            output.hidden = !selected;
+            if (!selected) return;
+            const amount = $('withdrawAmount').value;
+            if (!amount) { output.textContent = 'Enter a KES amount to see the estimated PayPal payout in USD.'; return; }
+            const requestId = ++quoteRequestId;
+            output.textContent = 'Calculating PayPal estimate…';
+            try {
+                const result = await apiRequest(`/api/wallet/paypal-quote?amount=${encodeURIComponent(amount)}`);
+                if (requestId !== quoteRequestId || $('withdrawChannel').value !== 'paypal') return;
+                output.textContent = `Estimated PayPal payout: USD ${Number(result.quote.amount).toFixed(2)} at KES 1 = USD ${Number(result.quote.rate).toFixed(6)}. PayPal may apply its own receiving or conversion fees.`;
+            } catch (error) {
+                if (requestId === quoteRequestId) output.textContent = error.message;
+            }
         }
         function renderWallet(data) {
             currentWallet = data.wallet;
@@ -147,12 +165,18 @@
         $('withdrawalForm').addEventListener('submit',async event=>{
             event.preventDefault();const form=event.currentTarget;const channel=$('withdrawChannel').value;const body={channel,amount:$('withdrawAmount').value,paymentMethodId:$('withdrawMethodId').value};
             if(!body.paymentMethodId){setMessage('withdrawMessage','Add a payout method in Settings first.',true);return;}
-            if(!window.confirm(`Request a ${money(body.amount)} withdrawal to the selected ${channel==='paypal'?'PayPal':'saved'} destination? The amount will be reserved while it is processed.`))return;
+            let confirmation = `Request a ${money(body.amount)} withdrawal to the selected saved destination? The amount will be reserved while it is processed.`;
+            if(channel==='paypal'){
+                try{const quote=await apiRequest(`/api/wallet/paypal-quote?amount=${encodeURIComponent(body.amount)}`);confirmation=`Request a ${money(body.amount)} wallet withdrawal and send an estimated USD ${Number(quote.quote.amount).toFixed(2)} to the saved PayPal email after admin approval? The payout uses KES 1 = USD ${Number(quote.quote.rate).toFixed(6)}. PayPal may apply its own fees.`;}
+                catch(error){setMessage('withdrawMessage',error.message,true);return;}
+            }
+            if(!window.confirm(confirmation))return;
             const button=event.currentTarget.querySelector('button');button.disabled=true;setMessage('withdrawMessage','Submitting withdrawal request…');
             body.idempotencyKey=withdrawalSubmissionKey;
-            try{const data=await apiRequest('/api/wallet/withdrawals',{method:'POST',body:JSON.stringify(body)});const success=`Withdrawal request ${data.operation.id.slice(0,8)} is pending. Fee: ${money(data.operation.fee)}.`;withdrawalSubmissionKey=crypto.randomUUID();form.reset();try{await loadWallet();setMessage('withdrawMessage',success);}catch{setMessage('withdrawMessage',`${success} Your wallet summary could not refresh; use Refresh to reload it.`);}}
+            try{const data=await apiRequest('/api/wallet/withdrawals',{method:'POST',body:JSON.stringify(body)});const success=channel==='paypal'?`PayPal withdrawal request ${data.operation.id.slice(0,8)} is pending admin approval and PayPal confirmation.`:`Withdrawal request ${data.operation.id.slice(0,8)} is pending. Fee: ${money(data.operation.fee)}.`;withdrawalSubmissionKey=crypto.randomUUID();form.reset();try{await loadWallet();setMessage('withdrawMessage',success);}catch{setMessage('withdrawMessage',`${success} Your wallet summary could not refresh; use Refresh to reload it.`);}}
             catch(error){setMessage('withdrawMessage',error.message,true);}finally{button.disabled=currentWallet?.status!=='active';}
         });
+        $('withdrawAmount').addEventListener('input', updatePayPalQuote);
         $('toggleClosePassword').addEventListener('click', event => {
             const input = $('closePassword');
             const showPassword = input.type === 'password';
