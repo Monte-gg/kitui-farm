@@ -2854,6 +2854,48 @@ function createApp(options = {}) {
         } catch (error) { next(error); }
     });
 
+    app.post('/api/wallet/admin/operations/:id/resolve-mpesa', auth, walletAdmin, async (req, res, next) => {
+        const decision = text(req.body?.decision, 12);
+        const receipt = text(req.body?.paymentReference, 32).toUpperCase();
+        if (!['paid', 'refund'].includes(decision)) return res.status(400).json({ error: 'Choose mark as paid or refund.' });
+        if (decision === 'paid' && !/^[A-Z0-9]{4,32}$/.test(receipt)) return res.status(400).json({ error: 'Enter a valid M-Pesa confirmation code.' });
+        try {
+            const current = await store.get("SELECT * FROM wallet_operations WHERE id = ? AND kind = 'withdrawal' AND channel = 'mpesa_b2c'", [req.params.id]);
+            if (!current) throw walletError('Legacy M-Pesa payout not found.', 404);
+            if (current.status !== 'processing') throw walletError('This M-Pesa payout is no longer awaiting provider confirmation.', 409);
+            const ageMs = Date.now() - new Date(current.created_at).getTime();
+            if (!Number.isFinite(ageMs) || ageMs < 15 * 60 * 1000) throw walletError('Wait at least 15 minutes for Safaricom to send its result before resolving this payout.', 409);
+            const details = JSON.parse(current.details_json || '{}');
+            const now = new Date().toISOString();
+            details.adminResolution = decision;
+            details.adminResolutionAt = now;
+            details.adminResolutionNote = decision === 'paid'
+                ? 'Administrator confirmed the external M-Pesa payout using its receipt code.'
+                : 'Administrator confirmed with the payout provider that no payment was made and refunded the wallet.';
+            await store.transaction(async () => {
+                const changed = await store.run("UPDATE wallet_operations SET status = ?, details_json = ?, payment_reference = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ? WHERE id = ? AND status = 'processing'",
+                    [decision === 'paid' ? 'completed' : 'failed', JSON.stringify(details), decision === 'paid' ? receipt : current.payment_reference, req.user.id, now, now, current.id]);
+                if (!changed.changes) throw walletError('This M-Pesa payout was already resolved.', 409);
+                if (decision === 'paid') {
+                    const finalized = await store.run("UPDATE wallet_transactions SET status = 'completed', payment_reference = ?, description = 'M-Pesa payout confirmed by admin' WHERE operation_id = ? AND event_type = 'withdrawal' AND status = 'pending'", [receipt, current.id]);
+                    if (!finalized.changes) throw walletError('The withdrawal ledger could not be finalized.', 409);
+                    return;
+                }
+                const credited = await store.run("UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ? WHERE user_id = ? AND status = 'active' AND balance_cents <= ?", [current.amount_cents, now, current.user_id, 2147483647 - current.amount_cents]);
+                if (!credited.changes) throw walletError('Could not refund the wallet. Contact support before resolving this request.', 409);
+                await store.run("UPDATE wallet_transactions SET status = 'failed' WHERE operation_id = ? AND event_type = 'withdrawal' AND status = 'pending'", [current.id]);
+                await store.run(`INSERT INTO wallet_transactions
+                    (id, user_id, kind, event_type, amount_cents, reference_key, payment_reference, description, created_by, created_at, status, channel, operation_id)
+                    VALUES (?, ?, 'credit', 'refund', ?, ?, ?, 'Refund after admin confirmed M-Pesa payout was not made', ?, ?, 'completed', 'internal', ?)` ,
+                [crypto.randomUUID(), current.user_id, current.amount_cents, `wallet-withdrawal-refund:${current.id}`, current.payment_reference, req.user.id, now, current.id]);
+            });
+            res.json({ operation: { id: current.id, status: decision === 'paid' ? 'completed' : 'failed', paymentReference: decision === 'paid' ? receipt : current.payment_reference } });
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
     app.post('/api/wallet/admin/operations/:id/review', auth, walletAdmin, async (req, res, next) => {
         const decision = text(req.body?.decision, 12);
         if (!['approve', 'reject'].includes(decision)) return res.status(400).json({ error: 'Choose approve or reject.' });

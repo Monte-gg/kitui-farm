@@ -463,16 +463,19 @@
             const data = await apiRequest('/api/wallet/admin/operations');
             const list = document.getElementById('requestList');
             const awaitingReview = data.requests.filter(item => item.status === 'pending').length;
-            document.getElementById('pendingCount').textContent = awaitingReview;
-            document.getElementById('menuPendingCount').textContent = awaitingReview;
-            document.getElementById('sidebarPendingCount').textContent = awaitingReview;
-            const processing = data.requests.length - awaitingReview;
-            setStatus(awaitingReview || processing ? `${awaitingReview} request${awaitingReview === 1 ? '' : 's'} need review; ${processing} automatic payout${processing === 1 ? '' : 's'} awaiting provider confirmation.` : 'You’re signed in as an administrator. There are no pending wallet operations.');
+            const staleMpesaCount = data.requests.filter(item => item.channel === 'mpesa_b2c' && item.status === 'processing' && Date.now() - new Date(item.createdAt).getTime() >= 15 * 60 * 1000).length;
+            const reviewCount = awaitingReview + staleMpesaCount;
+            document.getElementById('pendingCount').textContent = reviewCount;
+            document.getElementById('menuPendingCount').textContent = reviewCount;
+            document.getElementById('sidebarPendingCount').textContent = reviewCount;
+            const processing = data.requests.length - awaitingReview - staleMpesaCount;
+            setStatus(awaitingReview || staleMpesaCount || processing ? `${awaitingReview} request${awaitingReview === 1 ? '' : 's'} need review; ${staleMpesaCount} delayed M-Pesa payout${staleMpesaCount === 1 ? '' : 's'} need resolution; ${processing} automatic payout${processing === 1 ? '' : 's'} awaiting provider confirmation.` : 'You’re signed in as an administrator. There are no pending wallet operations.');
             list.innerHTML = data.requests.map(item => {
                 const details = item.details || {};
                 const deposit = item.type === 'deposit';
                 const manualMpesaFallback = item.channel === 'paystack_mpesa_transfer' && details.manualPayoutFallback === true && item.status === 'pending';
-                const method = item.channel === 'mpesa_stk_simulation' ? 'M-Pesa (simulation)' : item.channel === 'paystack_mpesa_transfer' || item.channel === 'mpesa_b2c' ? manualMpesaFallback ? 'M-Pesa payout · manual action needed' : 'M-Pesa automatic payout' : item.channel === 'paystack_mpesa' ? 'Paystack M-Pesa STK deposit' : item.channel === 'airtel_money' || item.channel === 'airtel' ? 'Airtel Money' : item.channel === 'bank_transfer' || item.channel === 'bank' ? 'Bank transfer' : item.channel;
+                const staleLegacyMpesa = item.channel === 'mpesa_b2c' && item.status === 'processing' && Date.now() - new Date(item.createdAt).getTime() >= 15 * 60 * 1000;
+                const method = item.channel === 'mpesa_stk_simulation' ? 'M-Pesa (simulation)' : item.channel === 'paystack_mpesa_transfer' || item.channel === 'mpesa_b2c' ? manualMpesaFallback ? 'M-Pesa payout · manual action needed' : staleLegacyMpesa ? 'M-Pesa payout · delayed, needs resolution' : 'M-Pesa automatic payout' : item.channel === 'paystack_mpesa' ? 'Paystack M-Pesa STK deposit' : item.channel === 'airtel_money' || item.channel === 'airtel' ? 'Airtel Money' : item.channel === 'bank_transfer' || item.channel === 'bank' ? 'Bank transfer' : item.channel;
                 const destination = details.email || details.phone || [details.accountName, details.accountNumber, details.bankName, details.branch].filter(Boolean).join(' · ');
                 const paypalProcessing = item.channel === 'paypal' && item.status === 'processing';
                 const mpesaProcessing = ['mpesa_b2c', 'paystack_mpesa_transfer'].includes(item.channel) && item.status === 'processing';
@@ -480,10 +483,10 @@
                 return `<article class="request"><div><h3>${escapeHtml(item.name)} · ${money(item.amount)} · ${deposit ? 'Deposit' : 'Withdrawal'}${paypalProcessing ? ' · PayPal processing' : ''}${mpesaProcessing ? ' · M-Pesa processing' : ''}</h3>
                 <p>${escapeHtml(item.email)} · ${escapeHtml(item.phone)} · Wallet ${escapeHtml(item.walletId)}</p>
                 <p>Method: <strong>${escapeHtml(method)}</strong>${destination ? ` · ${escapeHtml(destination)}` : ''}</p>
-                ${deposit ? `<p>Payment reference: <strong>${escapeHtml(item.paymentReference || 'Not provided')}</strong>${details.bankName ? ` · Bank: ${escapeHtml(details.bankName)}` : ''}</p>` : `<p>${manualMpesaFallback ? 'Paystack could not send this payout for the merchant account. Send it manually to the saved M-Pesa number, then enter its confirmation code when marking it sent. The amount remains reserved.' : paypalProcessing ? 'Wallet amount reserved; waiting for PayPal confirmation.' : mpesaProcessing ? `Wallet amount reserved; waiting for ${item.channel === 'paystack_mpesa_transfer' ? 'Paystack transfer' : 'Safaricom B2C'} confirmation.` : 'Reserved payout amount.'} Fee: ${money(item.fee)}${paypalAmount}.</p>`}
+                ${deposit ? `<p>Payment reference: <strong>${escapeHtml(item.paymentReference || 'Not provided')}</strong>${details.bankName ? ` · Bank: ${escapeHtml(details.bankName)}` : ''}</p>` : `<p>${staleLegacyMpesa ? 'This older Safaricom payout has not returned a result for at least 15 minutes. Check the M-Pesa payout status before deciding. The wallet amount remains reserved.' : manualMpesaFallback ? 'Paystack could not send this payout for the merchant account. Send it manually to the saved M-Pesa number, then enter its confirmation code when marking it sent. The amount remains reserved.' : paypalProcessing ? 'Wallet amount reserved; waiting for PayPal confirmation.' : mpesaProcessing ? `Wallet amount reserved; waiting for ${item.channel === 'paystack_mpesa_transfer' ? 'Paystack transfer' : 'Safaricom B2C'} confirmation.` : 'Reserved payout amount.'} Fee: ${money(item.fee)}${paypalAmount}.</p>`}
                 ${item.paymentReference ? `<p>${['mpesa_b2c', 'paystack_mpesa_transfer'].includes(item.channel) ? 'M-Pesa payout reference' : item.channel === 'paystack_mpesa' ? 'Paystack charge reference' : 'PayPal batch reference'}: <strong>${escapeHtml(item.paymentReference)}</strong></p>` : ''}
                 <p>Submitted ${new Date(item.createdAt).toLocaleString('en-KE')}</p></div>
-                <div class="actions">${mpesaProcessing ? '<span class="muted">Waiting for automatic M-Pesa confirmation</span>' : paypalProcessing ? `<button class="button approve" data-sync-paypal="${escapeHtml(item.id)}">Check PayPal status</button>` : `<button class="button approve" data-review="approve" data-type="${escapeHtml(item.type)}" data-channel="${escapeHtml(item.channel)}" data-manual-fallback="${manualMpesaFallback}" data-id="${escapeHtml(item.id)}">${deposit ? 'Verify &amp; credit' : item.channel === 'paypal' ? 'Send PayPal payout' : 'Mark payout sent'}</button>
+                <div class="actions">${staleLegacyMpesa ? `<button class="button approve" data-resolve-mpesa="paid" data-id="${escapeHtml(item.id)}">Mark paid</button><button class="button reject" data-resolve-mpesa="refund" data-id="${escapeHtml(item.id)}">Refund wallet</button>` : mpesaProcessing ? '<span class="muted">Waiting for automatic M-Pesa confirmation</span>' : paypalProcessing ? `<button class="button approve" data-sync-paypal="${escapeHtml(item.id)}">Check PayPal status</button>` : `<button class="button approve" data-review="approve" data-type="${escapeHtml(item.type)}" data-channel="${escapeHtml(item.channel)}" data-manual-fallback="${manualMpesaFallback}" data-id="${escapeHtml(item.id)}">${deposit ? 'Verify &amp; credit' : item.channel === 'paypal' ? 'Send PayPal payout' : 'Mark payout sent'}</button>
                 <button class="button reject" data-review="reject" data-type="${escapeHtml(item.type)}" data-id="${escapeHtml(item.id)}">${deposit ? 'Reject deposit' : 'Reject &amp; refund'}</button>`}</div></article>`;
             }).join('');
         }
@@ -561,6 +564,22 @@
                 setStatus(approval ? (isDeposit ? 'Deposit verified and wallet credited.' : isPaypal ? `PayPal payout started. Provider status: ${result.operation.providerStatus || 'processing'}.` : 'Withdrawal marked as paid.') : (isDeposit ? 'Deposit request rejected.' : 'Withdrawal rejected and funds refunded.'));
                 await loadRequests();
             } catch (error) { setStatus(error.message, true); button.disabled = false; }
+        });
+        document.getElementById('requestList').addEventListener('click', async event => {
+            const button = event.target.closest('button[data-resolve-mpesa]'); if (!button) return;
+            const decision = button.dataset.resolveMpesa;
+            let paymentReference = '';
+            if (decision === 'paid') {
+                paymentReference = window.prompt('Check the Safaricom payout first. Enter the M-Pesa confirmation code proving this payout reached the recipient:') || '';
+                if (!/^[A-Za-z0-9]{4,32}$/.test(paymentReference.trim())) return;
+                if (!window.confirm('Confirm that Safaricom shows this payout as successful and the confirmation code is correct?')) return;
+            } else if (!window.confirm('Only refund after checking with Safaricom that the payout did not reach the recipient. Refund the reserved amount to the wallet?')) return;
+            button.disabled = true;
+            try {
+                const result = await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.id)}/resolve-mpesa`, { method:'POST', body:JSON.stringify({ decision, paymentReference }) });
+                setStatus(decision === 'paid' ? `M-Pesa payout marked paid with receipt ${result.operation.paymentReference}.` : 'M-Pesa payout resolved and the reserved amount refunded to the wallet.');
+                await loadRequests();
+            } catch (error) { setStatus(error.message || 'Could not resolve the delayed M-Pesa payout.', true); button.disabled = false; }
         });
         document.getElementById('requestList').addEventListener('click', async event => {
             const button = event.target.closest('button[data-sync-paypal]'); if (!button) return;
