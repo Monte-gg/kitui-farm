@@ -11,6 +11,18 @@
     return image;
   };
 
+  // Keep the signed-in user present while they browse any page. The chat UI
+  // reads this short-lived heartbeat and shows peers who are currently active.
+  try {
+    const session = JSON.parse(sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession') || 'null');
+    const token = sessionStorage.getItem('kituiFarmToken') || localStorage.getItem('kituiFarmToken');
+    if (session && token && ['buyer', 'farmer'].includes(session.role)) {
+      const heartbeat = () => fetch('/api/chat/presence', { method: 'POST' }).catch(() => {});
+      heartbeat();
+      window.setInterval(heartbeat, 25_000);
+    }
+  } catch (error) { /* Presence must never interrupt page rendering. */ }
+
   // Version the shared theme and emblem from the Jekyll build stamp. This
   // prevents browsers from mixing a cached brand stylesheet with new HTML.
   const brandStylesheet = document.querySelector('link[data-brand-theme]');

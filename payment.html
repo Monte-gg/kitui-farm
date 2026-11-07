@@ -14,13 +14,13 @@
                 const session = JSON.parse(sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession') || 'null');
                 const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
                 const user = Array.isArray(users) && session ? users.find(account => account.id === session.userId) : null;
-                return user && user.role === 'buyer' ? user : null;
+                return user && ['buyer', 'farmer'].includes(user.role) ? user : null;
             } catch {
                 return null;
             }
         })();
         if (!paymentSession) window.location.replace('login.html');
-        else if (!localStorage.getItem(`kituiFarmCheckoutDraft_${paymentSession.id}`)) window.location.replace('buyer-dashboard.html');
+        else if (!localStorage.getItem(`kituiFarmCheckoutDraft_${paymentSession.id}`)) window.location.replace(paymentSession.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html');
     </script>
     <script>
         try {
@@ -116,7 +116,7 @@
     <script defer src="subpage-nav.js?v=4"></script>
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
     <link rel="stylesheet" href="brand-theme.css?v=4" data-brand-theme>
-    <script src="brand.js?v=3" defer></script>
+    <script src="brand.js?v=4" defer></script>
 </head>
 <body>
     <header class="topbar">

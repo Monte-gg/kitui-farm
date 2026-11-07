@@ -84,6 +84,8 @@
         #settingsForm + #paymentMethodsCard { margin-top: 28px; }
         .message { margin: 0; color: var(--green-dark); font-size: 13px; }
         .message.error { color: var(--danger); }
+        .version-status { padding:7px 11px; border:1px solid var(--line); border-radius:99px; color:var(--green-dark); background:var(--green-light); font-size:12px; font-weight:750; white-space:nowrap; }
+        .version-status.update-available { color:#7b4c04; background:#fff2c7; border-color:#e7cc83; }
         .field { display: grid; gap: 6px; margin: 12px 0; }
         .field label { font-size: 13px; font-weight: 700; }
         .field input { width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
@@ -107,7 +109,7 @@
     <script defer src="subpage-nav.js?v=4"></script>
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
     <link rel="stylesheet" href="brand-theme.css?v=4" data-brand-theme>
-    <script src="brand.js?v=3" defer></script>
+    <script src="brand.js?v=4" defer></script>
 </head>
 <body>
     <header class="topbar">
@@ -137,6 +139,10 @@
                     <div class="setting-copy"><strong>Compact layout</strong><small>Reduce spacing in dashboard cards and tables.</small></div>
                     <label class="switch"><input id="compact" type="checkbox"><span class="slider"></span></label>
                 </div>
+            </section>
+            <section class="card" aria-labelledby="versionTitle">
+                <div class="card-heading"><h2 id="versionTitle">Website version</h2><p>Check which KITUI FARM release is available and whether this browser has refreshed to it.</p></div>
+                <div class="setting-row"><div class="setting-copy"><strong>Available version</strong><small id="versionAvailable">Checking the latest release…</small></div><span class="version-status" id="versionStatus" role="status" aria-live="polite">Checking</span></div>
             </section>
             <section class="card">
                 <div class="card-heading"><h2>Actions</h2><p>Manage safety prompts for changes to your account’s data.</p></div>
@@ -174,7 +180,31 @@
         const message = document.getElementById('settingsMessage');
         const dashboardLink = document.getElementById('dashboardLink');
         dashboardLink.href = settingsSession.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
-        document.getElementById('walletLink').hidden = settingsSession.role !== 'buyer';
+        document.getElementById('walletLink').hidden = !['buyer', 'farmer'].includes(settingsSession.role);
+        (async () => {
+            const available = document.getElementById('versionAvailable');
+            const status = document.getElementById('versionStatus');
+            try {
+                const response = await fetch(`version.json?_=${Date.now()}`, { cache:'no-store' });
+                if (!response.ok) throw new Error('Could not check for updates.');
+                const data = await response.json();
+                const current = String(data.version || '').trim();
+                if (!current) throw new Error('Version information is unavailable.');
+                const installed = localStorage.getItem('kituiFarmSiteVersion') || '';
+                const parts = value => (value.match(/\d+/g) || []).map(Number);
+                const a = parts(current), b = parts(installed);
+                let comparison = 0;
+                for (let index = 0; index < Math.max(a.length, b.length); index++) {
+                    if ((a[index] || 0) !== (b[index] || 0)) { comparison = (a[index] || 0) > (b[index] || 0) ? 1 : -1; break; }
+                }
+                available.textContent = current;
+                status.textContent = comparison > 0 ? 'Update available' : installed === current ? 'Up to date' : installed ? 'Current release loaded' : 'Latest release';
+                status.classList.toggle('update-available', comparison > 0);
+            } catch (error) {
+                available.textContent = error.message || 'Version check unavailable.';
+                status.textContent = 'Unknown';
+            }
+        })();
         const methodApi = async (url, options = {}) => { const response = await fetch(url, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } }); const result = response.status === 204 ? {} : await response.json(); if (!response.ok) throw new Error(result.error || 'Request failed.'); return result; };
         const methodKind = document.getElementById('methodKind');
         const methodUse = document.getElementById('methodUse');

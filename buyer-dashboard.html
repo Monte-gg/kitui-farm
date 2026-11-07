@@ -25,7 +25,7 @@
         })();
         if (!dashboardSession || !dashboardSession.userId) {
             window.location.replace('login.html');
-        } else if (dashboardSession.role !== 'buyer') {
+        } else if (!['buyer', 'farmer'].includes(dashboardSession.role)) {
             window.location.replace(dashboardSession.role === 'admin' ? 'admin.html' : dashboardSession.role === 'farmer' ? 'farmer-dashboard.html' : 'login.html');
         }
     </script>
@@ -126,6 +126,10 @@
         .filter-button:hover, .filter-button.active { border-color: var(--green); background: var(--green); color: white; }
         :root[data-theme="dark"] .filter-button { color: var(--ink); }
         .product-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 17px; }
+        .community-purchases { display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:12px; padding:16px; }
+        .community-purchase { padding:14px; border:1px solid var(--line); border-radius:11px; background:var(--surface); }
+        .community-purchase strong { display:block; color:var(--green-dark); }
+        .community-purchase small { display:block; margin-top:5px; color:var(--muted); }
         .product-card { overflow: hidden; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: 0 3px 12px rgba(34,54,29,.035); }
         .product-image { display: grid; place-items: center; position: relative; height: 170px; overflow: hidden; background: linear-gradient(140deg, #f1f7e9, #e1eed9); font-size: 64px; }
         :root[data-theme="dark"] .product-image { background: linear-gradient(140deg, #283729, #354937); }
@@ -217,7 +221,7 @@
     <script defer src="update-notification.js?v=2"></script>
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
     <link rel="stylesheet" href="brand-theme.css?v=5" data-brand-theme>
-    <script src="brand.js?v=3" defer></script>
+    <script src="brand.js?v=4" defer></script>
 </head>
 <body>
     <header class="topbar">
@@ -254,7 +258,8 @@
                     <button class="more-toggle" id="moreToggle" type="button" aria-label="Open more options" aria-haspopup="menu" aria-expanded="false" aria-controls="morePanel">⋮</button>
                     <nav class="more-panel" id="morePanel" aria-label="More options" role="menu" hidden>
                         <a class="menu-profile" href="profile.html" role="menuitem"><span class="profile-chip-avatar" id="buyerAvatar"></span><span class="menu-profile-copy"><strong id="buyerName"></strong><small>My profile</small></span></a>
-                        <a href="#wishlist" role="menuitem">Wishlist <span id="wishlistMenuCount">(0)</span></a>
+                        <a href="farmer-dashboard.html" id="farmerHomeLink" role="menuitem" hidden>Back to farmer dashboard</a>
+                        <a href="#wishlist" id="wishlistMenuLink" role="menuitem">Wishlist <span id="wishlistMenuCount">(0)</span></a>
                         <a href="chat.html" role="menuitem">Messages</a>
                         <a href="wallet.html" role="menuitem">Wallet</a>
                         <a href="settings.html" role="menuitem">Settings</a>
@@ -272,6 +277,7 @@
             <div>
                 <h1>Good food, closer to home.</h1>
                 <p class="subheading">Discover fresh produce direct from Kitui farmers.</p>
+                <p class="subheading" id="farmerShoppingHint" hidden>You’re shopping as a farmer. Buy from other farms with your KITUI FARM Wallet.</p>
                 <span class="location" id="buyerLocation">📍 Delivery area: Kitui County</span>
             </div>
         </section>
@@ -291,6 +297,11 @@
             <div class="product-grid" id="productGrid"></div>
             <div class="empty-state" id="productsEmpty" hidden>No produce matches your search. Try another crop or category.</div>
             <p class="notice" id="marketNotice" role="status" aria-live="polite" hidden></p>
+        </section>
+
+        <section class="panel" id="communityPurchases" aria-labelledby="communityPurchasesTitle">
+            <div class="panel-header"><h2 id="communityPurchasesTitle">Recent community purchases</h2><p>See what other KITUI FARM members are buying. Buyer identities and delivery details stay private.</p></div>
+            <div class="community-purchases" id="communityPurchaseList" aria-live="polite"><p class="empty-state">Loading recent purchases…</p></div>
         </section>
 
         <section class="wishlist-section" id="wishlist" aria-labelledby="wishlistTitle">
@@ -342,6 +353,9 @@
         const marketNotice = document.getElementById('marketNotice');
 
         document.getElementById('buyerName').textContent = buyer.name;
+        document.getElementById('farmerHomeLink').hidden = buyer.role !== 'farmer';
+        document.getElementById('wishlistMenuLink').hidden = buyer.role !== 'buyer';
+        document.getElementById('farmerShoppingHint').hidden = buyer.role !== 'farmer';
         renderProfileChip(document.getElementById('buyerAvatar'), buyer.name, buyer.userId);
         document.getElementById('buyerLocation').textContent = `📍 Delivery area: ${buyer.location || 'Kitui County'}`;
         const savedDraft = (() => {
@@ -383,7 +397,8 @@
             if (!localStorage.getItem('kituiFarmListings')) writeArray('kituiFarmListings', sampleListings);
         }
         function getListings() {
-            return readArray('kituiFarmListings').filter(listing => Number(listing.quantity) > 0);
+            return readArray('kituiFarmListings').filter(listing => Number(listing.quantity) > 0
+                && !(buyer.role === 'farmer' && listing.farmerId === buyer.userId));
         }
         function getCart() {
             return readArray('kituiFarmCart');
@@ -405,7 +420,7 @@
                 <div class="product-content">
                     <div class="product-title-row"><div><h3 class="product-title">${escapeHtml(item.name)}</h3>
                         <p class="seller"><a class="seller-link" href="farmer-store.html?farmerId=${encodeURIComponent(item.farmerId)}">${escapeHtml(item.sellerName)}</a> <span class="verified">✓ Verified</span></p></div>
-                        <button class="wishlist-toggle" type="button" data-wishlist-toggle="${escapeHtml(item.id)}" aria-label="${isWishlisted ? 'Remove ' + escapeHtml(item.name) + ' from wishlist' : 'Save ' + escapeHtml(item.name) + ' to wishlist'}" aria-pressed="${isWishlisted}" title="${isWishlisted ? 'Remove from wishlist' : 'Save to wishlist'}">${isWishlisted ? '♥' : '♡'}</button></div>
+                        ${buyer.role === 'buyer' ? `<button class="wishlist-toggle" type="button" data-wishlist-toggle="${escapeHtml(item.id)}" aria-label="${isWishlisted ? 'Remove ' + escapeHtml(item.name) + ' from wishlist' : 'Save ' + escapeHtml(item.name) + ' to wishlist'}" aria-pressed="${isWishlisted}" title="${isWishlisted ? 'Remove from wishlist' : 'Save to wishlist'}">${isWishlisted ? '♥' : '♡'}</button>` : ''}</div>
                     ${videoControl}
                     <div class="price-row"><span class="price-label">Price per kilogram</span><span class="price">KES ${Number(item.price).toLocaleString('en-KE')}</span></div>
                     <div class="product-meta"><span><strong>Available:</strong> ${Number(item.quantity).toLocaleString('en-KE')} kg</span><span><strong>Minimum order:</strong> ${Number(item.minimumOrder).toLocaleString('en-KE')} kg${isBulk ? ' (wholesale)' : ''}</span><span><strong>Pickup location:</strong> ${escapeHtml(item.location)}</span></div>
@@ -414,7 +429,7 @@
                     <div class="product-actions">
                         <button class="button secondary" type="button" data-add="${escapeHtml(item.id)}">Add to Cart</button>
                         <button class="button" type="button" data-buy="${escapeHtml(item.id)}">Buy</button>
-                        <button class="button secondary message-farmer" type="button" data-message-farmer="${escapeHtml(item.farmerId)}" data-message-listing="${escapeHtml(item.id)}">Message farmer</button>
+                        ${buyer.role === 'buyer' ? `<button class="button secondary message-farmer" type="button" data-message-farmer="${escapeHtml(item.farmerId)}" data-message-listing="${escapeHtml(item.id)}">Message farmer</button>` : ''}
                     </div>
                     <p class="payment-note">Continue to choose cash or a digital payment option.</p>
                 </div>
@@ -434,6 +449,7 @@
             document.getElementById('resultCount').textContent = `${visible.length} fresh listing${visible.length === 1 ? '' : 's'} from verified local sellers.`;
         }
         function renderWishlist() {
+            if (buyer.role !== 'buyer') { document.getElementById('wishlist').hidden = true; return; }
             const listings = readArray('kituiFarmListings');
             const saved = [...wishlistIds].map(id => listings.find(item => String(item.id) === id)).filter(Boolean);
             document.getElementById('wishlistGrid').innerHTML = saved.map(productCard).join('');
@@ -486,6 +502,17 @@
                     <td><button class="button secondary" type="button" data-delete-order="${escapeHtml(order.id)}">Delete</button></td></tr>`;
             }).join('');
             document.getElementById('ordersEmpty').hidden = orders.length > 0;
+        }
+        function renderCommunityPurchases(purchases) {
+            const node = document.getElementById('communityPurchaseList');
+            if (!purchases.length) {
+                node.innerHTML = '<p class="empty-state">No community purchases to show yet. Recent orders will appear here without buyer names or addresses.</p>';
+                return;
+            }
+            node.innerHTML = purchases.map(item => {
+                const when = item.createdAt ? new Date(item.createdAt).toLocaleString('en-KE', { dateStyle:'medium', timeStyle:'short' }) : 'Recently';
+                return `<article class="community-purchase"><strong>${escapeHtml(item.productName)} · ${Number(item.quantity).toLocaleString('en-KE')} kg</strong><small>From ${escapeHtml(item.farmerName || 'a local farmer')}${item.location ? ` · ${escapeHtml(item.location)}` : ''}</small><small>${escapeHtml(when)} · Buyer identity private</small></article>`;
+            }).join('');
         }
         function render() {
             renderProducts();
@@ -771,14 +798,16 @@
         }
         (async () => {
             try {
-                const [listingResult, orderResult, wishlistResult] = await Promise.all([
+                const [listingResult, orderResult, wishlistResult, communityResult] = await Promise.all([
                     apiRequest('/api/listings'),
-                    apiRequest('/api/orders'),
-                    apiRequest('/api/wishlist')
+                    apiRequest('/api/orders/purchases'),
+                    buyer.role === 'buyer' ? apiRequest('/api/wishlist') : Promise.resolve({ listingIds:[] }),
+                    apiRequest('/api/community/purchases')
                 ]);
                 writeArray('kituiFarmListings', listingResult.listings);
                 writeArray('kituiFarmOrders', orderResult.orders);
                 wishlistIds = new Set((wishlistResult.listingIds || []).map(String));
+                renderCommunityPurchases(communityResult.purchases || []);
                 render();
             } catch (error) {
                 marketNotice.textContent = error.message || 'Could not load marketplace data from the server.';

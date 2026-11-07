@@ -50,6 +50,10 @@
         .person-info { flex:1; min-width:0; }
         .person-info strong,.person-info small { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
         .person-info small { margin-top:3px; color:var(--muted); font-size:11px; }
+        .presence-line { display:flex; align-items:center; gap:6px; }
+        .presence-dot { display:inline-block; width:9px; height:9px; flex:0 0 9px; border-radius:50%; background:#8b938b; box-shadow:0 0 0 2px var(--surface); }
+        .presence-dot.online { background:#38a965; }
+        .presence-copy { color:var(--muted); font-size:11px; }
         .person-actions { display:flex; flex-direction:column; gap:5px; }
         .person-actions .button { min-height:30px; padding:5px 8px; font-size:11px; }
         .person-actions .button:disabled { opacity:.6; cursor:wait; }
@@ -146,7 +150,7 @@
     <script defer src="subpage-nav.js?v=4"></script>
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
     <link rel="stylesheet" href="brand-theme.css?v=4" data-brand-theme>
-    <script src="brand.js?v=3" defer></script>
+    <script src="brand.js?v=4" defer></script>
 </head>
 <body>
     <header class="topbar"><div class="bar"><a class="brand" id="brandLink" href="buyer-dashboard.html">🌱 KITUI FARM <span id="adminLabel" hidden>· Admin support</span></a><a class="button" id="backButton" href="buyer-dashboard.html">← Back</a></div></header>
@@ -231,7 +235,7 @@
         }
         function renderConversations() {
             listNode.innerHTML = conversations.map(item => `<article class="conversation-row"><button class="conversation-item ${item.id === activeConversationId ? 'active' : ''}" type="button" data-conversation="${escapeHtml(item.id)}">
-                <strong>${escapeHtml(item.peerName)}</strong><small>${escapeHtml(item.listingName)} · ${escapeHtml(dateLabel(item.updatedAt))}</small>
+                <strong><span class="presence-dot ${item.peerOnline ? 'online' : ''}" aria-label="${item.peerOnline ? 'Online' : 'Offline'}"></span> ${escapeHtml(item.peerName)}</strong><small>${escapeHtml(item.listingName)} · ${escapeHtml(dateLabel(item.updatedAt))}</small>
                 <span class="preview">${escapeHtml(item.lastMessage || 'No messages yet. Start the conversation.')}</span>${!adminMode && item.unreadCount ? `<span class="unread-badge" aria-label="${item.unreadCount} unread messages">${item.unreadCount > 99 ? '99+' : item.unreadCount}</span>` : ''}
             </button>${adminMode ? '' : `<details class="conversation-menu"><summary class="icon-button" aria-label="Chat options">⋮</summary><div class="menu-panel"><button type="button" data-list-action="clear" data-id="${escapeHtml(item.id)}">Clear chat history</button><button type="button" data-list-action="delete" data-id="${escapeHtml(item.id)}">Delete conversation</button></div></details>`}</article>`).join('');
             if (!conversations.length) listNode.innerHTML = adminMode ? '<p class="empty-list">No user conversations have been started yet.</p>' : '<p class="empty-list">No conversations yet. Start a chat from a product listing or an order.</p>';
@@ -305,7 +309,7 @@
             }
             list.innerHTML = visiblePeople.map(person => `<article class="person-item">
                 ${avatarMarkup(person)}
-                <span class="person-info"><strong>${escapeHtml(person.name)}</strong><small>${peopleRole === 'farmer' ? 'Farmer' : 'Customer'} · ${escapeHtml(person.location || 'Location not added')}${person.role === 'farmer' ? ` · ${person.productCount} product${person.productCount === 1 ? '' : 's'}` : ''}</small></span>
+                <span class="person-info"><strong>${escapeHtml(person.name)}</strong><small>${peopleRole === 'farmer' ? 'Farmer' : 'Customer'} · ${escapeHtml(person.location || 'Location not added')}${person.role === 'farmer' ? ` · ${person.productCount} product${person.productCount === 1 ? '' : 's'}` : ''}</small><span class="presence-line"><span class="presence-dot ${person.online ? 'online' : ''}" aria-hidden="true"></span><span class="presence-copy">${person.online ? 'Online now' : 'Offline'}</span></span></span>
                 <span class="person-actions"><button class="button" type="button" data-view-person="${escapeHtml(person.id)}">View profile</button>${person.role !== userSession?.role ? `<button class="button primary" type="button" data-message-person="${escapeHtml(person.id)}">Message</button>` : ''}</span>
             </article>`).join('');
         }
@@ -315,6 +319,16 @@
             const result = await apiRequest('/api/chat/people');
             people = result.people || [];
             renderPeople();
+            await refreshPresence();
+        }
+        async function refreshPresence() {
+            if (adminMode || !userSession || !['buyer', 'farmer'].includes(userSession.role)) return;
+            try {
+                const result = await apiRequest('/api/chat/presence');
+                const online = new Set(result.onlineIds || []);
+                people = people.map(person => ({ ...person, online: online.has(person.id) }));
+                renderPeople();
+            } catch { /* Presence is a helpful indicator; messaging remains usable if it fails. */ }
         }
         function activatePane(name) {
             const showPeople = name === 'people';
@@ -568,6 +582,7 @@
         document.getElementById('refreshInboxButton').addEventListener('click', retryAdminLoad);
         document.getElementById('refreshThreadButton').addEventListener('click', retryAdminLoad);
         window.setInterval(() => { loadConversations().catch(() => {}); }, 10000);
+        window.setInterval(refreshPresence, 20000);
     </script>
 </body>
 </html>
