@@ -1,0 +1,58 @@
+/* Shared phone-browser layout for iOS Safari and Android Chrome. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+img, video, canvas, svg { max-width: 100%; }
+
+@media (max-width: 760px) {
+  *, *::before, *::after { box-sizing: border-box; min-width: 0; }
+  html, body { width: 100%; min-width: 320px; overflow-x: hidden; }
+  body { min-height: 100vh; min-height: 100svh; }
+  header, .topbar { padding-top: env(safe-area-inset-top, 0px); }
+  main { width: auto; max-width: 100%; padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-left: max(16px, env(safe-area-inset-left, 0px)); }
+
+  .topbar-inner, .bar, .layout, .admin-layout, .page, .container, .content,
+  .main-content, .page-container, .wrapper { max-width: 100%; }
+  .topbar-inner, .bar { gap: 8px; }
+  .nav, .header-actions, .top-actions, .actions, .toolbar, .section-head {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .nav, .top-actions { max-width: 100%; }
+  .nav > *, .top-actions > * { max-width: 100%; }
+
+  h1 { font-size: clamp(1.7rem, 7vw, 2.35rem); line-height: 1.12; overflow-wrap: anywhere; }
+  h2 { font-size: clamp(1.2rem, 5vw, 1.55rem); }
+  p, label, td, th { overflow-wrap: anywhere; }
+
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea {
+    max-width: 100%;
+    min-height: 44px;
+    font-size: 16px !important; /* Prevents Safari zooming into form fields. */
+  }
+  button, .button, a.button, input[type="submit"] { min-height: 44px; }
+  button, .button { touch-action: manipulation; }
+
+  .grid, .columns, .fields, .split, .form-grid, .dashboard-grid, .admin-layout,
+  .wallet-grid, .settings-grid, .profile-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .wide, .full { grid-column: 1 / -1; }
+
+  .table-wrap, .table-responsive, .responsive-table { max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  table { display: block; width: 100%; max-width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  th, td { padding: 10px 12px; }
+
+  dialog { width: calc(100vw - 24px) !important; max-width: 560px; max-height: calc(100svh - 24px); overflow: auto; }
+  .card, .panel, .contact, .welcome-panel { max-width: 100%; }
+  .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  main, .page { padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+}
+
+@media (max-width: 480px) {
+  .product-grid, .stats, .metrics, .stat-grid { grid-template-columns: minmax(0, 1fr) !important; }
+  .topbar-inner, .bar { align-items: center; }
+  .brand { max-width: calc(100vw - 115px); }
+  .nav > .button, .top-actions > .button { flex: 1 1 auto; }
+  .card, .panel { border-radius: 14px; }
+  .card, .panel, .container, .auth-card { padding: 16px; }
+  .form-actions > *, .actions > .button { flex: 1 1 100%; }
+  .composer { gap: 7px; }
+  .emoji-panel { max-width: calc(100vw - 32px); }
+}
