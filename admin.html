@@ -93,6 +93,20 @@
         .people-table td:nth-child(3),.people-table td:nth-child(4) { white-space:nowrap; }
         .people-table td:nth-child(5),.people-table td:nth-child(6),.people-table td:last-child { white-space:nowrap; }
         .people-table td:last-child .button { min-width:104px; white-space:nowrap; word-break:keep-all; }
+        #wallet-transactions .table-wrap { max-width:100%; overflow-x:auto; overscroll-behavior-inline:contain; }
+        #wallet-transactions table { width:100%; min-width:1500px; table-layout:fixed; }
+        #wallet-transactions th,#wallet-transactions td { white-space:normal; word-break:normal; overflow-wrap:normal; vertical-align:middle; }
+        #wallet-transactions th:nth-child(1),#wallet-transactions td:nth-child(1) { width:145px; white-space:nowrap; }
+        #wallet-transactions th:nth-child(2),#wallet-transactions td:nth-child(2) { width:225px; }
+        #wallet-transactions th:nth-child(3),#wallet-transactions td:nth-child(3) { width:100px; white-space:nowrap; }
+        #wallet-transactions th:nth-child(4),#wallet-transactions td:nth-child(4) { width:155px; }
+        #wallet-transactions th:nth-child(5),#wallet-transactions td:nth-child(5) { width:145px; white-space:nowrap; }
+        #wallet-transactions th:nth-child(6),#wallet-transactions td:nth-child(6) { width:125px; white-space:nowrap; }
+        #wallet-transactions th:nth-child(7),#wallet-transactions td:nth-child(7) { width:135px; white-space:nowrap; }
+        #wallet-transactions th:nth-child(8),#wallet-transactions td:nth-child(8) { width:180px; }
+        #wallet-transactions th:nth-child(9),#wallet-transactions td:nth-child(9) { width:140px; white-space:nowrap; }
+        #wallet-transactions th:nth-child(10),#wallet-transactions td:nth-child(10) { width:300px; overflow-wrap:anywhere; }
+        #wallet-transactions .transaction-user-email { display:inline-block; max-width:100%; color:var(--muted); overflow-wrap:anywhere; }
         table { width:100%; border-collapse:collapse; text-align:left; }
         th,td { padding:11px 12px; border-bottom:1px solid var(--line); vertical-align:top; font-size:13px; }
         th { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
@@ -368,7 +382,7 @@
             document.getElementById('walletTransactionsCount').textContent = walletTransactions.length;
             document.getElementById('walletTransactionsEmpty').hidden = walletTransactions.length > 0;
             document.getElementById('walletTransactionsBody').innerHTML = walletTransactions.map(transaction => `<tr>
-                <td>${escapeHtml(displayDate(transaction.createdAt))}</td><td>${escapeHtml(transaction.name)}<br><span class="muted">${escapeHtml(transaction.email)}</span></td>
+                <td>${escapeHtml(displayDate(transaction.createdAt))}</td><td>${escapeHtml(transaction.name)}<br><span class="transaction-user-email">${escapeHtml(transaction.email)}</span></td>
                 <td>${escapeHtml(transaction.role)}</td><td>${escapeHtml(transaction.walletId)}</td><td>${escapeHtml(transaction.type)}</td>
                 <td>${escapeHtml(transaction.direction)}</td><td>${money(transaction.amount)}</td><td>${escapeHtml(transaction.channel)}</td>
                 <td>${escapeHtml(transaction.status)}</td><td>${escapeHtml(transaction.reference)}</td>
