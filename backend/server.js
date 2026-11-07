@@ -16,7 +16,7 @@ const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_SETTINGS = { theme: 'system', density: 'comfortable', confirmDeletes: true };
 const CATEGORIES = new Set(['Fruits', 'Vegetables', 'Grains & Pulses', 'Roots & Tubers']);
 const PAYMENT_METHODS = new Set([
-    'Cash on delivery', 'M-PESA (demo)', 'Airtel Money (demo)', 'Bank transfer (demo)', 'KITUI FARM Wallet'
+    'KITUI FARM Wallet'
 ]);
 const PAGES = [
     'about-us.html', 'admin-register.html', 'admin-signin.html', 'buyer-dashboard.html', 'chat.html', 'customer-service.html', 'email-verify.html', 'farmer-dashboard.html', 'farmer-store.html',
@@ -131,6 +131,13 @@ const SQLITE_SCHEMA = `
         peer_user_id TEXT REFERENCES users(id) ON DELETE SET NULL, peer_wallet_id TEXT, idempotency_key TEXT UNIQUE,
         reviewed_by TEXT REFERENCES users(id), reviewed_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS wallet_payment_methods (
+        id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        kind TEXT NOT NULL CHECK (kind IN ('mpesa', 'airtel', 'bank', 'paypal')),
+        label TEXT NOT NULL, details_json TEXT NOT NULL,
+        use_for TEXT NOT NULL CHECK (use_for IN ('deposit', 'withdrawal', 'both')),
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS wallet_schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS wallet_admins (
         user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
@@ -240,6 +247,15 @@ function createSqliteStore(dbPath) {
             db.exec('ROLLBACK');
             throw error;
         }
+    }
+    if (!db.prepare('SELECT version FROM wallet_schema_migrations WHERE version = 3').get()) {
+        db.exec('BEGIN IMMEDIATE');
+        try {
+            // Explicitly authorized reset: clear wallet balances and histories, preserving users and payment settings.
+            db.exec('DELETE FROM wallet_transactions; DELETE FROM wallet_operations; DELETE FROM wallet_accounts;');
+            db.prepare('INSERT INTO wallet_schema_migrations (version, applied_at) VALUES (3, ?)').run(new Date().toISOString());
+            db.exec('COMMIT');
+        } catch (error) { db.exec('ROLLBACK'); throw error; }
     }
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_accounts_wallet_id ON wallet_accounts(wallet_id)');
     const userColumns = db.prepare('PRAGMA table_info(users)').all();
@@ -372,6 +388,13 @@ function createPostgresStore(connectionString, options = {}) {
                 peer_user_id text references users(id) on delete set null, peer_wallet_id text, idempotency_key text unique,
                 reviewed_by text references users(id), reviewed_at text, created_at text not null, updated_at text not null
             )`,
+                `CREATE TABLE IF NOT EXISTS wallet_payment_methods (
+                id text primary key, user_id text not null references users(id) on delete cascade,
+                kind text not null check (kind in ('mpesa', 'airtel', 'bank', 'paypal')),
+                label text not null, details_json text not null,
+                use_for text not null check (use_for in ('deposit', 'withdrawal', 'both')),
+                created_at text not null, updated_at text not null
+            )`,
                 'ALTER TABLE wallet_accounts ADD COLUMN IF NOT EXISTS wallet_id text',
                 "ALTER TABLE wallet_accounts ADD COLUMN IF NOT EXISTS currency text NOT NULL DEFAULT 'KES'",
                 "ALTER TABLE wallet_accounts ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active'",
@@ -391,6 +414,14 @@ function createPostgresStore(connectionString, options = {}) {
                         INSERT INTO wallet_schema_migrations (version, applied_at) VALUES (2, now()::text);
                     END IF;
                 END; $wallet_migration$`,
+                `DO $wallet_migration_v3$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM wallet_schema_migrations WHERE version = 3) THEN
+                        DELETE FROM wallet_transactions;
+                        DELETE FROM wallet_operations;
+                        DELETE FROM wallet_accounts;
+                        INSERT INTO wallet_schema_migrations (version, applied_at) VALUES (3, now()::text);
+                    END IF;
+                END; $wallet_migration_v3$`,
                 'ALTER TABLE wallet_accounts ALTER COLUMN wallet_id SET NOT NULL',
                 `DO $wallet_account_constraints$ BEGIN
                     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'wallet_accounts_status_check' AND conrelid = 'wallet_accounts'::regclass) THEN
@@ -840,7 +871,7 @@ async function publicOrder(store, row) {
     return {
         id: row.id, buyerId: row.buyer_id, buyerName: row.buyer_name, address: row.address,
         paymentMethod: row.payment_method, status: row.status, total: row.total, createdAt: row.created_at, items,
-        paymentStatus: row.payment_method === 'Cash on delivery' ? 'Due on delivery' : 'Not processed (demo)',
+        paymentStatus: row.payment_method === 'KITUI FARM Wallet' ? 'Paid with wallet' : row.payment_method === 'Cash on delivery' ? 'Due on delivery' : 'Not processed (demo)',
         estimatedDelivery: deliveryDate.toLocaleDateString('en-KE', { day: 'numeric', month: 'short', year: 'numeric' })
     };
 }
@@ -1003,9 +1034,10 @@ function createApp(options = {}) {
         }
     }
 
-    async function ensureWallet(userId) {
+    async function createWallet(userId) {
         let account = await store.get('SELECT * FROM wallet_accounts WHERE user_id = ?', [userId]);
-        if (account) return account;
+        if (account?.status === 'active') return account;
+        if (account?.status === 'closed') throw walletError('Your wallet is closed. Reopen it from this page first.', 409);
         const now = new Date().toISOString();
         for (let attempt = 0; attempt < 3; attempt++) {
             const walletId = `KF${crypto.randomBytes(6).toString('hex').toUpperCase()}`;
@@ -1022,6 +1054,13 @@ function createApp(options = {}) {
             }
         }
         throw new Error('Could not initialize a unique wallet ID. Try again.');
+    }
+
+    async function getActiveWallet(userId) {
+        const account = await store.get('SELECT * FROM wallet_accounts WHERE user_id = ?', [userId]);
+        if (!account) throw walletError('Create a KITUI FARM Wallet to continue.', 409);
+        if (account.status !== 'active') throw walletError('Your wallet is closed. Reopen it to continue.', 409);
+        return account;
     }
 
     function walletError(message, status) {
@@ -1448,18 +1487,19 @@ function createApp(options = {}) {
 
     app.get('/api/wallet', auth, async (req, res, next) => {
         try {
-            const account = await ensureWallet(req.user.id);
-            const [transactions, operations, admin] = await Promise.all([
+            const [account, transactions, operations, admin, paymentMethods] = await Promise.all([
+                store.get('SELECT * FROM wallet_accounts WHERE user_id = ?', [req.user.id]),
                 store.all(`SELECT id, kind, event_type, amount_cents, description, status, channel,
                     counterparty_wallet_id, operation_id, created_at FROM wallet_transactions
                     WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`, [req.user.id]),
                 store.all(`SELECT id, kind, amount_cents, fee_cents, currency, channel, details_json,
                     payment_reference, status, created_at, updated_at FROM wallet_operations
                     WHERE user_id = ? AND kind IN ('deposit', 'withdrawal') ORDER BY created_at DESC LIMIT 30`, [req.user.id]),
-                store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [req.user.id])
+                store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [req.user.id]),
+                store.all('SELECT id, kind, label, details_json, use_for, created_at FROM wallet_payment_methods WHERE user_id = ? ORDER BY created_at DESC', [req.user.id])
             ]);
             res.json({
-                wallet: { id: account.wallet_id, balance: Number(account.balance_cents) / 100, currency: account.currency, status: account.status, createdAt: account.created_at },
+                wallet: account ? { id: account.wallet_id, balance: Number(account.balance_cents) / 100, currency: account.currency, status: account.status, createdAt: account.created_at } : null,
                 transactions: transactions.map(row => ({
                     id: row.id, type: row.event_type, direction: row.kind, amount: Number(row.amount_cents) / 100,
                     description: row.description, status: row.status, channel: row.channel,
@@ -1470,8 +1510,82 @@ function createApp(options = {}) {
                     currency: row.currency, channel: row.channel, details: JSON.parse(row.details_json || '{}'),
                     paymentReference: row.payment_reference || '', status: row.status, createdAt: row.created_at, updatedAt: row.updated_at
                 })),
-                isAdmin: Boolean(admin)
+                isAdmin: Boolean(admin),
+                paymentMethods: paymentMethods.map(row => ({ id: row.id, kind: row.kind, label: row.label, details: JSON.parse(row.details_json || '{}'), useFor: row.use_for, createdAt: row.created_at }))
             });
+        } catch (error) { next(error); }
+    });
+
+    app.post('/api/wallet/create', auth, async (req, res, next) => {
+        try {
+            const wallet = await createWallet(req.user.id);
+            res.status(201).json({ wallet: { id: wallet.wallet_id, balance: Number(wallet.balance_cents) / 100, currency: wallet.currency, status: wallet.status, createdAt: wallet.created_at } });
+        } catch (error) { if (error.status) return res.status(error.status).json({ error: error.message }); next(error); }
+    });
+
+    app.post('/api/wallet/reopen', auth, async (req, res, next) => {
+        if (req.body?.confirmation !== 'REOPEN') return res.status(400).json({ error: 'Type REOPEN to confirm wallet recovery.' });
+        if (typeof req.body?.password !== 'string' || !req.body.password || req.body.password.length > 128) return res.status(400).json({ error: 'Enter your account password to reopen the wallet.' });
+        try {
+            const user = await store.get('SELECT * FROM users WHERE id = ?', [req.user.id]);
+            const actual = crypto.scryptSync(req.body.password, Buffer.from(user.password_salt, 'hex'), 64, { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+            const expected = Buffer.from(user.password_hash, 'hex');
+            if (actual.length !== expected.length || !crypto.timingSafeEqual(actual, expected)) return res.status(401).json({ error: 'The password is incorrect.' });
+            const changed = await store.run(`UPDATE wallet_accounts SET status = 'active', updated_at = ? WHERE user_id = ? AND status = 'closed' AND balance_cents = 0 AND NOT EXISTS (SELECT 1 FROM wallet_operations WHERE user_id = ? AND status IN ('pending', 'processing'))`, [new Date().toISOString(), req.user.id, req.user.id]);
+            if (!changed.changes) return res.status(409).json({ error: 'No recoverable closed wallet was found, or a pending transaction must be resolved first.' });
+            res.json({ status: 'active', message: 'Your wallet has been reopened.' });
+        } catch (error) { next(error); }
+    });
+
+    app.get('/api/wallet/payment-methods', auth, async (req, res, next) => {
+        try {
+            const rows = await store.all('SELECT id, kind, label, details_json, use_for, created_at FROM wallet_payment_methods WHERE user_id = ? ORDER BY created_at DESC', [req.user.id]);
+            res.json({ paymentMethods: rows.map(row => ({ id: row.id, kind: row.kind, label: row.label, details: JSON.parse(row.details_json || '{}'), useFor: row.use_for, createdAt: row.created_at })) });
+        } catch (error) { next(error); }
+    });
+
+    async function ownedPaymentMethod(userId, methodId, useFor) {
+        const method = await store.get('SELECT * FROM wallet_payment_methods WHERE id = ? AND user_id = ?', [text(methodId, 80), userId]);
+        if (!method) throw walletError('Save a payment method in Settings before requesting a deposit or payout.', 409);
+        if (method.use_for !== useFor && method.use_for !== 'both') throw walletError('This saved method is not enabled for that transaction.', 409);
+        return method;
+    }
+
+    app.post('/api/wallet/payment-methods', auth, async (req, res, next) => {
+        const kind = text(req.body?.kind, 16).toLowerCase();
+        const label = text(req.body?.label, 60);
+        const useFor = text(req.body?.useFor, 16).toLowerCase();
+        if (!['mpesa', 'airtel', 'bank', 'paypal'].includes(kind)) return res.status(400).json({ error: 'Choose M-Pesa, Airtel Money, bank, or PayPal.' });
+        if (!['deposit', 'withdrawal', 'both'].includes(useFor) || (kind === 'paypal' && useFor !== 'withdrawal')) return res.status(400).json({ error: 'PayPal is currently available for withdrawals only. Choose a valid use for this method.' });
+        if (!label) return res.status(400).json({ error: 'Enter a label for this payment method.' });
+        const details = {};
+        if (kind === 'mpesa' || kind === 'airtel') {
+            details.phone = normalizedPhone(text(req.body?.phone, 30));
+            if (!details.phone) return res.status(400).json({ error: 'Enter a valid Kenyan mobile number.' });
+        } else if (kind === 'bank') {
+            details.accountName = text(req.body?.accountName, 100);
+            details.accountNumber = text(req.body?.accountNumber, 34);
+            details.bankName = text(req.body?.bankName, 80);
+            details.branch = text(req.body?.branch, 80);
+            if (!details.accountName || !/^[A-Za-z0-9 -]{5,34}$/.test(details.accountNumber) || !details.bankName) return res.status(400).json({ error: 'Enter the account name, account number, and bank name.' });
+        } else {
+            details.email = text(req.body?.email, 254).toLowerCase();
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(details.email)) return res.status(400).json({ error: 'Enter a valid PayPal email address.' });
+        }
+        try {
+            const count = await store.get('SELECT COUNT(*) AS total FROM wallet_payment_methods WHERE user_id = ?', [req.user.id]);
+            if (Number(count.total) >= 10) return res.status(429).json({ error: 'You can save up to 10 payment methods.' });
+            const id = crypto.randomUUID(), now = new Date().toISOString();
+            await store.run('INSERT INTO wallet_payment_methods (id,user_id,kind,label,details_json,use_for,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)', [id, req.user.id, kind, label, JSON.stringify(details), useFor, now, now]);
+            res.status(201).json({ paymentMethod: { id, kind, label, details, useFor, createdAt: now } });
+        } catch (error) { next(error); }
+    });
+
+    app.delete('/api/wallet/payment-methods/:id', auth, async (req, res, next) => {
+        try {
+            const removed = await store.run('DELETE FROM wallet_payment_methods WHERE id = ? AND user_id = ?', [text(req.params.id, 80), req.user.id]);
+            if (!removed.changes) return res.status(404).json({ error: 'Saved payment method not found.' });
+            res.json({ removed: true });
         } catch (error) { next(error); }
     });
 
@@ -1502,11 +1616,7 @@ function createApp(options = {}) {
             }
             if (!user) return res.status(404).json({ error: 'No active wallet found for that recipient.' });
             if (user.id === req.user.id) return res.status(400).json({ error: 'You cannot transfer money to your own wallet.' });
-            if (!user.wallet_id) {
-                const initialized = await ensureWallet(user.id);
-                user = { ...user, wallet_id: initialized.wallet_id, status: initialized.status };
-            }
-            if (user.status !== 'active') return res.status(404).json({ error: 'No active wallet found for that recipient.' });
+            if (!user.wallet_id || user.status !== 'active') return res.status(404).json({ error: 'The recipient must create or reopen an active wallet before receiving funds.' });
             res.json({ recipient: { name: user.name, role: user.role, walletId: user.wallet_id, phone: user.phone } });
         } catch (error) { next(error); }
     });
@@ -1540,9 +1650,8 @@ function createApp(options = {}) {
             let senderWalletId = '';
             let recipientWalletId = '';
             await store.transaction(async () => {
-                const sender = await ensureWallet(req.user.id);
-                const receiver = await ensureWallet(recipient.id);
-                if (sender.status !== 'active' || receiver.status !== 'active') throw walletError('Both wallets must be active to transfer funds.', 409);
+                const sender = await getActiveWallet(req.user.id);
+                const receiver = await getActiveWallet(recipient.id);
                 const debited = await store.run(`
                     UPDATE wallet_accounts SET balance_cents = balance_cents - ?, updated_at = ?
                     WHERE user_id = ? AND status = 'active' AND balance_cents >= ?
@@ -1585,7 +1694,8 @@ function createApp(options = {}) {
 
     app.post('/api/wallet/deposits', auth, async (req, res, next) => {
         const cents = amountCents(req.body?.amount);
-        const channel = text(req.body?.channel, 32);
+        const methodId = text(req.body?.paymentMethodId, 80);
+        let channel = text(req.body?.channel, 32);
         const idempotencyKey = text(req.body?.idempotencyKey, 80);
         const allowedChannels = new Set(['mpesa_stk_simulation', 'airtel_money', 'bank_transfer']);
         if (!cents) return res.status(400).json({ error: 'Enter an amount from KES 0.01 to KES 1,000,000.00.' });
@@ -1593,23 +1703,15 @@ function createApp(options = {}) {
         if (!/^[A-Za-z0-9-]{16,80}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Refresh the page and try the deposit request again.' });
         const paymentReference = text(req.body?.paymentReference, 32).toUpperCase();
         if (paymentReference && !/^[A-Z0-9-]{5,32}$/.test(paymentReference)) return res.status(400).json({ error: 'Enter a valid payment reference.' });
-        const details = {};
-        if (channel === 'mpesa_stk_simulation' || channel === 'airtel_money') {
-            const phone = normalizedPhone(text(req.body?.phone, 30));
-            if (!phone) return res.status(400).json({ error: 'Enter a valid Kenyan mobile number.' });
-            details.phone = phone;
-        }
-        if (channel === 'bank_transfer') {
-            details.bankName = text(req.body?.bankName, 80);
-            details.accountReference = text(req.body?.accountReference, 80);
-            if (!details.bankName) return res.status(400).json({ error: 'Enter the sending bank name.' });
-        }
         try {
             const prior = await store.get('SELECT id, kind, amount_cents, status, channel, payment_reference, created_at FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
             if (prior) return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, status: prior.status, channel: prior.channel, paymentReference: prior.payment_reference || '', createdAt: prior.created_at } });
             if (!paymentReference) return res.status(400).json({ error: 'Enter the payment receipt/reference. A real M-Pesa prompt is not connected yet.' });
-            const wallet = await ensureWallet(req.user.id);
-            if (wallet.status !== 'active') return res.status(409).json({ error: 'This wallet is closed. Contact customer service before using it again.' });
+            await getActiveWallet(req.user.id);
+            const method = await ownedPaymentMethod(req.user.id, methodId, 'deposit');
+            if (method.kind === 'paypal') return res.status(400).json({ error: 'PayPal deposits are not enabled; use PayPal only for manual payout requests.' });
+            channel = method.kind === 'mpesa' ? 'mpesa_stk_simulation' : method.kind === 'airtel' ? 'airtel_money' : 'bank_transfer';
+            const details = JSON.parse(method.details_json || '{}');
             const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND status = 'pending'", [req.user.id]);
             if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several deposits awaiting review. Wait for those to be resolved first.' });
             const id = crypto.randomUUID();
@@ -1632,35 +1734,23 @@ function createApp(options = {}) {
 
     app.post('/api/wallet/withdrawals', auth, async (req, res, next) => {
         const cents = amountCents(req.body?.amount);
-        const channel = text(req.body?.channel, 16);
+        const methodId = text(req.body?.paymentMethodId, 80);
+        let channel = '';
         const idempotencyKey = text(req.body?.idempotencyKey, 80);
         if (!cents) return res.status(400).json({ error: 'Enter an amount from KES 0.01 to KES 1,000,000.00.' });
-        if (!['mpesa', 'airtel', 'bank'].includes(channel)) return res.status(400).json({ error: 'Choose M-Pesa, Airtel Money, or bank withdrawal.' });
         if (!/^[A-Za-z0-9-]{16,80}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Refresh the page and try the withdrawal request again.' });
-        const details = {};
-        if (channel === 'mpesa' || channel === 'airtel') {
-            const phone = normalizedPhone(text(req.body?.phone, 30));
-            if (!phone) return res.status(400).json({ error: 'Enter a valid Kenyan mobile number.' });
-            details.phone = phone;
-        } else {
-            details.accountName = text(req.body?.accountName, 100);
-            details.accountNumber = text(req.body?.accountNumber, 34);
-            details.bankName = text(req.body?.bankName, 80);
-            details.branch = text(req.body?.branch, 80);
-            if (!details.accountName || !/^[A-Za-z0-9 -]{5,34}$/.test(details.accountNumber) || !details.bankName) {
-                return res.status(400).json({ error: 'Enter the bank account name, account number, and bank name.' });
-            }
-        }
         try {
             const prior = await store.get('SELECT id, kind, amount_cents, fee_cents, status, channel, created_at FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
             if (prior) return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, fee: Number(prior.fee_cents) / 100, status: prior.status, channel: prior.channel, createdAt: prior.created_at } });
-            const wallet = await ensureWallet(req.user.id);
-            if (wallet.status !== 'active') return res.status(409).json({ error: 'This wallet is closed.' });
+            await getActiveWallet(req.user.id);
+            const method = await ownedPaymentMethod(req.user.id, methodId, 'withdrawal');
+            channel = method.kind;
+            const details = JSON.parse(method.details_json || '{}');
             const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'withdrawal' AND status = 'pending'", [req.user.id]);
             if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several withdrawals awaiting review. Wait for those to be resolved first.' });
             const id = crypto.randomUUID();
             const now = new Date().toISOString();
-            const description = `Withdrawal request via ${channel === 'mpesa' ? 'M-Pesa' : channel === 'airtel' ? 'Airtel Money' : 'bank transfer'}`;
+            const description = `Withdrawal request via ${channel === 'mpesa' ? 'M-Pesa' : channel === 'airtel' ? 'Airtel Money' : channel === 'paypal' ? 'PayPal' : 'bank transfer'}`;
             await store.transaction(async () => {
                 const debited = await store.run(`
                     UPDATE wallet_accounts SET balance_cents = balance_cents - ?, updated_at = ?
@@ -2420,7 +2510,7 @@ function createApp(options = {}) {
         const paymentMethod = req.body?.paymentMethod;
         if (!Array.isArray(lines) || lines.length < 1 || lines.length > 50) return res.status(400).json({ error: 'Add between 1 and 50 order items.' });
         if (!address) return res.status(400).json({ error: 'A delivery address is required.' });
-        if (!PAYMENT_METHODS.has(paymentMethod)) return res.status(400).json({ error: 'Choose a supported payment method.' });
+        if (!PAYMENT_METHODS.has(paymentMethod)) return res.status(400).json({ error: 'Marketplace orders must be paid using your KITUI FARM Wallet.' });
         const checkoutKey = req.body?.checkoutId;
         if (typeof checkoutKey !== 'string'
             || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(checkoutKey)) {
@@ -2482,7 +2572,7 @@ function createApp(options = {}) {
                 if (paymentMethod === 'KITUI FARM Wallet') {
                     const totalCents = [...byFarmer.values()].flat().reduce((sum, item) => sum + Math.round(item.quantity * item.price * 100), 0);
                     if (!Number.isSafeInteger(totalCents) || totalCents <= 0) throw walletError('Could not calculate the order total.', 400);
-                    await ensureWallet(req.user.id);
+                    await getActiveWallet(req.user.id);
                     const debited = await store.run(`
                         UPDATE wallet_accounts SET balance_cents = balance_cents - ?, updated_at = ?
                         WHERE user_id = ? AND status = 'active' AND balance_cents >= ?
@@ -2494,14 +2584,11 @@ function createApp(options = {}) {
                         VALUES (?, ?, 'debit', 'purchase', ?, ?, ?, ?, 'completed', 'wallet')
                     `, [crypto.randomUUID(), req.user.id, totalCents, `checkout:${checkoutKey}`, 'Marketplace order payment', createdAt]);
                 }
-                const status = paymentMethod === 'Cash on delivery' ? 'Cash on delivery'
-                    : paymentMethod === 'KITUI FARM Wallet' ? 'Paid with wallet' : 'Payment pending (demo)';
+                const status = 'Paid with wallet';
                 const createdOrders = [];
                 for (const items of byFarmer.values()) {
                     const id = `KF-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-                    const total = paymentMethod === 'KITUI FARM Wallet'
-                        ? items.reduce((sum, item) => sum + Math.round(item.quantity * item.price * 100), 0) / 100
-                        : items.reduce((sum, item) => sum + item.quantity * item.price, 0);
+                    const total = items.reduce((sum, item) => sum + Math.round(item.quantity * item.price * 100), 0) / 100;
                     await store.run(`
                         INSERT INTO orders
                             (id, buyer_id, buyer_name, address, payment_method, status, total, checkout_key, created_at)
@@ -2551,7 +2638,7 @@ function createApp(options = {}) {
                             [item.quantity, item.product_id, item.farmer_id]);
                     }
                     if (order.payment_method === 'KITUI FARM Wallet') {
-                        await ensureWallet(order.buyer_id);
+                        await getActiveWallet(order.buyer_id);
                         const cents = Math.round(Number(order.total) * 100);
                         const refunded = await store.run(`
                             UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
@@ -2591,7 +2678,7 @@ function createApp(options = {}) {
                     await store.run('UPDATE orders SET buyer_hidden = true WHERE id = ?', [order.id]);
                 }
                 if (order.payment_method === 'KITUI FARM Wallet' && ['Pending', 'Cash on delivery', 'Payment pending (demo)', 'Paid with wallet'].includes(order.status)) {
-                    await ensureWallet(order.buyer_id);
+                    await getActiveWallet(order.buyer_id);
                     const cents = Math.round(Number(order.total) * 100);
                     const refunded = await store.run(`
                         UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?

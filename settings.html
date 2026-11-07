@@ -82,6 +82,12 @@
         .form-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 13px; margin-top: 20px; }
         .message { margin: 0; color: var(--green-dark); font-size: 13px; }
         .message.error { color: var(--danger); }
+        .field { display: grid; gap: 6px; margin: 12px 0; }
+        .field label { font-size: 13px; font-weight: 700; }
+        .field input { width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); font: inherit; }
+        .stack { display: grid; margin-top: 16px; }
+        .entry { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-top: 1px solid var(--line); }
+        .entry small { display: block; color: var(--muted); }
         @media (max-width: 560px) {
             .topbar-inner, main { width: calc(100% - 28px); }
             .topbar-inner { min-height: 68px; }
@@ -140,6 +146,24 @@
             <div class="form-actions"><button class="button" type="submit">Save settings</button><button class="button secondary" id="resetSettings" type="button">Reset to defaults</button><p class="message" id="settingsMessage" role="status" aria-live="polite"></p></div>
         </form>
 
+        <section class="card" id="paymentMethodsCard">
+            <div class="card-heading"><h2>Wallet payment methods</h2><p>Save the account details you use to fund your wallet or receive a manual payout. These are not marketplace checkout methods. PayPal is supported for withdrawals only; payouts are reviewed and sent manually.</p></div>
+            <div class="setting-row" style="display:block">
+                <form id="paymentMethodForm">
+                    <div class="setting-row" style="padding:12px 0;border:0"><label>Method <select id="methodKind"><option value="mpesa">M-Pesa</option><option value="airtel">Airtel Money</option><option value="bank">Bank account</option><option value="paypal">PayPal</option></select></label><label>Use for <select id="methodUse"><option value="both">Deposits and withdrawals</option><option value="deposit">Deposits only</option><option value="withdrawal">Withdrawals only</option></select></label></div>
+                    <div class="field"><label for="methodLabel">Name this method</label><input id="methodLabel" maxlength="60" required placeholder="e.g. My M-Pesa number"></div>
+                    <div class="field" data-method="phone"><label for="methodPhone">Kenyan phone number</label><input id="methodPhone" type="tel" placeholder="0712 345 678"></div>
+                    <div class="field" data-method="bank" hidden><label for="methodAccountName">Account name</label><input id="methodAccountName" maxlength="100"></div>
+                    <div class="field" data-method="bank" hidden><label for="methodAccountNumber">Account number</label><input id="methodAccountNumber" maxlength="34"></div>
+                    <div class="field" data-method="bank" hidden><label for="methodBankName">Bank name</label><input id="methodBankName" maxlength="80"></div>
+                    <div class="field" data-method="bank" hidden><label for="methodBranch">Branch (optional)</label><input id="methodBranch" maxlength="80"></div>
+                    <div class="field" data-method="paypal" hidden><label for="methodPaypalEmail">PayPal email</label><input id="methodPaypalEmail" type="email" maxlength="254"></div>
+                    <button class="button" type="submit">Save payment method</button><p class="message" id="methodMessage" role="status" aria-live="polite"></p>
+                </form>
+                <div id="paymentMethodList" class="stack" aria-live="polite"><p class="empty">Loading saved methods…</p></div>
+            </div>
+        </section>
+
 
     </main>
     <script>
@@ -149,6 +173,15 @@
         const dashboardLink = document.getElementById('dashboardLink');
         dashboardLink.href = settingsSession.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
         document.getElementById('walletLink').hidden = settingsSession.role !== 'buyer';
+        const methodApi = async (url, options = {}) => { const response = await fetch(url, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } }); const result = response.status === 204 ? {} : await response.json(); if (!response.ok) throw new Error(result.error || 'Request failed.'); return result; };
+        const methodKind = document.getElementById('methodKind');
+        const methodUse = document.getElementById('methodUse');
+        const methodFields = () => { const kind=methodKind.value; document.querySelectorAll('[data-method]').forEach(field=>field.hidden=!field.dataset.method.split(' ').includes(kind)); methodUse.value=kind==='paypal'?'withdrawal':'both'; methodUse.disabled=kind==='paypal'; };
+        const loadPaymentMethods = async () => { const result=await methodApi('/api/wallet/payment-methods'); const list=document.getElementById('paymentMethodList'); list.innerHTML=result.paymentMethods.length?result.paymentMethods.map(method=>`<div class="entry"><span><strong>${method.label.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}</strong><small>${method.kind.toUpperCase()} · ${method.useFor==='both'?'Deposits and withdrawals':method.useFor}</small></span><button class="button secondary" type="button" data-delete-method="${method.id}">Remove</button></div>`).join(''):'<p class="empty">No payment methods saved yet.</p>'; };
+        methodKind.addEventListener('change',methodFields); methodFields();
+        document.getElementById('paymentMethodForm').addEventListener('submit',async event=>{event.preventDefault();const kind=methodKind.value;const body={kind,label:document.getElementById('methodLabel').value.trim(),useFor:methodUse.value};if(kind==='mpesa'||kind==='airtel')body.phone=document.getElementById('methodPhone').value;else if(kind==='bank')Object.assign(body,{accountName:document.getElementById('methodAccountName').value,accountNumber:document.getElementById('methodAccountNumber').value,bankName:document.getElementById('methodBankName').value,branch:document.getElementById('methodBranch').value});else body.email=document.getElementById('methodPaypalEmail').value;try{await methodApi('/api/wallet/payment-methods',{method:'POST',body:JSON.stringify(body)});document.getElementById('methodMessage').textContent='Payment method saved securely to your account.';event.currentTarget.reset();methodFields();await loadPaymentMethods();}catch(error){document.getElementById('methodMessage').textContent=error.message;document.getElementById('methodMessage').classList.add('error');}});
+        document.getElementById('paymentMethodList').addEventListener('click',async event=>{const button=event.target.closest('[data-delete-method]');if(!button)return;if(!confirm('Remove this saved payment method?'))return;try{await methodApi(`/api/wallet/payment-methods/${encodeURIComponent(button.dataset.deleteMethod)}`,{method:'DELETE'});await loadPaymentMethods();}catch(error){document.getElementById('methodMessage').textContent=error.message;}});
+        loadPaymentMethods().catch(error=>{document.getElementById('paymentMethodList').innerHTML=`<p class="message error">${error.message}</p>`;});
 
         function readSettings() {
             const stored = JSON.parse(localStorage.getItem(storageKey) || '{}');

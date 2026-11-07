@@ -129,41 +129,14 @@
     </header>
     <main>
         <h1>Choose how to pay</h1>
-        <p class="intro">Review your order and choose cash, a phone/digital payment, or your KITUI FARM wallet.</p>
+        <p class="intro">Marketplace orders are paid from your KITUI FARM Wallet. Add funds in your wallet before checkout.</p>
         <div class="layout">
             <section class="card">
-                <div class="card-heading"><h2>Payment method</h2><p>Choose a payment option for this order.</p></div>
+                <div class="card-heading"><h2>Pay with your wallet</h2><p>Saved payment methods are used to deposit into or withdraw from your wallet in Settings.</p></div>
                 <div class="card-body">
                     <form id="paymentForm">
-                        <label class="choice">
-                            <input type="radio" name="paymentMode" value="cash" checked>
-                            <span><strong>Cash</strong><small>Pay cash when your order is delivered.</small></span>
-                        </label>
-                        <label class="choice">
-                            <input type="radio" name="paymentMode" value="phone">
-                            <span><strong>Phone or digital payment</strong><small>Select M-PESA, Airtel Money, or bank transfer.</small></span>
-                        </label>
-                        <label class="choice">
-                            <input type="radio" name="paymentMode" value="wallet">
-                            <span><strong>Pay with wallet</strong><small>Use your verified KITUI FARM wallet balance.</small></span>
-                        </label>
-                        <div id="digitalOptions" hidden>
-                            <p class="hint">Select your phone or bank payment option:</p>
-                            <div class="providers" role="group" aria-label="Phone or digital payment provider">
-                                <label class="provider"><input type="radio" name="provider" value="M-PESA"><span>M-PESA</span></label>
-                                <label class="provider"><input type="radio" name="provider" value="Airtel Money"><span>Airtel Money</span></label>
-                                <label class="provider"><input type="radio" name="provider" value="Bank transfer"><span>Bank</span></label>
-                            </div>
-                            <div class="field" id="phoneField" hidden>
-                                <label for="paymentPhone">Mobile money phone number</label>
-                                <input id="paymentPhone" type="tel" inputmode="tel" placeholder="+254 712345678">
-                                <p class="hint">Enter the number registered with your M-PESA or Airtel Money wallet.</p>
-                            </div>
-                            <p class="hint" id="bankHint" hidden>Choose your bank in your own banking app. No bank account details or funds are collected here.</p>
-                        </div>
-                        <div id="walletOptions" hidden><p class="hint" id="walletBalanceMessage">Loading your wallet balance…</p><a href="wallet.html">View wallet or request a top-up</a></div>
-                        <p class="demo-note">M-PESA, Airtel Money, and bank transfer are demo choices and do not initiate a payment. Wallet payments use your verified KITUI FARM wallet balance.</p>
-                        <div class="form-actions"><button class="button" type="submit" id="confirmButton">Place cash-on-delivery order</button></div>
+                        <div id="walletOptions"><p class="hint" id="walletBalanceMessage">Loading your wallet balance…</p><a href="wallet.html">Open wallet</a> · <a href="settings.html">Manage deposit and payout methods</a></div>
+                        <div class="form-actions"><button class="button" type="submit" id="confirmButton">Loading wallet…</button></div>
                         <p class="message" id="paymentMessage" role="status" aria-live="polite"></p>
                     </form>
                 </div>
@@ -190,6 +163,7 @@
         const paymentMessage = document.getElementById('paymentMessage');
         let draft;
         let walletBalance = 0;
+        let walletExists = false;
         let walletLoaded = false;
         let walletLoadError = false;
         let orderPlaced = false;
@@ -242,13 +216,7 @@
             document.getElementById('summaryTotal').textContent = `KES ${total.toLocaleString('en-KE')}`;
         }
         function updatePaymentOptions() {
-            const mode = document.querySelector('input[name="paymentMode"]:checked').value;
-            const provider = document.querySelector('input[name="provider"]:checked');
-            const walletOptions = document.getElementById('walletOptions');
-            document.getElementById('digitalOptions').hidden = mode !== 'phone';
-            document.getElementById('phoneField').hidden = mode !== 'phone' || !provider || provider.value === 'Bank transfer';
-            document.getElementById('bankHint').hidden = mode !== 'phone' || !provider || provider.value !== 'Bank transfer';
-            walletOptions.hidden = mode !== 'wallet';
+            const mode = 'wallet';
             const confirmButton = document.getElementById('confirmButton');
             if (mode === 'wallet') {
                 const total = Number(document.getElementById('summaryTotal').textContent.replace(/[^\d.]/g, '')) || 0;
@@ -257,9 +225,9 @@
                     balanceMessage.textContent = 'Loading your wallet balance…';
                     confirmButton.textContent = 'Loading wallet…';
                     confirmButton.disabled = true;
-                } else if (walletLoadError) {
-                    balanceMessage.textContent = 'Could not verify your wallet balance. Open the Wallet page or choose another payment method.';
-                    confirmButton.textContent = 'Wallet unavailable';
+                } else if (walletLoadError || !walletExists) {
+                    balanceMessage.innerHTML = 'Create a KITUI FARM Wallet first, then return to checkout. <a href="wallet.html">Create wallet</a>';
+                    confirmButton.textContent = 'Create wallet first';
                     confirmButton.disabled = true;
                 } else if (walletBalance < total) {
                     balanceMessage.textContent = `Wallet balance ${money(walletBalance)} is below the order total ${money(total)}. Request a top-up to continue.`;
@@ -272,8 +240,8 @@
                 }
                 return;
             }
-            confirmButton.textContent = mode === 'cash' ? 'Place cash-on-delivery order' : 'Confirm demo order';
-            confirmButton.disabled = orderPlaced || !checkoutReady;
+            confirmButton.textContent = 'Pay from KITUI FARM Wallet';
+            confirmButton.disabled = true;
         }
         function money(value) { return `KES ${Number(value).toLocaleString('en-KE', { minimumFractionDigits:2, maximumFractionDigits:2 })}`; }
         function returnToShop() {
@@ -284,8 +252,6 @@
             window.location.href = 'buyer-dashboard.html';
         }
         document.getElementById('backButton').addEventListener('click', returnToShop);
-        document.querySelectorAll('input[name="paymentMode"], input[name="provider"]').forEach(input =>
-            input.addEventListener('change', updatePaymentOptions));
 
         document.getElementById('paymentForm').addEventListener('submit', async event => {
             event.preventDefault();
@@ -295,22 +261,8 @@
                 const address = document.getElementById('deliveryAddress').value.trim();
                 if (!address) throw new Error('Enter a delivery address.');
                 const lines = getDraftLines();
-                const mode = document.querySelector('input[name="paymentMode"]:checked').value;
-                const providerInput = document.querySelector('input[name="provider"]:checked');
-                let paymentMethod = 'Cash on delivery';
-                if (mode === 'phone') {
-                    if (!providerInput) throw new Error('Choose M-PESA, Airtel Money, or bank transfer.');
-                    paymentMethod = `${providerInput.value} (demo)`;
-                    if (providerInput.value !== 'Bank transfer') {
-                        const rawPhone = document.getElementById('paymentPhone').value.replace(/\D/g, '');
-                        let phoneDigits = rawPhone;
-                        if (phoneDigits.startsWith('254')) phoneDigits = phoneDigits.slice(3);
-                        if (phoneDigits.startsWith('0')) phoneDigits = phoneDigits.slice(1);
-                        if (!/^[17]\d{8}$/.test(phoneDigits)) throw new Error('Enter a valid Kenyan mobile number with 9 digits after +254.');
-                    }
-                } else if (mode === 'wallet') {
-                    paymentMethod = 'KITUI FARM Wallet';
-                }
+                const mode = 'wallet';
+                const paymentMethod = 'KITUI FARM Wallet';
                 const result = await apiRequest('/api/orders', {
                     method: 'POST',
                     body: JSON.stringify({
@@ -322,7 +274,7 @@
                 });
                 const createdOrders = result.orders;
                 const confirmedTotal = createdOrders.reduce((sum, order) => sum + Number(order.total), 0);
-                paymentMessage.textContent = `Order ${createdOrders.map(order => order.id).join(', ')} placed for ${money(confirmedTotal)}. ${mode === 'phone' ? 'Payment was not processed; this is a demo order.' : mode === 'wallet' ? 'Your wallet payment was completed.' : 'Pay cash when the order is delivered.'}`;
+                paymentMessage.textContent = `Order ${createdOrders.map(order => order.id).join(', ')} placed for ${money(confirmedTotal)}. Your wallet payment was completed.`;
                 paymentMessage.classList.remove('error');
                 document.getElementById('confirmButton').disabled = true;
                 orderPlaced = true;
@@ -378,6 +330,7 @@
         }
         })();
         apiRequest('/api/wallet').then(wallet => {
+            walletExists = Boolean(wallet.wallet && wallet.wallet.status === 'active');
             walletBalance = Number(wallet.wallet?.balance) || 0;
             walletLoaded = true;
             updatePaymentOptions();

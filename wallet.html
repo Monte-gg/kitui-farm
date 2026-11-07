@@ -25,15 +25,14 @@
     <header class="topbar"><div class="topbar-inner"><a class="brand" id="brandLink" href="index.html">🌱 KITUI FARM</a><nav class="nav" aria-label="Wallet navigation"><a class="button" id="backLink" href="buyer-dashboard.html">← Dashboard</a><a class="button" href="customer-service.html">Customer service</a></nav></div></header>
     <main>
         <h1>My wallet</h1><p class="intro">Manage your KES balance, move funds, and review every wallet transaction.</p>
-        <div class="grid">
+        <section class="card wide" id="walletSetup" hidden><h2 id="walletSetupTitle">Create your wallet</h2><p class="hint" id="walletSetupHint">Create a secure KES wallet to pay for farm products, add funds, and transfer money.</p><form id="createWalletForm"><button class="button primary" type="submit">Create KITUI FARM Wallet</button><p class="message" id="createWalletMessage" role="status" aria-live="polite"></p></form><form id="reopenWalletForm" hidden><div class="split"><div class="field"><label for="reopenPassword">Account password</label><input id="reopenPassword" type="password" autocomplete="current-password" required></div><div class="field"><label for="reopenConfirmation">Type REOPEN to confirm</label><input id="reopenConfirmation" required></div></div><button class="button primary" type="submit">Recover closed wallet</button><p class="message" id="reopenMessage" role="status" aria-live="polite"></p></form></section>
+        <div class="grid" id="walletContent">
             <section class="card balance-card"><p class="label">Available balance</p><p class="balance" id="walletBalance">KES —</p><div class="wallet-meta"><span>Wallet ID: <strong id="walletId">Loading…</strong></span><span>Status: <strong id="walletStatus">—</strong></span></div><p class="hint">Internal wallet transfers and marketplace wallet payments update instantly.</p></section>
 
             <section class="card"><h2>Add money</h2><p class="hint">Requests stay pending until an administrator verifies the payment. Make the payment using customer-service instructions, then enter its receipt. No real STK prompt or external charge is triggered on this page.</p>
-                <form id="depositForm"><div class="field"><label for="depositChannel">Deposit method</label><select id="depositChannel"><option value="mpesa_stk_simulation">M-Pesa (request simulation)</option><option value="airtel_money">Airtel Money (manual verification)</option><option value="bank_transfer">Bank transfer (manual verification)</option></select></div>
+                <form id="depositForm"><div class="field"><label for="depositMethodId">Saved deposit method</label><select id="depositMethodId" required><option value="">Add a deposit method in Settings first</option></select><input id="depositChannel" type="hidden" value="mpesa_stk_simulation"></div>
                     <div class="field"><label for="depositAmount">Amount (KES)</label><input id="depositAmount" type="number" min="0.01" max="1000000" step="0.01" required></div>
-                    <div class="field" data-deposit-field="phone"><label for="depositPhone">Mobile number</label><input id="depositPhone" type="tel" inputmode="tel" placeholder="07xx xxx xxx"><p class="hint" id="phoneHint">Simulation only: this does not send a real M-Pesa prompt.</p></div>
-                    <div class="field" data-deposit-field="bank"><label for="bankName">Sending bank</label><input id="bankName" maxlength="80" placeholder="Bank name"></div>
-                    <div class="field" data-deposit-field="bank"><label for="accountReference">Bank account/reference (optional)</label><input id="accountReference" maxlength="80" placeholder="Optional"></div>
+                    <p class="hint" id="phoneHint">Requests are manually verified. M-Pesa STK Push is not connected.</p>
                     <div class="field"><label for="depositReference">Payment receipt/reference</label><input id="depositReference" maxlength="32" autocomplete="off" placeholder="e.g. QAB12CD34E" required><p class="hint">Enter the receipt from your payment message. The M-Pesa prompt is not connected yet.</p></div>
                     <button class="button primary" id="depositButton" type="submit">Submit deposit request</button><p class="message" id="depositMessage" role="status" aria-live="polite"></p>
                 </form>
@@ -45,12 +44,9 @@
             </section>
 
             <section class="card"><h2>Withdraw funds</h2><p class="hint">Your wallet is reserved for the requested amount. The payout is processed manually; rejecting the request refunds the amount. Current fee: KES 0.00.</p>
-                <form id="withdrawalForm"><div class="field"><label for="withdrawChannel">Send to</label><select id="withdrawChannel"><option value="mpesa">M-Pesa</option><option value="airtel">Airtel Money</option><option value="bank">Bank account</option></select></div>
+                <form id="withdrawalForm"><div class="field"><label for="withdrawMethodId">Payout destination</label><select id="withdrawMethodId" required><option value="">Add a withdrawal method in Settings first</option></select><input id="withdrawChannel" type="hidden" value="mpesa"></div>
                     <div class="field"><label for="withdrawAmount">Amount (KES)</label><input id="withdrawAmount" type="number" min="0.01" max="1000000" step="0.01" required></div>
-                    <div class="field" data-withdraw-field="phone"><label for="withdrawPhone">Mobile number</label><input id="withdrawPhone" type="tel" inputmode="tel" placeholder="07xx xxx xxx"></div>
-                    <div class="field" data-withdraw-field="bank"><label for="withdrawAccountName">Account name</label><input id="withdrawAccountName" maxlength="100"></div>
-                    <div class="split" data-withdraw-field="bank"><div class="field"><label for="withdrawAccountNumber">Account number</label><input id="withdrawAccountNumber" maxlength="34"></div><div class="field"><label for="withdrawBankName">Bank name</label><input id="withdrawBankName" maxlength="80"></div></div>
-                    <div class="field" data-withdraw-field="bank"><label for="withdrawBranch">Branch (optional)</label><input id="withdrawBranch" maxlength="80" placeholder="Optional"></div>
+                    <p class="hint">Payout requests are reviewed and processed manually. PayPal is a saved payout destination, not an automated PayPal integration.</p>
                     <button class="button primary" type="submit">Request withdrawal</button><p class="message" id="withdrawMessage" role="status" aria-live="polite"></p>
                 </form>
             </section>
@@ -84,20 +80,29 @@
             group.hidden = !active;
             group.querySelectorAll('input').forEach(input => { input.required = active && !input.placeholder.includes('optional'); });
         });
-        $('depositChannel').addEventListener('change', () => {
-            const channel = $('depositChannel').value;
-            setConditionalFields('[data-deposit-field="phone"]', channel, channel === 'bank_transfer' ? 'bank' : 'phone');
-            setConditionalFields('[data-deposit-field="bank"]', channel, channel === 'bank_transfer' ? 'bank' : 'none');
-            $('depositReference').required = true;
-            $('phoneHint').textContent = channel === 'mpesa_stk_simulation' ? 'M-Pesa prompt simulation only: pay using customer-service instructions; this does not send an STK prompt.' : 'The administrator will confirm payment before crediting this wallet.';
-        });
-        $('withdrawChannel').addEventListener('change', () => {
-            const bank = $('withdrawChannel').value === 'bank';
-            setConditionalFields('[data-withdraw-field="phone"]', '', bank ? 'bank' : 'phone');
-            setConditionalFields('[data-withdraw-field="bank"]', '', bank ? 'bank' : 'none');
-        });
+        function fillWalletPaymentMethods(methods) {
+            const deposits=methods.filter(item=>['deposit','both'].includes(item.useFor)&&item.kind!=='paypal');
+            const withdrawals=methods.filter(item=>['withdrawal','both'].includes(item.useFor));
+            const option=item=>`<option value="${escapeHtml(item.id)}" data-kind="${escapeHtml(item.kind)}">${escapeHtml(item.label)} · ${item.kind==='mpesa'?'M-Pesa':item.kind==='airtel'?'Airtel Money':item.kind==='paypal'?'PayPal':'Bank'}</option>`;
+            $('depositMethodId').innerHTML=deposits.length?'<option value="">Choose a saved method</option>'+deposits.map(option).join(''):'<option value="">No deposit methods — add one in Settings</option>';
+            $('withdrawMethodId').innerHTML=withdrawals.length?'<option value="">Choose a payout destination</option>'+withdrawals.map(option).join(''):'<option value="">No payout methods — add one in Settings</option>';
+            $('depositMethodId').onchange=()=>{$('depositChannel').value=({mpesa:'mpesa_stk_simulation',airtel:'airtel_money',bank:'bank_transfer'})[$('depositMethodId').selectedOptions[0]?.dataset.kind]||'';};
+            $('withdrawMethodId').onchange=()=>{$('withdrawChannel').value=$('withdrawMethodId').selectedOptions[0]?.dataset.kind||'';};
+        }
         function renderWallet(data) {
             currentWallet = data.wallet;
+            $('walletSetup').hidden = Boolean(data.wallet && data.wallet.status === 'active');
+            $('walletContent').hidden = !data.wallet || data.wallet.status !== 'active';
+            if (!data.wallet || data.wallet.status !== 'active') {
+                $('walletBalance').textContent = data.wallet ? money(data.wallet.balance) : 'KES 0.00';
+                $('walletId').textContent = data.wallet?.id || 'Not created';
+                $('walletStatus').textContent = data.wallet?.status || 'Not created';
+                $('walletSetupTitle').textContent = data.wallet ? 'Recover your closed wallet' : 'Create your KITUI FARM Wallet';
+                $('walletSetupHint').textContent = data.wallet ? 'Your zero-balance wallet is closed. Confirm your account password to reopen it and continue using the same wallet ID.' : 'Create a secure KES wallet to pay for farm products, request deposits, transfer funds, and receive payouts.';
+                $('createWalletForm').hidden = Boolean(data.wallet);
+                $('reopenWalletForm').hidden = !data.wallet;
+                return;
+            }
             $('walletBalance').textContent = money(data.wallet.balance);
             $('walletId').textContent = data.wallet.id;
             $('walletStatus').textContent = data.wallet.status;
@@ -105,12 +110,15 @@
             $('backLink').href = dashboard; $('brandLink').href = dashboard;
             const closed = data.wallet.status !== 'active';
             document.querySelectorAll('#depositForm button,#transferForm button,#recipientForm button,#withdrawalForm button').forEach(button => button.disabled = closed);
+            fillWalletPaymentMethods(data.paymentMethods||[]);
             const tx = data.transactions || [];
             $('transactions').innerHTML = tx.length ? tx.map(item => `<div class="entry"><span>${escapeHtml(item.description)}<small>${escapeHtml(item.type)} · ${escapeHtml(item.channel)} · ${new Date(item.createdAt).toLocaleString('en-KE')}</small></span><span class="amount ${item.direction === 'credit' ? 'credit' : 'debit'}">${item.direction === 'credit' ? '+' : '−'}${money(item.amount)}<small class="status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</small></span></div>`).join('') : '<p class="empty">No wallet transactions yet.</p>';
             const ops = data.operations || [];
             $('operations').innerHTML = ops.length ? ops.map(item => `<div class="entry"><span>${escapeHtml(item.type)} · ${escapeHtml(item.channel)}<small>${item.paymentReference ? `Reference ${escapeHtml(item.paymentReference)} · ` : ''}${new Date(item.createdAt).toLocaleString('en-KE')}</small></span><span class="amount">${money(item.amount)}<small class="status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</small></span></div>`).join('') : '<p class="empty">No deposit or withdrawal requests yet.</p>';
         }
         async function loadWallet() { const data = await apiRequest('/api/wallet'); renderWallet(data); }
+        $('createWalletForm').addEventListener('submit', async event => { event.preventDefault(); const button=event.currentTarget.querySelector('button'); button.disabled=true; try { await apiRequest('/api/wallet/create',{method:'POST',body:'{}'}); await loadWallet(); } catch(error) { $('createWalletMessage').textContent=error.message; } finally { button.disabled=false; } });
+        $('reopenWalletForm').addEventListener('submit', async event => { event.preventDefault(); const button=event.currentTarget.querySelector('button'); button.disabled=true; try { await apiRequest('/api/wallet/reopen',{method:'POST',body:JSON.stringify({password:$('reopenPassword').value,confirmation:$('reopenConfirmation').value})}); $('reopenMessage').textContent='Wallet recovered.'; await loadWallet(); } catch(error) { $('reopenMessage').textContent=error.message; } finally { button.disabled=false; } });
         async function initialize() {
             try { const result = await apiRequest('/api/auth/me'); currentUser = result.user; await loadWallet(); }
             catch (error) { if (error.status === 401) { location.replace('login.html'); return; } setMessage('depositMessage', error.message, true); }
@@ -119,9 +127,8 @@
             event.preventDefault(); const button = $('depositButton'); button.disabled = true; setMessage('depositMessage','Submitting deposit request…');
             const channel = $('depositChannel').value;
             const body = { amount:$('depositAmount').value, channel, paymentReference:$('depositReference').value.trim(), idempotencyKey:depositSubmissionKey };
-            if (channel === 'bank_transfer') Object.assign(body,{bankName:$('bankName').value,accountReference:$('accountReference').value});
-            else body.phone = $('depositPhone').value;
-            try { const data = await apiRequest('/api/wallet/deposits',{method:'POST',body:JSON.stringify(body)}); setMessage('depositMessage',`Request ${data.operation.id.slice(0,8)} submitted as pending. Funds appear after admin verification.`); depositSubmissionKey=crypto.randomUUID();event.currentTarget.reset(); $('depositChannel').dispatchEvent(new Event('change')); await loadWallet(); }
+            body.paymentMethodId=$('depositMethodId').value;
+            try { const data = await apiRequest('/api/wallet/deposits',{method:'POST',body:JSON.stringify(body)}); setMessage('depositMessage',`Request ${data.operation.id.slice(0,8)} submitted as pending. Funds appear after admin verification.`); depositSubmissionKey=crypto.randomUUID();event.currentTarget.reset(); await loadWallet(); }
             catch(error){setMessage('depositMessage',error.message,true);} finally{button.disabled=currentWallet?.status!=='active';}
         });
         $('recipientForm').addEventListener('submit', async event => {
@@ -137,12 +144,12 @@
             catch(error){setMessage('transferMessage',error.message,true);}finally{button.disabled=currentWallet?.status!=='active';}
         });
         $('withdrawalForm').addEventListener('submit',async event=>{
-            event.preventDefault();const channel=$('withdrawChannel').value;const body={channel,amount:$('withdrawAmount').value};
-            if(channel==='bank')Object.assign(body,{accountName:$('withdrawAccountName').value,accountNumber:$('withdrawAccountNumber').value,bankName:$('withdrawBankName').value,branch:$('withdrawBranch').value});else body.phone=$('withdrawPhone').value;
-            if(!window.confirm(`Request a ${money(body.amount)} withdrawal to ${channel==='bank'?'the bank account provided':channel==='mpesa'?'M-Pesa':'Airtel Money'}? The amount will be reserved while it is processed.`))return;
+            event.preventDefault();const channel=$('withdrawChannel').value;const body={channel,amount:$('withdrawAmount').value,paymentMethodId:$('withdrawMethodId').value};
+            if(!body.paymentMethodId){setMessage('withdrawMessage','Add a payout method in Settings first.',true);return;}
+            if(!window.confirm(`Request a ${money(body.amount)} withdrawal to the selected ${channel==='paypal'?'PayPal':'saved'} destination? The amount will be reserved while it is processed.`))return;
             const button=event.currentTarget.querySelector('button');button.disabled=true;setMessage('withdrawMessage','Submitting withdrawal request…');
             body.idempotencyKey=withdrawalSubmissionKey;
-            try{const data=await apiRequest('/api/wallet/withdrawals',{method:'POST',body:JSON.stringify(body)});setMessage('withdrawMessage',`Withdrawal request ${data.operation.id.slice(0,8)} is pending. Fee: ${money(data.operation.fee)}.`);withdrawalSubmissionKey=crypto.randomUUID();event.currentTarget.reset();$('withdrawChannel').dispatchEvent(new Event('change'));await loadWallet();}
+            try{const data=await apiRequest('/api/wallet/withdrawals',{method:'POST',body:JSON.stringify(body)});setMessage('withdrawMessage',`Withdrawal request ${data.operation.id.slice(0,8)} is pending. Fee: ${money(data.operation.fee)}.`);withdrawalSubmissionKey=crypto.randomUUID();event.currentTarget.reset();await loadWallet();}
             catch(error){setMessage('withdrawMessage',error.message,true);}finally{button.disabled=currentWallet?.status!=='active';}
         });
         $('toggleClosePassword').addEventListener('click', event => {
@@ -156,10 +163,10 @@
             event.preventDefault();if($('closeConfirmation').value!=='CLOSE'){setMessage('closeMessage','Type CLOSE exactly to confirm.',true);return;}
             if(!window.confirm('Close this wallet? You can’t make wallet payments while it is closed.'))return;
             const button=event.currentTarget.querySelector('button');button.disabled=true;setMessage('closeMessage','Closing wallet…');
-            try{await apiRequest('/api/wallet/close',{method:'POST',body:JSON.stringify({password:$('closePassword').value,confirmation:$('closeConfirmation').value})});setMessage('closeMessage','Wallet closed. Contact customer service before using the wallet again.');await loadWallet();}
+            try{await apiRequest('/api/wallet/close',{method:'POST',body:JSON.stringify({password:$('closePassword').value,confirmation:$('closeConfirmation').value})});setMessage('closeMessage','Wallet closed. You can reopen it from this page using your account password.');await loadWallet();}
             catch(error){setMessage('closeMessage',error.message,true);}finally{button.disabled=false;}
         });
-        $('depositChannel').dispatchEvent(new Event('change'));$('withdrawChannel').dispatchEvent(new Event('change'));initialize();
+        initialize();
     </script>
 </body>
 </html>
