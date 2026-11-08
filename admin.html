@@ -247,7 +247,7 @@
         <section class="panel" id="wallet-approvals" data-admin-view hidden aria-labelledby="approvalHeading">
             <div class="view-heading"><p class="eyebrow">Wallet management</p><h1>Wallet operations</h1><p class="intro">Review pending deposits and withdrawals.</p></div>
             <div class="panel-head"><div><h2 id="approvalHeading">Wallet operation support</h2><p class="muted">Review deposits and send requested withdrawals. Internal wallet transfers complete automatically.</p></div><span class="count" id="pendingCount" aria-label="Pending requests">—</span></div>
-            <p class="notice">Paystack deposits are credited automatically after the provider confirms payment. Withdrawals are never sent automatically: send funds using the saved payout destination outside KITUI FARM, then mark the request as sent. Reject a request to return its reserved amount to the wallet. Check older processing requests with the payout provider before marking them sent or refunding them.</p>
+            <p class="notice">Paystack deposits are credited after provider confirmation. For M-Pesa withdrawals, choose <strong>Send via Paystack</strong>; the transfer uses the business Paystack balance and its fees, then the app updates after Paystack confirms the result. If Paystack requires an approval code, enter it here. Bank withdrawals and older requests without a Paystack transfer must still be sent externally before you mark them sent. Rejecting a withdrawal returns its reserved amount to the wallet.</p>
             <p class="status" id="status" role="status" aria-live="polite">Checking admin access…</p>
             <div id="requestList" aria-label="Pending wallet operations"></div>
         </section>
@@ -475,22 +475,30 @@
                 const legacyPayout = item.type === 'withdrawal' && item.channel === 'paypal';
                 const legacyProcessing = item.type === 'withdrawal' && item.status === 'processing';
                 const method = legacyPayout ? 'Unsupported legacy payout · refund only'
-                    : ['mpesa', 'mpesa_b2c', 'paystack_mpesa_transfer'].includes(item.channel) ? 'M-Pesa payout'
+                    : item.channel === 'mpesa' ? 'M-Pesa payout via Paystack'
+                    : ['mpesa_b2c', 'paystack_mpesa_transfer'].includes(item.channel) ? 'Legacy M-Pesa payout'
                     : ['bank', 'bank_transfer'].includes(item.channel) ? 'Bank payout'
                     : item.channel === 'paystack_mpesa' ? 'Paystack M-Pesa STK deposit'
                     : item.channel === 'paystack_pesalink' ? 'Paystack bank deposit'
                     : item.channel;
                 const destination = details.phone || [details.accountName, details.accountNumber, details.bankName, details.branch].filter(Boolean).join(' · ');
-                const payoutNote = legacyProcessing
+                const payoutNote = details.paystackPayoutReference
+                    ? `Paystack transfer status: ${escapeHtml(details.paystackPayoutStatus || 'processing')}. The reserved amount will be released only after Paystack confirms success or failure. ${details.paystackPayoutError ? escapeHtml(details.paystackPayoutError) : ''}`
+                    : legacyProcessing
                     ? 'This request is from the previous automatic payout setup. Check the external provider and recipient before marking it sent or refunding the reserved amount.'
                     : 'Send the funds outside KITUI FARM to the saved destination, then mark the withdrawal as sent. The amount is reserved until you complete or reject this request.';
+                const payoutActions = details.paystackPayoutReference
+                    ? `<button class="button approve" data-paystack-check="${escapeHtml(item.id)}">Check Paystack status</button>${details.paystackPayoutStatus === 'otp' ? `<button class="button approve" data-paystack-otp="${escapeHtml(item.id)}">Enter approval code</button>` : ''}`
+                    : item.channel === 'mpesa' && item.status === 'pending'
+                        ? `<button class="button approve" data-paystack-send="${escapeHtml(item.id)}">Send via Paystack</button><button class="button reject" data-review="reject" data-type="withdrawal" data-id="${escapeHtml(item.id)}">Reject &amp; refund</button>`
+                        : `<button class="button approve" data-review="approve" data-type="withdrawal" data-status="${escapeHtml(item.status)}" data-id="${escapeHtml(item.id)}">Mark as sent</button><button class="button reject" data-review="reject" data-type="withdrawal" data-status="${escapeHtml(item.status)}" data-id="${escapeHtml(item.id)}">Reject &amp; refund</button>`;
                 return `<article class="request"><div><h3>${escapeHtml(item.name)} · ${money(item.amount)} · ${deposit ? 'Deposit' : 'Withdrawal'}</h3>
                 <p>${escapeHtml(item.email)} · ${escapeHtml(item.phone)} · Wallet ${escapeHtml(item.walletId)}</p>
                 <p>Method: <strong>${escapeHtml(method)}</strong>${destination ? ` · ${escapeHtml(destination)}` : ''}</p>
                 ${deposit ? `<p>Payment reference: <strong>${escapeHtml(item.paymentReference || 'Not provided')}</strong>${details.bankName ? ` · Bank: ${escapeHtml(details.bankName)}` : ''}</p>` : `<p>${legacyPayout ? 'This payout method is no longer supported. Reject it to return the reserved amount to the wallet.' : payoutNote} Fee: ${money(item.fee)}.</p>`}
                 ${item.paymentReference ? `<p>Existing payment reference: <strong>${escapeHtml(item.paymentReference)}</strong></p>` : ''}
                 <p>Submitted ${new Date(item.createdAt).toLocaleString('en-KE')}</p></div>
-                <div class="actions">${deposit ? `<span class="muted">Waiting for provider confirmation</span><button class="button reject" data-review="reject" data-type="deposit" data-id="${escapeHtml(item.id)}">Close unverified request</button>` : legacyPayout ? `<span class="muted">Refund only</span><button class="button reject" data-review="reject" data-type="withdrawal" data-id="${escapeHtml(item.id)}">Reject &amp; refund</button>` : `<button class="button approve" data-review="approve" data-type="withdrawal" data-status="${escapeHtml(item.status)}" data-id="${escapeHtml(item.id)}">Mark as sent</button><button class="button reject" data-review="reject" data-type="withdrawal" data-status="${escapeHtml(item.status)}" data-id="${escapeHtml(item.id)}">Reject &amp; refund</button>`}</div></article>`;
+                <div class="actions">${deposit ? `<span class="muted">Waiting for provider confirmation</span><button class="button reject" data-review="reject" data-type="deposit" data-id="${escapeHtml(item.id)}">Close unverified request</button>` : legacyPayout ? `<span class="muted">Refund only</span><button class="button reject" data-review="reject" data-type="withdrawal" data-id="${escapeHtml(item.id)}">Reject &amp; refund</button>` : payoutActions}</div></article>`;
             }).join('');
         }
         const moreMenu = document.getElementById('moreMenu');
@@ -548,6 +556,40 @@
                 setStatus(error.message || 'Could not delete the account.', true);
                 button.disabled = false;
             }
+        });
+        document.getElementById('requestList').addEventListener('click', async event => {
+            const button = event.target.closest('button[data-paystack-send]'); if (!button) return;
+            if (!window.confirm('Send this withdrawal to the saved M-Pesa number through Paystack? Paystack will deduct the payout and its fee from the business Paystack balance. The user’s wallet amount is already reserved.')) return;
+            button.disabled = true;
+            try {
+                const result = await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.paystackSend)}/paystack-payout`, { method:'POST' });
+                setStatus(result.message || 'Paystack payout submitted.');
+                if (result.requiresOtp) {
+                    const code = window.prompt('Enter the Paystack transfer approval code sent to the merchant contact:');
+                    if (code) await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.paystackSend)}/paystack-payout/otp`, { method:'POST', body:JSON.stringify({ otp:code.trim() }) });
+                }
+                await loadRequests();
+            } catch (error) { setStatus(error.message || 'Could not start the Paystack payout.', true); button.disabled = false; }
+        });
+        document.getElementById('requestList').addEventListener('click', async event => {
+            const button = event.target.closest('button[data-paystack-otp]'); if (!button) return;
+            const code = window.prompt('Enter the Paystack transfer approval code sent to the merchant contact:');
+            if (!code) return;
+            button.disabled = true;
+            try {
+                const result = await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.paystackOtp)}/paystack-payout/otp`, { method:'POST', body:JSON.stringify({ otp:code.trim() }) });
+                setStatus(result.message || 'Paystack received the approval code.');
+                await loadRequests();
+            } catch (error) { setStatus(error.message || 'Could not approve the Paystack payout.', true); button.disabled = false; }
+        });
+        document.getElementById('requestList').addEventListener('click', async event => {
+            const button = event.target.closest('button[data-paystack-check]'); if (!button) return;
+            button.disabled = true;
+            try {
+                const result = await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.paystackCheck)}/paystack-payout/check`, { method:'POST' });
+                setStatus(result.message || 'Paystack payout status refreshed.');
+                await loadRequests();
+            } catch (error) { setStatus(error.message || 'Could not check Paystack payout status.', true); button.disabled = false; }
         });
         document.getElementById('requestList').addEventListener('click', async event => {
             const button = event.target.closest('button[data-review]'); if (!button) return;

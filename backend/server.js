@@ -109,7 +109,9 @@ async function paystackRequest(endpoint, { method = 'GET', body, config = paysta
     const data = await response.json().catch(() => ({}));
     if (!response.ok || data.status === false) {
         const error = new Error(String(data.message || 'Paystack could not process the bank transfer request.'));
-        error.status = response.status || 502; throw error;
+        error.status = response.status || 502;
+        error.providerRejected = true;
+        throw error;
     }
     return data;
 }
@@ -1781,6 +1783,45 @@ function createApp(options = {}) {
         catch { res.json({ bankTransferEnabled: false, mpesaEnabled: configured }); }
     });
 
+    async function recordPaystackPayoutStatus(reference, providerStatus, providerData = {}) {
+        const operation = await store.get("SELECT * FROM wallet_operations WHERE kind = 'withdrawal' AND payment_reference = ?", [reference]);
+        if (!operation) return false;
+        const status = String(providerStatus || '').toLowerCase();
+        const now = new Date().toISOString();
+        await store.transaction(async () => {
+            const current = await store.get('SELECT * FROM wallet_operations WHERE id = ?', [operation.id]);
+            if (!current || current.status !== 'processing') return;
+            const details = JSON.parse(current.details_json || '{}');
+            details.paystackPayoutStatus = status || 'pending';
+            details.paystackTransferCode = text(providerData.transfer_code || details.paystackTransferCode, 120);
+            details.paystackPayoutUpdatedAt = now;
+            if (status === 'success') {
+                details.paystackPayoutCompletedAt = providerData.transferred_at || now;
+                const updated = await store.run("UPDATE wallet_operations SET status = 'completed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, current.id]);
+                if (!updated.changes) return;
+                await store.run("UPDATE wallet_transactions SET status = 'completed', description = 'M-Pesa withdrawal sent through Paystack' WHERE operation_id = ? AND event_type = 'withdrawal' AND status IN ('pending', 'processing')", [current.id]);
+                return;
+            }
+            if (['failed', 'reversed'].includes(status)) {
+                details.paystackPayoutFailure = text(providerData.reason || providerData.message || `Paystack transfer ${status}.`, 240);
+                const updated = await store.run("UPDATE wallet_operations SET status = 'failed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, current.id]);
+                if (!updated.changes) return;
+                const credited = await store.run("UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ? WHERE user_id = ? AND status = 'active' AND balance_cents <= ?", [current.amount_cents, now, current.user_id, 2147483647 - current.amount_cents]);
+                if (!credited.changes) throw new Error('Could not automatically refund a failed Paystack withdrawal.');
+                await store.run("UPDATE wallet_transactions SET status = 'failed' WHERE operation_id = ? AND event_type = 'withdrawal' AND status IN ('pending', 'processing')", [current.id]);
+                const refundReference = `wallet-withdrawal-refund:${current.id}`;
+                const existingRefund = await store.get('SELECT id FROM wallet_transactions WHERE reference_key = ?', [refundReference]);
+                if (!existingRefund) await store.run(`INSERT INTO wallet_transactions
+                    (id, user_id, kind, event_type, amount_cents, reference_key, description, created_by, created_at, status, channel, operation_id)
+                    VALUES (?, ?, 'credit', 'refund', ?, ?, 'Automatic refund after Paystack payout failed', NULL, ?, 'completed', 'internal', ?)` ,
+                [crypto.randomUUID(), current.user_id, current.amount_cents, refundReference, now, current.id]);
+                return;
+            }
+            await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, current.id]);
+        });
+        return true;
+    }
+
     app.post('/api/paystack/webhook', async (req, res) => {
         let config;
         try { config = paystackConfig(); } catch { return res.status(503).send('Webhook not configured.'); }
@@ -1790,6 +1831,11 @@ function createApp(options = {}) {
             const data = event?.data || {};
             const reference = text(data.reference, 120);
             if (!reference) return res.sendStatus(200);
+            if (['transfer.success', 'transfer.failed', 'transfer.reversed'].includes(event.event)) {
+                const providerStatus = event.event === 'transfer.success' ? 'success' : event.event === 'transfer.reversed' ? 'reversed' : 'failed';
+                await recordPaystackPayoutStatus(reference, providerStatus, data);
+                return res.sendStatus(200);
+            }
             const operation = await store.get("SELECT * FROM wallet_operations WHERE kind = 'deposit' AND channel IN ('paystack_pesalink', 'paystack_mpesa') AND payment_reference = ?", [reference]);
             if (!operation || operation.status !== 'processing') return res.sendStatus(200);
             const details = JSON.parse(operation.details_json || '{}');
@@ -2258,6 +2304,111 @@ function createApp(options = {}) {
             next(error);
         }
     });
+    app.post('/api/wallet/admin/operations/:id/paystack-payout', auth, walletAdmin, async (req, res, next) => {
+        let claimedOperation;
+        let transferStarted = false;
+        try {
+            const config = paystackConfig();
+            const operation = await store.get(`SELECT wallet_operations.*, users.name AS account_name
+                FROM wallet_operations JOIN users ON users.id = wallet_operations.user_id WHERE wallet_operations.id = ?`, [text(req.params.id, 80)]);
+            if (!operation || operation.kind !== 'withdrawal') throw walletError('Withdrawal request not found.', 404);
+            if (operation.channel !== 'mpesa') throw walletError('Paystack M-Pesa payouts are available for saved M-Pesa destinations only.', 409);
+            if (operation.status !== 'pending') throw walletError('This withdrawal is already being processed or has been resolved. Refresh the wallet operations list.', 409);
+            const details = JSON.parse(operation.details_json || '{}');
+            const phone = normalizedPhone(details.phone);
+            if (!phone) throw walletError('The saved M-Pesa number is invalid. Ask the user to update it before sending the payout.', 409);
+            const reference = `kitui_wd_${operation.id.replace(/-/g, '')}`;
+            details.paystackPayoutReference = reference;
+            details.paystackPayoutStatus = 'initiating';
+            details.paystackPayoutInitiatedAt = new Date().toISOString();
+            details.paystackPayoutInitiatedBy = req.user.id;
+            const now = new Date().toISOString();
+            const claim = await store.run(`UPDATE wallet_operations SET status = 'processing', payment_reference = ?, details_json = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ?
+                WHERE id = ? AND status = 'pending'`, [reference, JSON.stringify(details), req.user.id, now, now, operation.id]);
+            if (!claim.changes) throw walletError('This withdrawal has already been claimed. Refresh the wallet operations list.', 409);
+            claimedOperation = { id: operation.id, details_json: JSON.stringify(details) };
+
+            const recipientResult = await paystackRequest('/transferrecipient', { method: 'POST', config, body: {
+                type: 'mobile_money', name: text(operation.account_name, 120), account_number: phone.slice(1),
+                bank_code: 'MPESA', currency: 'KES'
+            } });
+            const recipientCode = text(recipientResult.data?.recipient_code, 120);
+            if (!recipientCode) throw new Error('Paystack did not return a mobile-money recipient code.');
+            details.paystackRecipientCode = recipientCode;
+            await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), operation.id]);
+
+            transferStarted = true;
+            const transfer = await paystackRequest('/transfer', { method: 'POST', config, body: {
+                source: 'balance', amount: Number(operation.amount_cents), recipient: recipientCode, reference,
+                currency: 'KES', reason: `KITUI FARM wallet withdrawal ${operation.id}`
+            } });
+            const payout = transfer.data || {};
+            await recordPaystackPayoutStatus(reference, payout.status || 'pending', payout);
+            const requiresOtp = String(payout.status || '').toLowerCase() === 'otp';
+            return res.status(requiresOtp ? 202 : 200).json({
+                operation: { id: operation.id, status: payout.status === 'success' ? 'completed' : 'processing' },
+                requiresOtp,
+                message: requiresOtp ? 'Paystack sent a transfer approval code to the merchant contact. Enter that code to continue the payout.'
+                    : payout.status === 'success' ? 'Paystack confirmed the M-Pesa payout.'
+                    : 'Paystack accepted the payout request. The wallet will update after Paystack confirms the result.'
+            });
+        } catch (error) {
+            if (claimedOperation && (!transferStarted || error.providerRejected)) {
+                const details = JSON.parse(claimedOperation.details_json || '{}');
+                delete details.paystackPayoutReference;
+                delete details.paystackPayoutStatus;
+                delete details.paystackPayoutInitiatedAt;
+                delete details.paystackPayoutInitiatedBy;
+                delete details.paystackRecipientCode;
+                details.paystackPayoutError = text(error.message, 240);
+                await store.run("UPDATE wallet_operations SET status = 'pending', payment_reference = NULL, details_json = ?, reviewed_by = NULL, reviewed_at = NULL, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), claimedOperation.id]);
+            } else if (claimedOperation) {
+                const details = JSON.parse(claimedOperation.details_json || '{}');
+                details.paystackPayoutStatus = 'check_required';
+                details.paystackPayoutError = 'The request timed out after sending. Check Paystack before retrying; the saved reference prevents a duplicate payout.';
+                await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), claimedOperation.id]);
+            }
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            if (error.providerRejected) return res.status(502).json({ error: `Paystack rejected this payout: ${text(error.message, 200)}` });
+            if (claimedOperation) return res.status(202).json({ operation: { id: claimedOperation.id, status: 'processing' }, error: 'Paystack did not return a final response. Check payout status before trying again.' });
+            next(error);
+        }
+    });
+
+    app.post('/api/wallet/admin/operations/:id/paystack-payout/otp', auth, walletAdmin, async (req, res, next) => {
+        const otp = text(req.body?.otp, 8);
+        if (!/^\d{4,8}$/.test(otp)) return res.status(400).json({ error: 'Enter the Paystack transfer approval code.' });
+        try {
+            const config = paystackConfig();
+            const operation = await store.get("SELECT * FROM wallet_operations WHERE id = ? AND kind = 'withdrawal' AND status = 'processing'", [text(req.params.id, 80)]);
+            if (!operation) throw walletError('Paystack withdrawal request not found.', 404);
+            const details = JSON.parse(operation.details_json || '{}');
+            if (!details.paystackTransferCode || details.paystackPayoutStatus !== 'otp') throw walletError('This payout is not waiting for an OTP.', 409);
+            const result = await paystackRequest('/transfer/finalize_transfer', { method: 'POST', config, body: { transfer_code: details.paystackTransferCode, otp } });
+            const payout = result.data || {};
+            await recordPaystackPayoutStatus(operation.payment_reference, payout.status || 'pending', payout);
+            res.json({ operation: { id: operation.id, status: payout.status === 'success' ? 'completed' : 'processing' }, message: 'Paystack received the code. The payout updates when Paystack confirms its result.' });
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
+    app.post('/api/wallet/admin/operations/:id/paystack-payout/check', auth, walletAdmin, async (req, res, next) => {
+        try {
+            const config = paystackConfig();
+            const operation = await store.get("SELECT * FROM wallet_operations WHERE id = ? AND kind = 'withdrawal' AND status = 'processing'", [text(req.params.id, 80)]);
+            if (!operation?.payment_reference) throw walletError('There is no active Paystack payout to check.', 404);
+            const result = await paystackRequest(`/transfer/verify/${encodeURIComponent(operation.payment_reference)}`, { config });
+            const payout = result.data || {};
+            await recordPaystackPayoutStatus(operation.payment_reference, payout.status || 'pending', payout);
+            res.json({ operation: { id: operation.id, status: payout.status || 'processing' }, message: `Paystack payout status: ${text(payout.status || 'pending', 32)}.` });
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
     app.post('/api/wallet/close', auth, async (req, res, next) => {
         if (req.body?.confirmation !== 'CLOSE') return res.status(400).json({ error: 'Type CLOSE to confirm wallet closure.' });
         if (typeof req.body?.password !== 'string' || !req.body.password || req.body.password.length > 128) return res.status(400).json({ error: 'Enter your account password to close the wallet.' });
@@ -2305,6 +2456,7 @@ function createApp(options = {}) {
             if (!current) throw walletError('Wallet request not found.', 404);
             if (current.kind === 'deposit' && decision === 'approve') throw walletError('Deposit approvals are disabled. Paystack credits deposits after provider confirmation.', 409);
             if (current.kind === 'withdrawal' && current.channel === 'paypal' && decision === 'approve') throw walletError('This legacy payout method is no longer supported. Reject it to return the reserved amount to the wallet.', 409);
+            if (current.kind === 'withdrawal' && current.status === 'processing' && JSON.parse(current.details_json || '{}').paystackPayoutReference) throw walletError('Paystack is processing this payout. Check its Paystack status before taking another action.', 409);
             let reviewedOperation;
             await store.transaction(async () => {
                 const operation = await store.get('SELECT * FROM wallet_operations WHERE id = ?', [req.params.id]);
