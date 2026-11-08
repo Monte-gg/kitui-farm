@@ -2255,7 +2255,7 @@ function createApp(options = {}) {
                 return res.json({ operation: { id: prior.id, status: prior.status, amount: cents / 100, ...details.paystackInstructions } });
             }
             await getActiveWallet(req.user.id);
-            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND status IN ('pending', 'processing')", [req.user.id]);
+            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND channel = 'paystack_pesalink' AND status IN ('pending', 'processing')", [req.user.id]);
             if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several wallet deposits awaiting confirmation. Resolve those first.' });
             const user = await store.get('SELECT email FROM users WHERE id = ?', [req.user.id]);
             if (!user?.email) return res.status(409).json({ error: 'Add a verified email to your profile before using Paystack bank payments.' });
@@ -2335,7 +2335,7 @@ function createApp(options = {}) {
             await getActiveWallet(req.user.id);
             const method = await ownedPaymentMethod(req.user.id, methodId, 'deposit');
             if (method.kind !== 'mpesa') return res.status(400).json({ error: 'Choose a saved M-Pesa deposit method to use the Paystack STK prompt.' });
-            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND status IN ('pending', 'processing')", [req.user.id]);
+            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND channel IN ('mpesa_stk', 'paystack_mpesa') AND status IN ('pending', 'processing')", [req.user.id]);
             if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several deposits awaiting confirmation. Resolve those first.' });
             const id = crypto.randomUUID();
             const now = new Date().toISOString();
@@ -3674,7 +3674,7 @@ function createApp(options = {}) {
             const canCancel = ['buyer', 'farmer'].includes(req.user.role) && order.buyer_id === req.user.id && status === 'Cancelled'
                 && ['Pending', 'Cash on delivery', 'Payment pending (demo)', 'Paid with wallet', 'Processing', 'Packed'].includes(order.status);
             const canPack = req.user.role === 'farmer' && isFarmerOrder && status === 'Packed'
-                && ['Cash on delivery', 'Paid', 'Paid with wallet', 'Payment pending (demo)'].includes(order.status);
+                && ['Processing', 'Cash on delivery', 'Paid', 'Paid with wallet', 'Payment pending (demo)'].includes(order.status);
             const canProcess = req.user.role === 'farmer' && isFarmerOrder && status === 'Processing'
                 && ['Paid with wallet', 'Paid', 'Cash on delivery', 'Payment pending (demo)'].includes(order.status);
             const canDispatch = req.user.role === 'farmer' && isFarmerOrder && status === 'Dispatched'

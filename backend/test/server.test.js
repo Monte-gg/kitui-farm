@@ -160,7 +160,8 @@ test('enforces listing ownership, validates input, and completes an atomic order
     });
     assert.equal(orderResponse.status, 201);
     assert.equal(orderResponse.data.orders[0].total, 700);
-    assert.equal(orderResponse.data.orders[0].status, 'Paid with wallet');
+    assert.equal(orderResponse.data.orders[0].status, 'Processing');
+    assert.equal(orderResponse.data.orders[0].paymentStatus, 'Paid with wallet');
     assert.equal((await request('/api/listings?scope=mine', { cookie: farmer.cookie })).data.listings[0].quantity, 15);
     assert.equal((await request('/api/orders', { cookie: farmer.cookie })).data.orders[0].id, orderResponse.data.orders[0].id);
 
@@ -215,7 +216,8 @@ test('wallet checkout debits the buyer and credits each farmer exactly once', as
     };
     const response = await request('/api/orders', { method: 'POST', cookie: buyer.cookie, body: checkout });
     assert.equal(response.status, 201);
-    assert.equal(response.data.orders[0].status, 'Paid with wallet');
+    assert.equal(response.data.orders[0].status, 'Processing');
+    assert.equal(response.data.orders[0].paymentStatus, 'Paid with wallet');
 
     const buyerWalletAfter = (await request('/api/wallet', { cookie: buyer.cookie })).data;
     const farmerWalletAfter = (await request('/api/wallet', { cookie: farmer.cookie })).data;
@@ -305,7 +307,9 @@ test('splits multi-farmer checkouts so each farmer controls only their own order
     assert.equal((await request(`/api/orders/${firstOrders[0].id}/status`, {
         method: 'PATCH', cookie: firstFarmer.cookie, body: { status: 'Packed' }
     })).status, 200);
-    assert.equal((await request('/api/orders', { cookie: secondFarmer.cookie })).data.orders[0].status, 'Paid with wallet');
+    const untouchedFarmerOrder = (await request('/api/orders', { cookie: secondFarmer.cookie })).data.orders[0];
+    assert.equal(untouchedFarmerOrder.status, 'Processing');
+    assert.equal(untouchedFarmerOrder.paymentStatus, 'Paid with wallet');
 });
 
 test('rejects cross-origin state changes and expires sessions on logout', async () => {
