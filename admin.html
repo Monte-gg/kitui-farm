@@ -140,6 +140,15 @@
             .account-tools { justify-content:flex-start; }
             .account-tools small { text-align:left; }
         }
+        dialog.manual-payout-dialog { width:min(520px,calc(100% - 28px)); max-height:calc(100% - 32px); padding:0; border:1px solid var(--line); border-radius:18px; background:var(--surface); color:var(--ink); box-shadow:0 24px 80px #0005; }
+        dialog.manual-payout-dialog::backdrop { background:#101810a6; }
+        .manual-payout-dialog form { display:grid; gap:14px; padding:22px; }
+        .manual-payout-dialog h2 { margin:0; color:var(--dark); }
+        .payout-recipient-details { display:grid; gap:7px; padding:14px; border:1px solid var(--line); border-radius:12px; background:var(--surface-muted,var(--surface)); }
+        .payout-recipient-details p { margin:0; overflow-wrap:anywhere; }
+        .manual-payout-dialog label { font-weight:700; }
+        .manual-payout-dialog input { width:100%; min-height:44px; padding:9px 11px; border:1px solid var(--line); border-radius:9px; background:var(--surface); color:var(--ink); font:inherit; text-transform:uppercase; }
+        .manual-payout-dialog .dialog-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:10px; }
     </style>
     <script src="site-only.js" defer></script>
     <script defer src="update-notification.js?v=4"></script>
@@ -246,8 +255,8 @@
 
         <section class="panel" id="wallet-approvals" data-admin-view hidden aria-labelledby="approvalHeading">
             <div class="view-heading"><p class="eyebrow">Wallet management</p><h1>Wallet operations</h1><p class="intro">Review pending deposits and withdrawals.</p></div>
-            <div class="panel-head"><div><h2 id="approvalHeading">Wallet operation support</h2><p class="muted">Review deposits and send requested withdrawals. Internal wallet transfers complete automatically.</p></div><span class="count" id="pendingCount" aria-label="Pending requests">—</span></div>
-            <p class="notice">Paystack deposits are credited after provider confirmation. For M-Pesa withdrawals, choose <strong>Send via Paystack</strong>; the transfer uses the business Paystack balance and its fees, then the app updates after Paystack confirms the result. If Paystack requires an approval code, enter it here. Bank withdrawals and older requests without a Paystack transfer must still be sent externally before you mark them sent. Rejecting a withdrawal returns its reserved amount to the wallet.</p>
+            <div class="panel-head"><div><h2 id="approvalHeading">Wallet operation support</h2><p class="muted">Start Daraja B2C sandbox payouts or reject a request to refund its reserved amount. Internal wallet transfers complete automatically.</p></div><span class="count" id="pendingCount" aria-label="Pending requests">—</span></div>
+            <p class="notice"><strong>Sandbox testing only:</strong> Safaricom sandbox simulates B2C results and never sends real money. When Safaricom responds, the reserved wallet amount is returned automatically. Do not use this flow to pay real customer withdrawals. Rejecting a request also returns its reserved amount.</p>
             <p class="status" id="status" role="status" aria-live="polite">Checking admin access…</p>
             <div id="requestList" aria-label="Pending wallet operations"></div>
         </section>
@@ -279,6 +288,19 @@
         </section>
         </div>
     </main>
+    <dialog class="manual-payout-dialog" id="manualPayoutDialog" aria-labelledby="manualPayoutTitle">
+        <form id="manualPayoutForm">
+            <h2 id="manualPayoutTitle">Confirm Daraja sandbox payout</h2>
+            <p class="muted">This sends a B2C test request to Safaricom Daraja. Sandbox never delivers real money. After Safaricom responds, KITUI FARM returns the reserved wallet amount automatically.</p>
+            <div class="payout-recipient-details">
+                <p><strong>Customer:</strong> <span id="manualPayoutName"></span></p>
+                <p><strong>Email:</strong> <span id="manualPayoutEmail"></span></p>
+                <p><strong>M-Pesa number:</strong> <span id="manualPayoutPhone"></span></p>
+                <p><strong>Amount:</strong> <span id="manualPayoutAmount"></span></p>
+            </div>
+            <div class="dialog-actions"><button class="refresh-data" type="button" id="cancelManualPayout">Cancel</button><button class="button primary" type="submit">Start sandbox payout</button></div>
+        </form>
+    </dialog>
     <script>
         const adminViews = [...document.querySelectorAll('[data-admin-view]')];
         const adminViewLinks = [...document.querySelectorAll('[data-admin-link]')];
@@ -472,33 +494,41 @@
             list.innerHTML = data.requests.map(item => {
                 const details = item.details || {};
                 const deposit = item.type === 'deposit';
-                const legacyPayout = item.type === 'withdrawal' && item.channel === 'paypal';
                 const legacyProcessing = item.type === 'withdrawal' && item.status === 'processing';
-                const method = legacyPayout ? 'Unsupported legacy payout · refund only'
-                    : item.channel === 'mpesa' ? 'M-Pesa payout via Paystack'
-                    : ['mpesa_b2c', 'paystack_mpesa_transfer'].includes(item.channel) ? 'Legacy M-Pesa payout'
+                const legacyProviderReference = item.type === 'withdrawal' && Boolean(details.paystackPayoutReference);
+                const darajaInFlight = item.type === 'withdrawal' && Boolean(details.darajaOriginatorConversationID) && details.darajaPayoutStatus !== 'rejected';
+                const method = item.type === 'withdrawal' && item.channel === 'mpesa' ? 'Daraja M-Pesa B2C Sandbox'
+                    : ['mpesa_b2c', 'paystack_mpesa_transfer'].includes(item.channel) ? 'Legacy M-Pesa request'
                     : ['bank', 'bank_transfer'].includes(item.channel) ? 'Bank payout'
                     : item.channel === 'paystack_mpesa' ? 'Paystack M-Pesa STK deposit'
                     : item.channel === 'paystack_pesalink' ? 'Paystack bank deposit'
                     : item.channel;
                 const destination = details.phone || [details.accountName, details.accountNumber, details.bankName, details.branch].filter(Boolean).join(' · ');
-                const payoutNote = details.paystackPayoutReference
-                    ? `Paystack transfer status: ${escapeHtml(details.paystackPayoutStatus || 'processing')}. The reserved amount will be released only after Paystack confirms success or failure. ${details.paystackPayoutError ? escapeHtml(details.paystackPayoutError) : ''}`
+                const payoutNote = legacyProviderReference
+                    ? 'This older request has a previous provider reference. Verify the payment outcome before sending or refunding it.'
+                    : darajaInFlight
+                    ? details.darajaPayoutStatus === 'timeout_uncertain' || details.darajaPayoutStatus === 'initiation_uncertain'
+                        ? 'Daraja did not confirm the outcome. Do not retry until the payout status is checked; the wallet amount remains reserved.'
+                        : `Daraja sandbox status: ${details.darajaPayoutStatus || 'waiting for Safaricom callback'}. No real money is sent; the reserved amount is returned when a result arrives.`
                     : legacyProcessing
-                    ? 'This request is from the previous automatic payout setup. Check the external provider and recipient before marking it sent or refunding the reserved amount.'
-                    : 'Send the funds outside KITUI FARM to the saved destination, then mark the withdrawal as sent. The amount is reserved until you complete or reject this request.';
-                const payoutActions = details.paystackPayoutReference
-                    ? `<button class="button approve" data-paystack-check="${escapeHtml(item.id)}">Check Paystack status</button>${details.paystackPayoutStatus === 'otp' ? `<button class="button approve" data-paystack-otp="${escapeHtml(item.id)}">Enter approval code</button>` : ''}`
-                    : item.channel === 'mpesa' && item.status === 'pending'
-                        ? `<button class="button approve" data-paystack-send="${escapeHtml(item.id)}">Send via Paystack</button><button class="button reject" data-review="reject" data-type="withdrawal" data-id="${escapeHtml(item.id)}">Reject &amp; refund</button>`
-                        : `<button class="button approve" data-review="approve" data-type="withdrawal" data-status="${escapeHtml(item.status)}" data-id="${escapeHtml(item.id)}">Mark as sent</button><button class="button reject" data-review="reject" data-type="withdrawal" data-status="${escapeHtml(item.status)}" data-id="${escapeHtml(item.id)}">Reject &amp; refund</button>`;
+                    ? 'This older request is still awaiting administrator review. Confirm the user and destination before sending.'
+                    : 'Start a Daraja B2C sandbox test for the saved M-Pesa number. No real money will be sent.';
+                const payoutActions = legacyProviderReference
+                    ? '<span class="muted">Verify the earlier payment before resolving this request.</span>'
+                    : darajaInFlight
+                        ? ['timeout_uncertain', 'initiation_uncertain'].includes(details.darajaPayoutStatus)
+                            ? `<span class="muted">Verify the outcome in Daraja first.</span><button class="button reject" data-review="reject" data-type="withdrawal" data-daraja-uncertain="1" data-id="${escapeHtml(item.id)}">Confirm no payout &amp; refund</button>`
+                            : `<span class="muted">Waiting for Daraja callback</span>`
+                    : item.type === 'withdrawal' && item.channel === 'mpesa' && item.status === 'pending'
+                        ? `<button class="button approve" data-daraja-payout data-id="${escapeHtml(item.id)}" data-name="${escapeHtml(item.name)}" data-email="${escapeHtml(item.email)}" data-phone="${escapeHtml(destination)}" data-amount="${escapeHtml(item.amount)}">Send via Daraja (Sandbox)</button><button class="button reject" data-review="reject" data-type="withdrawal" data-id="${escapeHtml(item.id)}">Reject &amp; refund</button>`
+                        : `<button class="button reject" data-review="reject" data-type="withdrawal" data-id="${escapeHtml(item.id)}">Reject &amp; refund</button>`;
                 return `<article class="request"><div><h3>${escapeHtml(item.name)} · ${money(item.amount)} · ${deposit ? 'Deposit' : 'Withdrawal'}</h3>
                 <p>${escapeHtml(item.email)} · ${escapeHtml(item.phone)} · Wallet ${escapeHtml(item.walletId)}</p>
                 <p>Method: <strong>${escapeHtml(method)}</strong>${destination ? ` · ${escapeHtml(destination)}` : ''}</p>
-                ${deposit ? `<p>Payment reference: <strong>${escapeHtml(item.paymentReference || 'Not provided')}</strong>${details.bankName ? ` · Bank: ${escapeHtml(details.bankName)}` : ''}</p>` : `<p>${legacyPayout ? 'This payout method is no longer supported. Reject it to return the reserved amount to the wallet.' : payoutNote} Fee: ${money(item.fee)}.</p>`}
+                ${deposit ? `<p>Payment reference: <strong>${escapeHtml(item.paymentReference || 'Not provided')}</strong>${details.bankName ? ` · Bank: ${escapeHtml(details.bankName)}` : ''}</p>` : `<p>${payoutNote} Fee: ${money(item.fee)}.</p>`}
                 ${item.paymentReference ? `<p>Existing payment reference: <strong>${escapeHtml(item.paymentReference)}</strong></p>` : ''}
                 <p>Submitted ${new Date(item.createdAt).toLocaleString('en-KE')}</p></div>
-                <div class="actions">${deposit ? `<span class="muted">Waiting for provider confirmation</span><button class="button reject" data-review="reject" data-type="deposit" data-id="${escapeHtml(item.id)}">Close unverified request</button>` : legacyPayout ? `<span class="muted">Refund only</span><button class="button reject" data-review="reject" data-type="withdrawal" data-id="${escapeHtml(item.id)}">Reject &amp; refund</button>` : payoutActions}</div></article>`;
+                <div class="actions">${deposit ? `<span class="muted">Waiting for provider confirmation</span><button class="button reject" data-review="reject" data-type="deposit" data-id="${escapeHtml(item.id)}">Close unverified request</button>` : payoutActions}</div></article>`;
             }).join('');
         }
         const moreMenu = document.getElementById('moreMenu');
@@ -557,49 +587,42 @@
                 button.disabled = false;
             }
         });
-        document.getElementById('requestList').addEventListener('click', async event => {
-            const button = event.target.closest('button[data-paystack-send]'); if (!button) return;
-            if (!window.confirm('Send this withdrawal to the saved M-Pesa number through Paystack? Paystack will deduct the payout and its fee from the business Paystack balance. The user’s wallet amount is already reserved.')) return;
-            button.disabled = true;
-            try {
-                const result = await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.paystackSend)}/paystack-payout`, { method:'POST' });
-                setStatus(result.message || 'Paystack payout submitted.');
-                if (result.requiresOtp) {
-                    const code = window.prompt('Enter the Paystack transfer approval code sent to the merchant contact:');
-                    if (code) await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.paystackSend)}/paystack-payout/otp`, { method:'POST', body:JSON.stringify({ otp:code.trim() }) });
-                }
-                await loadRequests();
-            } catch (error) { setStatus(error.message || 'Could not start the Paystack payout.', true); button.disabled = false; }
+        const manualPayoutDialog = document.getElementById('manualPayoutDialog');
+        const manualPayoutForm = document.getElementById('manualPayoutForm');
+        document.getElementById('requestList').addEventListener('click', event => {
+            const button = event.target.closest('button[data-daraja-payout]'); if (!button) return;
+            manualPayoutForm.dataset.operationId = button.dataset.id;
+            document.getElementById('manualPayoutName').textContent = button.dataset.name || '—';
+            document.getElementById('manualPayoutEmail').textContent = button.dataset.email || '—';
+            document.getElementById('manualPayoutPhone').textContent = button.dataset.phone || '—';
+            document.getElementById('manualPayoutAmount').textContent = money(button.dataset.amount);
+            manualPayoutDialog.showModal();
         });
-        document.getElementById('requestList').addEventListener('click', async event => {
-            const button = event.target.closest('button[data-paystack-otp]'); if (!button) return;
-            const code = window.prompt('Enter the Paystack transfer approval code sent to the merchant contact:');
-            if (!code) return;
+        document.getElementById('cancelManualPayout').addEventListener('click', () => manualPayoutDialog.close());
+        manualPayoutForm.addEventListener('submit', async event => {
+            event.preventDefault();
+            const button = manualPayoutForm.querySelector('button[type="submit"]');
             button.disabled = true;
             try {
-                const result = await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.paystackOtp)}/paystack-payout/otp`, { method:'POST', body:JSON.stringify({ otp:code.trim() }) });
-                setStatus(result.message || 'Paystack received the approval code.');
+                const result = await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(manualPayoutForm.dataset.operationId)}/daraja-payout`, { method:'POST', body:'{}' });
+                manualPayoutDialog.close();
+                setStatus(result.message || 'Daraja sandbox payout started. Awaiting Safaricom callback.');
                 await loadRequests();
-            } catch (error) { setStatus(error.message || 'Could not approve the Paystack payout.', true); button.disabled = false; }
-        });
-        document.getElementById('requestList').addEventListener('click', async event => {
-            const button = event.target.closest('button[data-paystack-check]'); if (!button) return;
-            button.disabled = true;
-            try {
-                const result = await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.paystackCheck)}/paystack-payout/check`, { method:'POST' });
-                setStatus(result.message || 'Paystack payout status refreshed.');
-                await loadRequests();
-            } catch (error) { setStatus(error.message || 'Could not check Paystack payout status.', true); button.disabled = false; }
+            } catch (error) { setStatus(error.message || 'Could not start the Daraja sandbox payout.', true); }
+            finally { button.disabled = false; }
         });
         document.getElementById('requestList').addEventListener('click', async event => {
             const button = event.target.closest('button[data-review]'); if (!button) return;
-            const approval = button.dataset.review === 'approve';
             const isDeposit = button.dataset.type === 'deposit';
-            if (!window.confirm(approval ? 'Only continue after you have sent the money to the saved payout destination outside KITUI FARM. This action records the payment; it does not send money. Mark this withdrawal as sent?' : (isDeposit ? 'Close this unverified deposit request?' : 'Reject this withdrawal and return the reserved amount to the wallet?'))) return;
+            const uncertainDaraja = button.dataset.darajaUncertain === '1';
+            const prompt = isDeposit ? 'Close this unverified deposit request?'
+                : uncertainDaraja ? 'Have you checked the Daraja portal and confirmed this sandbox request did not complete? Confirm only after checking. The reserved amount will be returned to the wallet.'
+                : 'Reject this withdrawal and return the reserved amount to the wallet?';
+            if (!window.confirm(prompt)) return;
             button.disabled = true;
             try {
-                const result = await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.id)}/review`, { method:'POST', body:JSON.stringify({ decision:button.dataset.review }) });
-                setStatus(approval ? 'Withdrawal marked as paid.' : (isDeposit ? 'Deposit request rejected.' : 'Withdrawal rejected and funds refunded.'));
+                const result = await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(button.dataset.id)}/review`, { method:'POST', body:JSON.stringify({ decision:button.dataset.review, ...(uncertainDaraja ? { confirmedNoPayout:true } : {}) }) });
+                setStatus(isDeposit ? 'Deposit request rejected.' : 'Withdrawal rejected and funds refunded to the wallet.');
                 await loadRequests();
             } catch (error) { setStatus(error.message, true); button.disabled = false; }
         });

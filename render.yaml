@@ -43,7 +43,7 @@ services:
       # Keep false until Paystack confirms Live Pesalink eligibility for this merchant.
       - key: PAYSTACK_BANK_ELIGIBLE
         sync: false
-      # Legacy Daraja credentials are retained only for old deposit callbacks.
+      # Daraja sandbox credentials are used for M-Pesa STK deposits and B2C withdrawal testing.
       - key: MPESA_ENV
         sync: false
       - key: MPESA_CONSUMER_KEY
@@ -60,3 +60,13 @@ services:
         value: https://kitui-farm.onrender.com
       - key: MPESA_TRANSACTION_TYPE
         value: CustomerPayBillOnline
+      - key: MPESA_B2C_ENABLED
+        sync: false
+      - key: MPESA_B2C_INITIATOR_NAME
+        sync: false
+      - key: MPESA_B2C_SECURITY_CREDENTIAL
+        sync: false
+      - key: MPESA_B2C_PARTY_A
+        sync: false
+      - key: MPESA_B2C_COMMAND_ID
+        value: BusinessPayment

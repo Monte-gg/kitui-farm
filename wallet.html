@@ -46,10 +46,10 @@
                 <form id="transferForm"><div class="field"><label for="transferAmount">Amount (KES)</label><input id="transferAmount" type="number" min="0.01" max="1000000" step="0.01" required></div><button class="button primary" type="submit">Transfer funds</button><p class="message" id="transferMessage" role="status" aria-live="polite"></p></form>
             </section>
 
-            <section class="card"><h2>Withdraw funds</h2><p class="hint">Choose a saved payout destination and submit a request. An administrator sends M-Pesa withdrawals through Paystack and tracks the provider’s confirmation; other destinations may be sent manually. Your amount is reserved while the request is processed and is returned if the payout fails or is rejected. Paystack fees are paid by KITUI FARM from its Paystack balance.</p>
+            <section class="card"><h2>Withdraw funds</h2><p class="hint"><strong>Daraja sandbox testing only:</strong> an administrator can start a B2C test to the saved M-Pesa number. Sandbox does not send real money. When Safaricom responds, the reserved amount is returned to your wallet. Live payouts are not enabled.</p>
                 <form id="withdrawalForm"><div class="field"><label for="withdrawMethodId">Payout destination</label><select id="withdrawMethodId" required><option value="">Add a withdrawal method in Settings first</option></select><input id="withdrawChannel" type="hidden" value="mpesa"></div>
-                    <div class="field"><label for="withdrawAmount">Amount (KES)</label><input id="withdrawAmount" type="number" min="0.01" max="1000000" step="0.01" required></div>
-                    <button class="button primary" type="submit">Request withdrawal</button><p class="message" id="withdrawMessage" role="status" aria-live="polite"></p>
+                    <div class="field"><label for="withdrawAmount">Amount (KES)</label><input id="withdrawAmount" type="number" min="10" max="250000" step="1" required></div>
+                    <button class="button primary" type="submit">Request M-Pesa withdrawal test</button><p class="message" id="withdrawMessage" role="status" aria-live="polite"></p>
                 </form>
             </section>
 
@@ -80,6 +80,33 @@
         const money = value => `KES ${Number(value).toLocaleString('en-KE',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
         const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
         const setMessage = (id, text, error = false) => { $(id).textContent = text; $(id).classList.toggle('error', error); };
+        function startWalletLiveUpdates() {
+            (async () => {
+                while (true) {
+                    try {
+                        const response = await fetch('/api/wallet/events', { headers: { Accept: 'text/event-stream' } });
+                        if (response.status === 401) { location.replace('login.html'); return; }
+                        if (!response.ok || !response.body) throw new Error('Wallet live updates are unavailable.');
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder();
+                        let buffer = '';
+                        while (true) {
+                            const { value, done } = await reader.read();
+                            if (done) break;
+                            buffer += decoder.decode(value, { stream: true });
+                            let boundary;
+                            while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+                                const packet = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
+                                if (packet.split('\n').includes('event: wallet')) {
+                                    try { await loadWallet(); } catch { /* The next event or reconnect retries the wallet refresh. */ }
+                                }
+                            }
+                        }
+                    } catch { /* Reconnect automatically if mobile data or the API connection drops. */ }
+                    await new Promise(resolve => setTimeout(resolve, 2500));
+                }
+            })();
+        }
         const setConditionalFields = (selector, value, activeValue) => document.querySelectorAll(selector).forEach(group => {
             const active = group.dataset.depositField === activeValue || group.dataset.withdrawField === activeValue;
             group.hidden = !active;
@@ -90,11 +117,11 @@
             // until Paystack has explicitly confirmed Pesalink eligibility.
             // Deposits must use a verified provider flow; never offer manual receipt approval.
             const deposits=methods.filter(item=>['deposit','both'].includes(item.useFor)&&item.kind==='mpesa'&&mpesaStkEnabled);
-            const withdrawals=methods.filter(item=>['withdrawal','both'].includes(item.useFor)&&['mpesa','bank'].includes(item.kind));
+            const withdrawals=methods.filter(item=>['withdrawal','both'].includes(item.useFor)&&item.kind==='mpesa');
             const option=item=>`<option value="${escapeHtml(item.id)}" data-kind="${escapeHtml(item.kind)}">${escapeHtml(item.label)} · ${item.kind==='mpesa'?'M-Pesa':'Bank'}</option>`;
             const previousDepositMethod=$('depositMethodId').value;
             $('depositMethodId').innerHTML='<option value="">Choose a deposit method</option>'+deposits.map(option).join('')+(paystackBankEnabled?'<option value="paystack_bank" data-kind="paystack_bank">Bank transfer · Pesalink</option>':'');
-            $('withdrawMethodId').innerHTML=withdrawals.length?'<option value="">Choose a payout destination</option>'+withdrawals.map(option).join(''):'<option value="">No payout methods — add one in Settings</option>';
+            $('withdrawMethodId').innerHTML=withdrawals.length?'<option value="">Choose your M-Pesa number</option>'+withdrawals.map(option).join(''):'<option value="">Add an M-Pesa payout method in Settings</option>';
             $('depositMethodId').onchange=()=>{
                 const kind=$('depositMethodId').selectedOptions[0]?.dataset.kind||'';
                 $('depositChannel').value=kind==='paystack_bank'?'paystack_bank':kind==='mpesa'&&mpesaStkEnabled?'mpesa_stk':'';
@@ -162,9 +189,9 @@
             document.querySelectorAll('#depositForm button,#transferForm button,#recipientForm button,#withdrawalForm button').forEach(button => button.disabled = closed);
             fillWalletPaymentMethods(data.paymentMethods||[]);
             const tx = data.transactions || [];
-            $('transactions').innerHTML = tx.length ? tx.map(item => `<div class="entry"><span>${escapeHtml(item.description)}<small>${escapeHtml(item.type)} · ${escapeHtml(item.channel)} · ${new Date(item.createdAt).toLocaleString('en-KE')}</small></span><span class="amount ${item.direction === 'credit' ? 'credit' : 'debit'}">${item.direction === 'credit' ? '+' : '−'}${money(item.amount)}<small class="status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</small></span></div>`).join('') : '<p class="empty">No wallet transactions yet.</p>';
+            $('transactions').innerHTML = tx.length ? tx.map(item => { const state=item.status==='sandbox_simulated'?'Sandbox simulated · funds returned':item.status; return `<div class="entry"><span>${escapeHtml(item.description)}<small>${escapeHtml(item.type)} · ${escapeHtml(item.channel)} · ${new Date(item.createdAt).toLocaleString('en-KE')}</small></span><span class="amount ${item.direction === 'credit' ? 'credit' : 'debit'}">${item.direction === 'credit' ? '+' : '−'}${money(item.amount)}<small class="status ${escapeHtml(item.status)}">${escapeHtml(state)}</small></span></div>`; }).join('') : '<p class="empty">No wallet transactions yet.</p>';
             const ops = data.operations || [];
-            $('operations').innerHTML = ops.length ? ops.map(item => { const details=item.details||{}; const channel=item.channel==='mpesa'?'Paystack M-Pesa payout':['mpesa_b2c','paystack_mpesa_transfer'].includes(item.channel)?'Legacy M-Pesa payout':item.channel==='paystack_mpesa'?'M-Pesa deposit':item.channel==='mpesa_stk'?'M-Pesa deposit':item.channel==='bank'?'Bank payout':'Wallet operation'; const state=item.type==='withdrawal'&&item.status==='pending'?'Awaiting administrator':item.type==='withdrawal'&&item.status==='processing'&&details.paystackPayoutReference?`Paystack: ${details.paystackPayoutStatus||'processing'}`:item.type==='withdrawal'&&item.status==='processing'?'Awaiting administrator':item.status; return `<div class="entry"><span>${escapeHtml(item.type)} · ${escapeHtml(channel)}<small>${item.paymentReference ? `Reference ${escapeHtml(item.paymentReference)} · ` : ''}${new Date(item.createdAt).toLocaleString('en-KE')}</small></span><span class="amount">${money(item.amount)}<small class="status ${escapeHtml(item.status)}">${escapeHtml(state)}</small></span></div>`; }).join('') : '<p class="empty">No deposit or withdrawal requests yet.</p>';
+            $('operations').innerHTML = ops.length ? ops.map(item => { const details=item.details||{}; const channel=item.type==='withdrawal'&&details.darajaSandbox?'Daraja B2C sandbox test':item.type==='withdrawal'&&['mpesa','mpesa_b2c','paystack_mpesa_transfer'].includes(item.channel)?'M-Pesa withdrawal':item.channel==='paystack_mpesa'?'M-Pesa deposit':item.channel==='mpesa_stk'?'M-Pesa deposit':item.channel==='paystack_pesalink'?'Bank transfer deposit':item.channel==='bank'?'Bank withdrawal':'Wallet operation'; const state=details.darajaSandbox&&item.status==='completed'?'Sandbox simulated · no money sent; funds returned':item.type==='withdrawal'&&['pending','processing'].includes(item.status)?(details.darajaPayoutStatus?`Daraja sandbox: ${details.darajaPayoutStatus}`:'Waiting for administrator'):item.status; const reference=item.type==='withdrawal'&&item.paymentReference?`Daraja reference ${escapeHtml(item.paymentReference)} · `:item.paymentReference?`Reference ${escapeHtml(item.paymentReference)} · `:''; return `<div class="entry"><span>${escapeHtml(item.type)} · ${escapeHtml(channel)}<small>${reference}${new Date(item.createdAt).toLocaleString('en-KE')}</small></span><span class="amount">${money(item.amount)}<small class="status ${escapeHtml(item.status)}">${escapeHtml(state)}</small></span></div>`; }).join('') : '<p class="empty">No deposit or withdrawal requests yet.</p>';
             const activePaystack=data.operations?.find(item=>item.channel==='paystack_pesalink'&&item.status==='processing'&&item.details?.paystackInstructions);
             if(activePaystack){activePaystackDepositId=activePaystack.id;showPaystackBankInstructions({id:activePaystack.id,amount:Number(activePaystack.amount),...activePaystack.details.paystackInstructions});}
         }
@@ -172,7 +199,7 @@
         $('createWalletForm').addEventListener('submit', async event => { event.preventDefault(); const button=event.currentTarget.querySelector('button'); button.disabled=true; try { await apiRequest('/api/wallet/create',{method:'POST',body:'{}'}); await loadWallet(); } catch(error) { $('createWalletMessage').textContent=error.message; } finally { button.disabled=false; } });
         $('reopenWalletForm').addEventListener('submit', async event => { event.preventDefault(); const button=event.currentTarget.querySelector('button'); button.disabled=true; try { await apiRequest('/api/wallet/reopen',{method:'POST',body:JSON.stringify({password:$('reopenPassword').value,confirmation:$('reopenConfirmation').value})}); $('reopenMessage').textContent='Wallet recovered.'; await loadWallet(); } catch(error) { $('reopenMessage').textContent=error.message; } finally { button.disabled=false; } });
         async function initialize() {
-            try { const result = await apiRequest('/api/auth/me'); currentUser = result.user; try { const mpesa=await apiRequest('/api/wallet/mpesa/config'); mpesaStkEnabled=Boolean(mpesa.stkEnabled); } catch { mpesaStkEnabled=false; } try { const paystack=await apiRequest('/api/wallet/paystack/config'); paystackBankEnabled=Boolean(paystack.bankTransferEnabled); } catch { paystackBankEnabled=false; } await loadWallet(); }
+            try { const result = await apiRequest('/api/auth/me'); currentUser = result.user; try { const mpesa=await apiRequest('/api/wallet/mpesa/config'); mpesaStkEnabled=Boolean(mpesa.stkEnabled); } catch { mpesaStkEnabled=false; } try { const paystack=await apiRequest('/api/wallet/paystack/config'); paystackBankEnabled=Boolean(paystack.bankTransferEnabled); } catch { paystackBankEnabled=false; } await loadWallet(); startWalletLiveUpdates(); }
             catch (error) { if (error.status === 401) { location.replace('login.html'); return; } setMessage('depositMessage', error.message, true); }
         }
         $('depositForm').addEventListener('submit', async event => {
@@ -259,11 +286,11 @@
         $('withdrawalForm').addEventListener('submit',async event=>{
             event.preventDefault();const form=event.currentTarget;const channel=$('withdrawChannel').value;const body={channel,amount:$('withdrawAmount').value,paymentMethodId:$('withdrawMethodId').value};
             if(!body.paymentMethodId){setMessage('withdrawMessage','Add a payout method in Settings first.',true);return;}
-            const confirmation = `Request a ${money(body.amount)} withdrawal to the selected saved destination? An administrator must send it. The amount will be reserved until the request is completed or rejected.`;
+            const confirmation = `Request a ${money(body.amount)} Daraja sandbox withdrawal test to your saved M-Pesa number? Sandbox does not send real money. The amount will be reserved and returned when Safaricom responds.`;
             if(!window.confirm(confirmation))return;
             const button=event.currentTarget.querySelector('button');button.disabled=true;setMessage('withdrawMessage','Submitting withdrawal request…');
             body.idempotencyKey=withdrawalSubmissionKey;
-            try{const data=await apiRequest('/api/wallet/withdrawals',{method:'POST',body:JSON.stringify(body)});const operation=data.operation;const success=`Withdrawal request ${operation.id.slice(0,8)} is awaiting administrator processing. Your funds are reserved until it is sent or rejected. Fee: ${money(operation.fee)}.`;withdrawalSubmissionKey=crypto.randomUUID();form.reset();try{await loadWallet();setMessage('withdrawMessage',success);}catch{setMessage('withdrawMessage',`${success} Your wallet summary could not refresh; use Refresh to reload it.`);}}
+            try{const data=await apiRequest('/api/wallet/withdrawals',{method:'POST',body:JSON.stringify(body)});const operation=data.operation;const success=operation.message||`Withdrawal request ${operation.id.slice(0,8)} is awaiting admin processing.`;withdrawalSubmissionKey=crypto.randomUUID();form.reset();try{await loadWallet();setMessage('withdrawMessage',success);}catch{setMessage('withdrawMessage',`${success} Your wallet summary could not refresh; live updates will retry.`);}}
             catch(error){setMessage('withdrawMessage',error.message,true);}finally{button.disabled=currentWallet?.status!=='active';}
         });
         $('toggleClosePassword').addEventListener('click', event => {

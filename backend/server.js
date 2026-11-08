@@ -58,6 +58,81 @@ function mpesaConfig() {
         transactionType: String(process.env.MPESA_TRANSACTION_TYPE || 'CustomerPayBillOnline').trim() };
 }
 
+function mpesaB2cConfig() {
+    const mode = String(process.env.MPESA_ENV || 'sandbox').trim().toLowerCase();
+    if (mode !== 'sandbox') {
+        const error = new Error('Daraja withdrawals are configured for sandbox only. Set MPESA_ENV=sandbox; live payouts are not enabled by this flow.');
+        error.status = 503;
+        throw error;
+    }
+    if (String(process.env.MPESA_B2C_ENABLED || '').trim().toLowerCase() !== 'true') {
+        const error = new Error('Daraja B2C withdrawals are disabled. Set MPESA_B2C_ENABLED=true in Render to enable sandbox testing.');
+        error.status = 503;
+        throw error;
+    }
+    const consumerKey = String(process.env.MPESA_CONSUMER_KEY || '').trim();
+    const consumerSecret = String(process.env.MPESA_CONSUMER_SECRET || '').trim();
+    const initiatorName = String(process.env.MPESA_B2C_INITIATOR_NAME || '').trim();
+    const securityCredential = String(process.env.MPESA_B2C_SECURITY_CREDENTIAL || '').trim();
+    const partyA = String(process.env.MPESA_B2C_PARTY_A || '').trim();
+    const commandId = String(process.env.MPESA_B2C_COMMAND_ID || 'BusinessPayment').trim();
+    const callbackSecret = String(process.env.MPESA_CALLBACK_SECRET || '').trim();
+    if (!consumerKey || !consumerSecret || !initiatorName || !securityCredential || !/^\d{5,6}$/.test(partyA)
+        || commandId !== 'BusinessPayment' || callbackSecret.length < 32) {
+        const error = new Error('Daraja B2C sandbox is missing valid Render settings. Check MPESA_CONSUMER_KEY, MPESA_CONSUMER_SECRET, MPESA_B2C_INITIATOR_NAME, MPESA_B2C_SECURITY_CREDENTIAL, MPESA_B2C_PARTY_A, MPESA_B2C_COMMAND_ID, and MPESA_CALLBACK_SECRET.');
+        error.status = 503;
+        throw error;
+    }
+    const callbackBase = String(process.env.MPESA_CALLBACK_BASE_URL || process.env.RENDER_EXTERNAL_URL || '').trim();
+    let origin;
+    try {
+        const parsed = new URL(callbackBase);
+        if (parsed.protocol !== 'https:') throw new Error('HTTPS required');
+        origin = parsed.origin;
+    } catch {
+        const error = new Error('Set MPESA_CALLBACK_BASE_URL to the HTTPS Render service URL for Daraja callbacks.');
+        error.status = 503;
+        throw error;
+    }
+    const token = encodeURIComponent(callbackSecret);
+    return {
+        mode, baseUrl: 'https://sandbox.safaricom.co.ke', consumerKey, consumerSecret,
+        initiatorName, securityCredential, partyA, commandId,
+        resultUrl: `${origin}/api/payments/mpesa/b2c/result/${token}`,
+        timeoutUrl: `${origin}/api/payments/mpesa/b2c/timeout/${token}`
+    };
+}
+
+async function darajaB2cRequest(endpoint, config, body) {
+    const authResponse = await fetch(`${config.baseUrl}/oauth/v1/generate?grant_type=client_credentials`, {
+        headers: { Authorization: `Basic ${Buffer.from(`${config.consumerKey}:${config.consumerSecret}`).toString('base64')}` },
+        signal: AbortSignal.timeout(15_000)
+    });
+    const authData = await authResponse.json().catch(() => ({}));
+    if (!authResponse.ok || !authData.access_token) {
+        const error = new Error('Daraja sandbox could not authorize the B2C request. Check the sandbox consumer key and secret in Render.');
+        error.status = 502;
+        error.providerRejected = true;
+        error.providerResponse = authData;
+        throw error;
+    }
+    const response = await fetch(`${config.baseUrl}${endpoint}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authData.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(20_000)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || String(data.ResponseCode ?? '') !== '0') {
+        const error = new Error(text(data.errorMessage || data.ResponseDescription || data.error || 'Daraja sandbox rejected the B2C request.', 240));
+        error.status = response.status || 502;
+        error.providerRejected = response.ok || (response.status >= 400 && response.status < 500);
+        error.providerResponse = data;
+        throw error;
+    }
+    return data;
+}
+
 function paystackConfig({ requireBankEligibility = false } = {}) {
     const secretKey = String(process.env.PAYSTACK_SECRET_KEY || '').trim();
     const webhookSecret = String(process.env.PAYSTACK_WEBHOOK_SECRET || '').trim();
@@ -110,7 +185,9 @@ async function paystackRequest(endpoint, { method = 'GET', body, config = paysta
     if (!response.ok || data.status === false) {
         const error = new Error(String(data.message || 'Paystack could not process the bank transfer request.'));
         error.status = response.status || 502;
-        error.providerRejected = true;
+        // Only refund after a conclusive rejection. A 5xx/429 or other
+        // uncertain response may arrive after the provider accepted a transfer.
+        error.providerRejected = data.status === false || (response.status >= 400 && response.status < 500);
         throw error;
     }
     return data;
@@ -1740,6 +1817,41 @@ function createApp(options = {}) {
         res.json({ settings });
     });
 
+    app.get('/api/wallet/events', auth, async (req, res, next) => {
+        res.status(200);
+        res.set({ 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+        res.flushHeaders?.();
+        const userId = req.user.id;
+        let lastSnapshot = '';
+        let checking = false;
+        let closed = false;
+        const sendSnapshot = async () => {
+            if (closed || checking) return;
+            checking = true;
+            try {
+                const row = await store.get(`SELECT wallet_accounts.balance_cents, wallet_accounts.status,
+                    COALESCE((SELECT MAX(updated_at) FROM wallet_operations WHERE user_id = ?), '') AS operations_updated_at,
+                    COALESCE((SELECT MAX(created_at) FROM wallet_transactions WHERE user_id = ?), '') AS transactions_updated_at
+                    FROM wallet_accounts WHERE wallet_accounts.user_id = ?`, [userId, userId, userId]);
+                const snapshot = JSON.stringify(row || null);
+                if (snapshot !== lastSnapshot) {
+                    lastSnapshot = snapshot;
+                    res.write(`event: wallet\ndata: ${JSON.stringify({ changed: true })}\n\n`);
+                } else {
+                    res.write(': keep-alive\n\n');
+                }
+            } catch (error) {
+                if (!closed) console.error('Wallet live-update stream failed:', error.message);
+            } finally {
+                checking = false;
+            }
+        };
+        await sendSnapshot();
+        const timer = setInterval(() => { void sendSnapshot(); }, 2500);
+        timer.unref?.();
+        req.on('close', () => { closed = true; clearInterval(timer); });
+    });
+
     app.get('/api/wallet', auth, async (req, res, next) => {
         try {
             const [account, transactions, operations, admin, paymentMethods] = await Promise.all([
@@ -1783,45 +1895,6 @@ function createApp(options = {}) {
         catch { res.json({ bankTransferEnabled: false, mpesaEnabled: configured }); }
     });
 
-    async function recordPaystackPayoutStatus(reference, providerStatus, providerData = {}) {
-        const operation = await store.get("SELECT * FROM wallet_operations WHERE kind = 'withdrawal' AND payment_reference = ?", [reference]);
-        if (!operation) return false;
-        const status = String(providerStatus || '').toLowerCase();
-        const now = new Date().toISOString();
-        await store.transaction(async () => {
-            const current = await store.get('SELECT * FROM wallet_operations WHERE id = ?', [operation.id]);
-            if (!current || current.status !== 'processing') return;
-            const details = JSON.parse(current.details_json || '{}');
-            details.paystackPayoutStatus = status || 'pending';
-            details.paystackTransferCode = text(providerData.transfer_code || details.paystackTransferCode, 120);
-            details.paystackPayoutUpdatedAt = now;
-            if (status === 'success') {
-                details.paystackPayoutCompletedAt = providerData.transferred_at || now;
-                const updated = await store.run("UPDATE wallet_operations SET status = 'completed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, current.id]);
-                if (!updated.changes) return;
-                await store.run("UPDATE wallet_transactions SET status = 'completed', description = 'M-Pesa withdrawal sent through Paystack' WHERE operation_id = ? AND event_type = 'withdrawal' AND status IN ('pending', 'processing')", [current.id]);
-                return;
-            }
-            if (['failed', 'reversed'].includes(status)) {
-                details.paystackPayoutFailure = text(providerData.reason || providerData.message || `Paystack transfer ${status}.`, 240);
-                const updated = await store.run("UPDATE wallet_operations SET status = 'failed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, current.id]);
-                if (!updated.changes) return;
-                const credited = await store.run("UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ? WHERE user_id = ? AND status = 'active' AND balance_cents <= ?", [current.amount_cents, now, current.user_id, 2147483647 - current.amount_cents]);
-                if (!credited.changes) throw new Error('Could not automatically refund a failed Paystack withdrawal.');
-                await store.run("UPDATE wallet_transactions SET status = 'failed' WHERE operation_id = ? AND event_type = 'withdrawal' AND status IN ('pending', 'processing')", [current.id]);
-                const refundReference = `wallet-withdrawal-refund:${current.id}`;
-                const existingRefund = await store.get('SELECT id FROM wallet_transactions WHERE reference_key = ?', [refundReference]);
-                if (!existingRefund) await store.run(`INSERT INTO wallet_transactions
-                    (id, user_id, kind, event_type, amount_cents, reference_key, description, created_by, created_at, status, channel, operation_id)
-                    VALUES (?, ?, 'credit', 'refund', ?, ?, 'Automatic refund after Paystack payout failed', NULL, ?, 'completed', 'internal', ?)` ,
-                [crypto.randomUUID(), current.user_id, current.amount_cents, refundReference, now, current.id]);
-                return;
-            }
-            await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, current.id]);
-        });
-        return true;
-    }
-
     app.post('/api/paystack/webhook', async (req, res) => {
         let config;
         try { config = paystackConfig(); } catch { return res.status(503).send('Webhook not configured.'); }
@@ -1831,11 +1904,6 @@ function createApp(options = {}) {
             const data = event?.data || {};
             const reference = text(data.reference, 120);
             if (!reference) return res.sendStatus(200);
-            if (['transfer.success', 'transfer.failed', 'transfer.reversed'].includes(event.event)) {
-                const providerStatus = event.event === 'transfer.success' ? 'success' : event.event === 'transfer.reversed' ? 'reversed' : 'failed';
-                await recordPaystackPayoutStatus(reference, providerStatus, data);
-                return res.sendStatus(200);
-            }
             const operation = await store.get("SELECT * FROM wallet_operations WHERE kind = 'deposit' AND channel IN ('paystack_pesalink', 'paystack_mpesa') AND payment_reference = ?", [reference]);
             if (!operation || operation.status !== 'processing') return res.sendStatus(200);
             const details = JSON.parse(operation.details_json || '{}');
@@ -1924,6 +1992,108 @@ function createApp(options = {}) {
         } catch (error) {
             console.error('M-Pesa callback processing failed', error.message);
             return res.status(500).json({ ResultCode: 1, ResultDesc: 'Payment callback could not be processed.' });
+        }
+    });
+
+    const findDarajaWithdrawal = async originatorId => {
+        const pending = await store.all("SELECT * FROM wallet_operations WHERE kind = 'withdrawal' AND channel = 'mpesa' AND status = 'processing' ORDER BY created_at DESC LIMIT 500");
+        return pending.find(operation => {
+            const details = JSON.parse(operation.details_json || '{}');
+            return details.darajaOriginatorConversationID === originatorId
+                || details.darajaProviderOriginatorConversationID === originatorId;
+        }) || null;
+    };
+
+    const darajaB2cCallback = async (req, res) => {
+        const expectedToken = String(process.env.MPESA_CALLBACK_SECRET || '').trim();
+        const receivedToken = String(req.params.token || '');
+        const tokenMatches = expectedToken.length >= 32 && receivedToken.length === expectedToken.length
+            && crypto.timingSafeEqual(Buffer.from(receivedToken), Buffer.from(expectedToken));
+        if (!tokenMatches) return res.status(404).json({ ResultCode: 1, ResultDesc: 'Not found.' });
+        const payload = req.body?.Result || req.body;
+        const originatorId = text(payload?.OriginatorConversationID, 120);
+        if (!originatorId) return res.status(400).json({ ResultCode: 1, ResultDesc: 'OriginatorConversationID is required.' });
+        try {
+            let operation = null;
+            for (let attempt = 0; attempt < 10 && !operation; attempt += 1) {
+                operation = await findDarajaWithdrawal(originatorId);
+                if (!operation && attempt < 9) await new Promise(resolve => setTimeout(resolve, 200));
+            }
+            if (!operation) return res.json({ ResultCode: 0, ResultDesc: 'Callback acknowledged.' });
+            if (operation.status !== 'processing') return res.json({ ResultCode: 0, ResultDesc: 'Callback already handled.' });
+            const now = new Date().toISOString();
+            const details = JSON.parse(operation.details_json || '{}');
+            const resultCode = Number(payload?.ResultCode);
+            if (!Number.isInteger(resultCode)) return res.status(400).json({ ResultCode: 1, ResultDesc: 'Invalid Daraja result code.' });
+            const resultParameters = payload?.ResultParameters?.ResultParameter;
+            const receiptParameter = Array.isArray(resultParameters)
+                ? resultParameters.find(item => ['ReceiptNo', 'TransactionReceipt'].includes(item.Key))
+                : resultParameters && ['ReceiptNo', 'TransactionReceipt'].includes(resultParameters.Key) ? resultParameters : null;
+            const receipt = text(payload?.TransactionID || receiptParameter?.Value, 32).toUpperCase();
+            const resultDescription = text(payload?.ResultDesc || 'Daraja B2C result received.', 240);
+            await store.transaction(async () => {
+                const status = resultCode === 0 ? 'completed' : 'failed';
+                const updatedDetails = {
+                    ...details,
+                    darajaPayoutStatus: status,
+                    darajaSandbox: true,
+                    darajaResultCode: Number.isFinite(resultCode) ? resultCode : null,
+                    darajaResultDescription: resultDescription,
+                    darajaTransactionId: receipt || null,
+                    darajaCompletedAt: now,
+                    sandboxNotice: 'Sandbox responses do not send real money. Reserved wallet funds were returned.'
+                };
+                const finalized = await store.run('UPDATE wallet_operations SET status = ?, payment_reference = COALESCE(NULLIF(?, \'\'), payment_reference), details_json = ?, updated_at = ? WHERE id = ? AND status = \'processing\'',
+                    [status, receipt, JSON.stringify(updatedDetails), now, operation.id]);
+                if (!finalized.changes) return;
+                const ledgerStatus = resultCode === 0 ? 'sandbox_simulated' : 'failed';
+                await store.run('UPDATE wallet_transactions SET status = ?, payment_reference = COALESCE(NULLIF(?, \'\'), payment_reference), description = ? WHERE operation_id = ? AND event_type = \'withdrawal\'',
+                    [ledgerStatus, receipt, resultCode === 0 ? 'Daraja sandbox payout simulated; no real money sent' : 'Daraja sandbox payout failed', operation.id]);
+                const refundReference = `wallet-withdrawal-refund:${operation.id}`;
+                const priorRefund = await store.get('SELECT id FROM wallet_transactions WHERE reference_key = ?', [refundReference]);
+                if (!priorRefund) {
+                    const credited = await store.run("UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ? WHERE user_id = ? AND status = 'active' AND balance_cents <= ?",
+                        [operation.amount_cents, now, operation.user_id, 2147483647 - operation.amount_cents]);
+                    if (!credited.changes) throw new Error('Could not return the sandbox withdrawal amount to the active wallet.');
+                    await store.run(`INSERT INTO wallet_transactions
+                        (id, user_id, kind, event_type, amount_cents, reference_key, description, created_by, created_at, status, channel, operation_id)
+                        VALUES (?, ?, 'credit', 'refund', ?, ?, ?, NULL, ?, 'completed', 'internal', ?)
+                        ON CONFLICT(reference_key) DO NOTHING`,
+                    [crypto.randomUUID(), operation.user_id, operation.amount_cents, refundReference,
+                        resultCode === 0 ? 'Daraja sandbox test completed; no real payment was sent, so reserved wallet funds were returned' : 'Refund for failed Daraja sandbox withdrawal', now, operation.id]);
+                }
+            });
+            return res.json({ ResultCode: 0, ResultDesc: 'B2C result recorded.' });
+        } catch (error) {
+            console.error('Daraja B2C callback failed', error.message);
+            return res.status(500).json({ ResultCode: 1, ResultDesc: 'B2C result could not be recorded.' });
+        }
+    };
+
+    app.post('/api/payments/mpesa/b2c/result/:token', darajaB2cCallback);
+    app.post('/api/payments/mpesa/b2c/timeout/:token', async (req, res) => {
+        const expectedToken = String(process.env.MPESA_CALLBACK_SECRET || '').trim();
+        const receivedToken = String(req.params.token || '');
+        const tokenMatches = expectedToken.length >= 32 && receivedToken.length === expectedToken.length
+            && crypto.timingSafeEqual(Buffer.from(receivedToken), Buffer.from(expectedToken));
+        if (!tokenMatches) return res.status(404).json({ ResultCode: 1, ResultDesc: 'Not found.' });
+        const timeoutPayload = req.body?.Result || req.body;
+        const originatorId = text(timeoutPayload?.OriginatorConversationID, 120);
+        try {
+            if (originatorId) {
+                const operation = await findDarajaWithdrawal(originatorId);
+                if (operation?.status === 'processing') {
+                    const details = JSON.parse(operation.details_json || '{}');
+                    details.darajaPayoutStatus = 'timeout_uncertain';
+                    details.darajaTimeoutAt = new Date().toISOString();
+                    details.darajaTimeoutDescription = text(timeoutPayload?.ResultDesc || timeoutPayload?.errorMessage || 'Daraja reported a request timeout. Check its status before retrying to avoid duplicate payment.', 240);
+                    await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), operation.id]);
+                }
+            }
+            return res.json({ ResultCode: 0, ResultDesc: 'Timeout notification recorded. Do not retry until the payout outcome is verified.' });
+        } catch (error) {
+            console.error('Daraja B2C timeout callback failed', error.message);
+            return res.status(500).json({ ResultCode: 1, ResultDesc: 'Timeout notification could not be recorded.' });
         }
     });
 
@@ -2258,25 +2428,29 @@ function createApp(options = {}) {
         const cents = amountCents(req.body?.amount);
         const methodId = text(req.body?.paymentMethodId, 80);
         const idempotencyKey = text(req.body?.idempotencyKey, 80);
-        if (!cents) return res.status(400).json({ error: 'Enter an amount from KES 0.01 to KES 1,000,000.00.' });
+        if (!cents) return res.status(400).json({ error: 'Enter a whole KES amount from KES 10 to KES 250,000.' });
         if (!/^[A-Za-z0-9-]{16,80}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Refresh the page and try the withdrawal request again.' });
         try {
             const prior = await store.get('SELECT id, kind, amount_cents, fee_cents, status, channel, created_at FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
-            if (prior) return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, fee: Number(prior.fee_cents) / 100, status: prior.status, channel: prior.channel, createdAt: prior.created_at } });
+            if (prior) {
+                return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, fee: Number(prior.fee_cents) / 100, status: prior.status, channel: prior.channel, createdAt: prior.created_at } });
+            }
             await getActiveWallet(req.user.id);
             const method = await ownedPaymentMethod(req.user.id, methodId, 'withdrawal');
             const channel = method.kind;
             const details = JSON.parse(method.details_json || '{}');
-            if (channel === 'mpesa') {
-                if (cents % 100 !== 0) return res.status(400).json({ error: 'M-Pesa withdrawals must be a whole KES amount.' });
-                if (cents < 1000 || cents > 25_000_000) return res.status(400).json({ error: 'M-Pesa withdrawals must be between KES 10 and KES 250,000 per transaction.' });
-                if (!normalizedPhone(details.phone)) return res.status(400).json({ error: 'Add a valid Kenyan M-Pesa number to your saved payout method.' });
-            }
+            if (channel !== 'mpesa') return res.status(400).json({ error: 'Withdrawals are currently paid manually to a saved M-Pesa number. Add an M-Pesa payout method in Settings.' });
+            if (cents % 100 !== 0) return res.status(400).json({ error: 'M-Pesa withdrawals must be a whole KES amount.' });
+            if (cents < 1000 || cents > 25_000_000) return res.status(400).json({ error: 'M-Pesa withdrawals must be between KES 10 and KES 250,000 per transaction.' });
+            const payoutPhone = normalizedPhone(details.phone);
+            if (!payoutPhone) return res.status(400).json({ error: 'Add a valid Kenyan M-Pesa number to your saved payout method.' });
+            details.phone = payoutPhone;
+            details.withdrawalProcessing = 'daraja_b2c_sandbox';
             const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'withdrawal' AND status IN ('pending', 'processing')", [req.user.id]);
-            if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several withdrawals awaiting admin processing. Wait for those to be resolved first.' });
+            if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several withdrawals being processed. Wait for their payout results before requesting another.' });
             const id = crypto.randomUUID();
             const now = new Date().toISOString();
-            const description = `Withdrawal request to ${channel === 'mpesa' ? 'M-Pesa' : 'bank account'}`;
+            const description = 'Manual M-Pesa withdrawal request';
             await store.transaction(async () => {
                 const debited = await store.run(`
                     UPDATE wallet_accounts SET balance_cents = balance_cents - ?, updated_at = ?
@@ -2294,121 +2468,18 @@ function createApp(options = {}) {
                     VALUES (?, ?, 'debit', 'withdrawal', ?, ?, ?, ?, 'pending', ?, ?)
                 `, [crypto.randomUUID(), req.user.id, cents, `wallet-withdrawal:${id}`, description, now, channel, id]);
             });
-            res.status(201).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'pending', channel, createdAt: now, message: 'Your withdrawal request is reserved and waiting for an administrator to send it.' } });
+            res.status(202).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'pending', channel, createdAt: now, message: 'Your balance is reserved. An administrator will start a Daraja sandbox payout. Sandbox tests do not send real money; the reserved amount is returned after Safaricom responds.' } });
         } catch (error) {
             if (error.errcode === 2067) {
                 const prior = await store.get('SELECT id, kind, amount_cents, fee_cents, status, channel, created_at FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
-                if (prior) return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, fee: Number(prior.fee_cents) / 100, status: prior.status, channel: prior.channel, createdAt: prior.created_at } });
+                if (prior) {
+                    return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, fee: Number(prior.fee_cents) / 100, status: prior.status, channel: prior.channel, createdAt: prior.created_at } });
+                }
             }
             if (error.status) return res.status(error.status).json({ error: error.message });
             next(error);
         }
     });
-    app.post('/api/wallet/admin/operations/:id/paystack-payout', auth, walletAdmin, async (req, res, next) => {
-        let claimedOperation;
-        let transferStarted = false;
-        try {
-            const config = paystackConfig();
-            const operation = await store.get(`SELECT wallet_operations.*, users.name AS account_name
-                FROM wallet_operations JOIN users ON users.id = wallet_operations.user_id WHERE wallet_operations.id = ?`, [text(req.params.id, 80)]);
-            if (!operation || operation.kind !== 'withdrawal') throw walletError('Withdrawal request not found.', 404);
-            if (operation.channel !== 'mpesa') throw walletError('Paystack M-Pesa payouts are available for saved M-Pesa destinations only.', 409);
-            if (operation.status !== 'pending') throw walletError('This withdrawal is already being processed or has been resolved. Refresh the wallet operations list.', 409);
-            const details = JSON.parse(operation.details_json || '{}');
-            const phone = normalizedPhone(details.phone);
-            if (!phone) throw walletError('The saved M-Pesa number is invalid. Ask the user to update it before sending the payout.', 409);
-            const reference = `kitui_wd_${operation.id.replace(/-/g, '')}`;
-            details.paystackPayoutReference = reference;
-            details.paystackPayoutStatus = 'initiating';
-            details.paystackPayoutInitiatedAt = new Date().toISOString();
-            details.paystackPayoutInitiatedBy = req.user.id;
-            const now = new Date().toISOString();
-            const claim = await store.run(`UPDATE wallet_operations SET status = 'processing', payment_reference = ?, details_json = ?, reviewed_by = ?, reviewed_at = ?, updated_at = ?
-                WHERE id = ? AND status = 'pending'`, [reference, JSON.stringify(details), req.user.id, now, now, operation.id]);
-            if (!claim.changes) throw walletError('This withdrawal has already been claimed. Refresh the wallet operations list.', 409);
-            claimedOperation = { id: operation.id, details_json: JSON.stringify(details) };
-
-            const recipientResult = await paystackRequest('/transferrecipient', { method: 'POST', config, body: {
-                type: 'mobile_money', name: text(operation.account_name, 120), account_number: phone.slice(1),
-                bank_code: 'MPESA', currency: 'KES'
-            } });
-            const recipientCode = text(recipientResult.data?.recipient_code, 120);
-            if (!recipientCode) throw new Error('Paystack did not return a mobile-money recipient code.');
-            details.paystackRecipientCode = recipientCode;
-            await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), operation.id]);
-
-            transferStarted = true;
-            const transfer = await paystackRequest('/transfer', { method: 'POST', config, body: {
-                source: 'balance', amount: Number(operation.amount_cents), recipient: recipientCode, reference,
-                currency: 'KES', reason: `KITUI FARM wallet withdrawal ${operation.id}`
-            } });
-            const payout = transfer.data || {};
-            await recordPaystackPayoutStatus(reference, payout.status || 'pending', payout);
-            const requiresOtp = String(payout.status || '').toLowerCase() === 'otp';
-            return res.status(requiresOtp ? 202 : 200).json({
-                operation: { id: operation.id, status: payout.status === 'success' ? 'completed' : 'processing' },
-                requiresOtp,
-                message: requiresOtp ? 'Paystack sent a transfer approval code to the merchant contact. Enter that code to continue the payout.'
-                    : payout.status === 'success' ? 'Paystack confirmed the M-Pesa payout.'
-                    : 'Paystack accepted the payout request. The wallet will update after Paystack confirms the result.'
-            });
-        } catch (error) {
-            if (claimedOperation && (!transferStarted || error.providerRejected)) {
-                const details = JSON.parse(claimedOperation.details_json || '{}');
-                delete details.paystackPayoutReference;
-                delete details.paystackPayoutStatus;
-                delete details.paystackPayoutInitiatedAt;
-                delete details.paystackPayoutInitiatedBy;
-                delete details.paystackRecipientCode;
-                details.paystackPayoutError = text(error.message, 240);
-                await store.run("UPDATE wallet_operations SET status = 'pending', payment_reference = NULL, details_json = ?, reviewed_by = NULL, reviewed_at = NULL, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), claimedOperation.id]);
-            } else if (claimedOperation) {
-                const details = JSON.parse(claimedOperation.details_json || '{}');
-                details.paystackPayoutStatus = 'check_required';
-                details.paystackPayoutError = 'The request timed out after sending. Check Paystack before retrying; the saved reference prevents a duplicate payout.';
-                await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), claimedOperation.id]);
-            }
-            if (error.status) return res.status(error.status).json({ error: error.message });
-            if (error.providerRejected) return res.status(502).json({ error: `Paystack rejected this payout: ${text(error.message, 200)}` });
-            if (claimedOperation) return res.status(202).json({ operation: { id: claimedOperation.id, status: 'processing' }, error: 'Paystack did not return a final response. Check payout status before trying again.' });
-            next(error);
-        }
-    });
-
-    app.post('/api/wallet/admin/operations/:id/paystack-payout/otp', auth, walletAdmin, async (req, res, next) => {
-        const otp = text(req.body?.otp, 8);
-        if (!/^\d{4,8}$/.test(otp)) return res.status(400).json({ error: 'Enter the Paystack transfer approval code.' });
-        try {
-            const config = paystackConfig();
-            const operation = await store.get("SELECT * FROM wallet_operations WHERE id = ? AND kind = 'withdrawal' AND status = 'processing'", [text(req.params.id, 80)]);
-            if (!operation) throw walletError('Paystack withdrawal request not found.', 404);
-            const details = JSON.parse(operation.details_json || '{}');
-            if (!details.paystackTransferCode || details.paystackPayoutStatus !== 'otp') throw walletError('This payout is not waiting for an OTP.', 409);
-            const result = await paystackRequest('/transfer/finalize_transfer', { method: 'POST', config, body: { transfer_code: details.paystackTransferCode, otp } });
-            const payout = result.data || {};
-            await recordPaystackPayoutStatus(operation.payment_reference, payout.status || 'pending', payout);
-            res.json({ operation: { id: operation.id, status: payout.status === 'success' ? 'completed' : 'processing' }, message: 'Paystack received the code. The payout updates when Paystack confirms its result.' });
-        } catch (error) {
-            if (error.status) return res.status(error.status).json({ error: error.message });
-            next(error);
-        }
-    });
-
-    app.post('/api/wallet/admin/operations/:id/paystack-payout/check', auth, walletAdmin, async (req, res, next) => {
-        try {
-            const config = paystackConfig();
-            const operation = await store.get("SELECT * FROM wallet_operations WHERE id = ? AND kind = 'withdrawal' AND status = 'processing'", [text(req.params.id, 80)]);
-            if (!operation?.payment_reference) throw walletError('There is no active Paystack payout to check.', 404);
-            const result = await paystackRequest(`/transfer/verify/${encodeURIComponent(operation.payment_reference)}`, { config });
-            const payout = result.data || {};
-            await recordPaystackPayoutStatus(operation.payment_reference, payout.status || 'pending', payout);
-            res.json({ operation: { id: operation.id, status: payout.status || 'processing' }, message: `Paystack payout status: ${text(payout.status || 'pending', 32)}.` });
-        } catch (error) {
-            if (error.status) return res.status(error.status).json({ error: error.message });
-            next(error);
-        }
-    });
-
     app.post('/api/wallet/close', auth, async (req, res, next) => {
         if (req.body?.confirmation !== 'CLOSE') return res.status(400).json({ error: 'Type CLOSE to confirm wallet closure.' });
         if (typeof req.body?.password !== 'string' || !req.body.password || req.body.password.length > 128) return res.status(400).json({ error: 'Enter your account password to close the wallet.' });
@@ -2448,58 +2519,134 @@ function createApp(options = {}) {
         } catch (error) { next(error); }
     });
 
+    app.post('/api/wallet/admin/operations/:id/daraja-payout', auth, walletAdmin, async (req, res, next) => {
+        let config;
+        try { config = mpesaB2cConfig(); }
+        catch (error) { return res.status(error.status || 503).json({ error: error.message }); }
+        try {
+            const initial = await store.get("SELECT * FROM wallet_operations WHERE id = ? AND kind = 'withdrawal'", [req.params.id]);
+            if (!initial) throw walletError('Withdrawal request not found.', 404);
+            if (initial.channel !== 'mpesa') throw walletError('Only M-Pesa withdrawal requests can use the Daraja B2C sandbox.', 409);
+            if (initial.status !== 'pending') throw walletError('This withdrawal has already been started or reviewed. Refresh the requests list before continuing.', 409);
+            const details = JSON.parse(initial.details_json || '{}');
+            if (details.paystackPayoutReference || (details.darajaOriginatorConversationID && details.darajaPayoutStatus !== 'rejected')) throw walletError('This request already has a payment-provider reference. Check its result before attempting another payout.', 409);
+            const phone = normalizedPhone(details.phone);
+            if (!phone) throw walletError('The saved M-Pesa number is invalid. Update the customer payout method before sending.', 409);
+            if (Number(initial.amount_cents) % 100 !== 0) throw walletError('Daraja B2C requires a whole KES amount.', 409);
+            const now = new Date().toISOString();
+            const originatorId = `KF${crypto.randomBytes(9).toString('hex').toUpperCase()}`;
+            if (details.darajaOriginatorConversationID) {
+                details.darajaAttempts = [...(Array.isArray(details.darajaAttempts) ? details.darajaAttempts : []), {
+                    originatorConversationID: details.darajaOriginatorConversationID,
+                    status: details.darajaPayoutStatus,
+                    error: details.darajaInitiationError || ''
+                }].slice(-5);
+            }
+            details.phone = phone;
+            details.withdrawalProcessing = 'daraja_b2c_sandbox';
+            details.darajaClientRequestId = originatorId;
+            details.darajaOriginatorConversationID = '';
+            details.darajaPayoutStatus = 'initiating';
+            details.darajaSandbox = true;
+            const claimed = await store.transaction(async () => {
+                const fresh = await store.get('SELECT status, reviewed_by FROM wallet_operations WHERE id = ?', [initial.id]);
+                if (!fresh || fresh.status !== 'pending' || fresh.reviewed_by) return false;
+                const result = await store.run("UPDATE wallet_operations SET status = 'processing', reviewed_by = ?, reviewed_at = ?, details_json = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND reviewed_by IS NULL",
+                    [req.user.id, now, JSON.stringify(details), now, initial.id]);
+                return Boolean(result.changes);
+            });
+            if (!claimed) throw walletError('Another administrator has already started this withdrawal. Refresh the requests list.', 409);
+
+            const requestBody = {
+                InitiatorName: config.initiatorName,
+                SecurityCredential: config.securityCredential,
+                CommandID: config.commandId,
+                Amount: String(Number(initial.amount_cents) / 100),
+                PartyA: config.partyA,
+                PartyB: phone.replace(/^\+/, ''),
+                Remarks: `KITUI FARM withdrawal ${initial.id.slice(0, 24)}`,
+                QueueTimeOutURL: config.timeoutUrl,
+                ResultURL: config.resultUrl,
+                Occassion: originatorId
+            };
+            try {
+                const provider = await darajaB2cRequest('/mpesa/b2c/v3/paymentrequest', config, requestBody);
+                const acceptedAt = new Date().toISOString();
+                details.darajaPayoutStatus = 'accepted';
+                details.darajaConversationID = text(provider.ConversationID, 120);
+                details.darajaOriginatorConversationID = text(provider.OriginatorConversationID || originatorId, 120);
+                details.darajaResponseDescription = text(provider.ResponseDescription || 'Daraja accepted the sandbox request.', 240);
+                details.darajaAcceptedAt = acceptedAt;
+                await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'",
+                    [JSON.stringify(details), acceptedAt, initial.id]);
+                return res.status(202).json({ operation: { id: initial.id, status: 'processing', amount: Number(initial.amount_cents) / 100 }, message: 'Daraja accepted the sandbox payout request. Waiting for its callback. Sandbox sends no real money; the reserved amount will be returned when Safaricom responds.' });
+            } catch (providerError) {
+                const failedAt = new Date().toISOString();
+                details.darajaInitiationError = text(providerError.message, 240);
+                details.darajaInitiationResponse = providerError.providerResponse || null;
+                if (providerError.providerRejected) {
+                    details.darajaPayoutStatus = 'rejected';
+                    await store.run("UPDATE wallet_operations SET status = 'pending', reviewed_by = NULL, reviewed_at = NULL, details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'",
+                        [JSON.stringify(details), failedAt, initial.id]);
+                    throw walletError(`Daraja sandbox declined the payout request: ${text(providerError.message, 220)}`, 502);
+                }
+                details.darajaPayoutStatus = 'initiation_uncertain';
+                await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'",
+                    [JSON.stringify(details), failedAt, initial.id]);
+                return res.status(202).json({ operation: { id: initial.id, status: 'processing', amount: Number(initial.amount_cents) / 100 }, message: 'Daraja did not return a definite response. The request is held to prevent a duplicate payout. Check Safaricom status before retrying.' });
+            }
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
     app.post('/api/wallet/admin/operations/:id/review', auth, walletAdmin, async (req, res, next) => {
         const decision = text(req.body?.decision, 12);
-        if (!['approve', 'reject'].includes(decision)) return res.status(400).json({ error: 'Choose approve or reject.' });
+        if (decision !== 'reject') return res.status(400).json({ error: 'This action only rejects a request or refunds a withdrawal. Daraja payout completion is callback-controlled.' });
         try {
             const current = await store.get('SELECT * FROM wallet_operations WHERE id = ?', [req.params.id]);
             if (!current) throw walletError('Wallet request not found.', 404);
-            if (current.kind === 'deposit' && decision === 'approve') throw walletError('Deposit approvals are disabled. Paystack credits deposits after provider confirmation.', 409);
-            if (current.kind === 'withdrawal' && current.channel === 'paypal' && decision === 'approve') throw walletError('This legacy payout method is no longer supported. Reject it to return the reserved amount to the wallet.', 409);
-            if (current.kind === 'withdrawal' && current.status === 'processing' && JSON.parse(current.details_json || '{}').paystackPayoutReference) throw walletError('Paystack is processing this payout. Check its Paystack status before taking another action.', 409);
+            if (current.kind === 'withdrawal' && JSON.parse(current.details_json || '{}').paystackPayoutReference) throw walletError('This older withdrawal has a payment-provider reference. Verify its outcome before resolving it to avoid paying or refunding twice.', 409);
+            const currentDetails = JSON.parse(current.details_json || '{}');
+            const darajaUncertainRefund = current.kind === 'withdrawal' && decision === 'reject'
+                && currentDetails.darajaSandbox === true
+                && ['timeout_uncertain', 'initiation_uncertain'].includes(currentDetails.darajaPayoutStatus)
+                && req.body?.confirmedNoPayout === true;
+            if (current.kind === 'withdrawal' && current.status === 'processing' && currentDetails.darajaOriginatorConversationID && !darajaUncertainRefund) {
+                throw walletError('Daraja is still processing this request. Verify in the Daraja portal that no payment was completed before requesting a refund.', 409);
+            }
             let reviewedOperation;
             await store.transaction(async () => {
                 const operation = await store.get('SELECT * FROM wallet_operations WHERE id = ?', [req.params.id]);
                 if (!operation) throw walletError('Wallet request not found.', 404);
                 const legacyProcessingWithdrawal = operation.kind === 'withdrawal' && operation.status === 'processing';
                 if (operation.status !== 'pending' && !legacyProcessingWithdrawal) throw walletError('This wallet request has already been reviewed.', 409);
+                if (operation.reviewed_by && !darajaUncertainRefund) throw walletError('Another administrator has already started reviewing this request. Refresh the list.', 409);
                 const now = new Date().toISOString();
-                const claimed = await store.run(`UPDATE wallet_operations SET status = 'processing', reviewed_by = ?, reviewed_at = ?, updated_at = ? WHERE id = ? AND status = ?`, [req.user.id, now, now, operation.id, operation.status]);
+                const claimed = await store.run(`UPDATE wallet_operations SET status = 'processing', reviewed_by = ?, reviewed_at = ?, updated_at = ? WHERE id = ? AND status = ? AND (reviewed_by IS NULL OR ? = 1)`, [req.user.id, now, now, operation.id, operation.status, darajaUncertainRefund ? 1 : 0]);
                 if (!claimed.changes) throw walletError('This wallet request has already been reviewed.', 409);
                 const details = JSON.parse(operation.details_json || '{}');
-                if (operation.kind === 'deposit' && decision === 'approve') {
-                    const credited = await store.run(`
-                        UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
-                        WHERE user_id = ? AND status = 'active' AND balance_cents <= ?
-                    `, [operation.amount_cents, now, operation.user_id, 2147483647 - operation.amount_cents]);
-                    if (!credited.changes) throw walletError('This wallet is closed or cannot accept the deposit.', 409);
-                    await store.run(`
-                        INSERT INTO wallet_transactions
-                            (id, user_id, kind, event_type, amount_cents, reference_key, payment_reference, description, created_by, created_at, status, channel, operation_id)
-                        VALUES (?, ?, 'credit', 'deposit', ?, ?, ?, ?, ?, ?, 'completed', ?, ?)
-                    `, [crypto.randomUUID(), operation.user_id, operation.amount_cents, `wallet-deposit:${operation.id}`, operation.payment_reference,
-                        `Wallet deposit approved (${operation.channel})`, req.user.id, now, operation.channel, operation.id]);
-                } else if (operation.kind === 'withdrawal' && decision === 'approve') {
-                    details.adminPayoutSentAt = now;
-                    details.adminPayoutSentBy = req.user.id;
-                    details.adminPayoutMethod = operation.channel;
-                    const finalized = await store.run("UPDATE wallet_transactions SET status = 'completed', description = 'Withdrawal sent by an administrator to the saved payout destination' WHERE operation_id = ? AND event_type = 'withdrawal' AND status IN ('pending', 'processing')", [operation.id]);
-                    if (!finalized.changes) throw walletError('The withdrawal ledger could not be finalized.', 409);
-                } else if (operation.kind === 'withdrawal' && decision === 'reject') {
-                    const credited = await store.run(`
-                        UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
-                        WHERE user_id = ? AND status = 'active' AND balance_cents <= ?
-                    `, [operation.amount_cents, now, operation.user_id, 2147483647 - operation.amount_cents]);
-                    if (!credited.changes) throw walletError('Could not refund the rejected withdrawal to this wallet.', 409);
+                if (operation.kind === 'withdrawal' && decision === 'reject') {
+                    const refundReference = `wallet-withdrawal-refund:${operation.id}`;
+                    const priorRefund = await store.get('SELECT id FROM wallet_transactions WHERE reference_key = ?', [refundReference]);
+                    if (!priorRefund) {
+                        const credited = await store.run(`
+                            UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
+                            WHERE user_id = ? AND status = 'active' AND balance_cents <= ?
+                        `, [operation.amount_cents, now, operation.user_id, 2147483647 - operation.amount_cents]);
+                        if (!credited.changes) throw walletError('Could not refund the rejected withdrawal to this wallet.', 409);
+                    }
                     await store.run("UPDATE wallet_transactions SET status = 'rejected' WHERE operation_id = ? AND event_type = 'withdrawal'", [operation.id]);
                     await store.run(`
                         INSERT INTO wallet_transactions
                             (id, user_id, kind, event_type, amount_cents, reference_key, description, created_by, created_at, status, channel, operation_id)
                         VALUES (?, ?, 'credit', 'refund', ?, ?, ?, ?, ?, 'completed', 'internal', ?)
-                    `, [crypto.randomUUID(), operation.user_id, operation.amount_cents, `wallet-withdrawal-refund:${operation.id}`,
+                        ON CONFLICT(reference_key) DO NOTHING
+                    `, [crypto.randomUUID(), operation.user_id, operation.amount_cents, refundReference,
                         'Refund for rejected wallet withdrawal', req.user.id, now, operation.id]);
                 }
-                const status = decision === 'reject' ? 'rejected' : 'completed';
+                const status = 'rejected';
                 await store.run(`UPDATE wallet_operations SET status = ?, details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'`, [status, JSON.stringify(details), now, operation.id]);
                 reviewedOperation = { id: operation.id, type: operation.kind, status };
             });
