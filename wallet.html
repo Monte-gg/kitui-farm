@@ -30,13 +30,13 @@
         <div class="grid" id="walletContent">
             <section class="card balance-card"><p class="label">Available balance</p><p class="balance" id="walletBalance">KES —</p><div class="wallet-meta"><span>Wallet ID: <strong id="walletId">Loading…</strong></span><span>Status: <strong id="walletStatus">—</strong></span></div><p class="hint">Internal wallet transfers and marketplace wallet payments update instantly.</p></section>
 
-            <section class="card"><h2>Add money</h2><p class="hint">Paystack sends an M-Pesa prompt to your phone. Approve it with your M-Pesa PIN; your wallet is credited after Paystack confirms the payment. PayPal Checkout is also available. Bank transfer is unavailable while Paystack reviews Pesalink eligibility.</p>
+            <section class="card"><h2>Add money</h2><p class="hint">Choose PayPal or Paystack M-Pesa STK. Your wallet is credited automatically after the payment provider confirms the transaction. Manual receipt deposits are no longer accepted.</p>
                 <form id="depositForm"><div class="field"><label for="depositMethodId">Deposit method</label><select id="depositMethodId" required><option value="">Choose a deposit method</option></select><input id="depositChannel" type="hidden" value=""></div>
                     <div class="field"><label for="depositAmount">Amount (KES)</label><input id="depositAmount" type="number" min="0.01" max="1000000" step="0.01" required></div>
                     <div class="field" id="depositPhoneField" hidden><label for="depositPhone">M-Pesa phone number</label><input id="depositPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678"><p class="hint">Enter the phone that should receive the payment prompt.</p></div>
                     <p class="hint" id="phoneHint">Choose a deposit method to continue.</p>
                     <p class="hint" id="depositQuote" hidden></p>
-                    <div class="field" id="depositReferenceField"><label for="depositReference">Payment receipt/reference</label><input id="depositReference" maxlength="32" autocomplete="off" placeholder="e.g. QAB12CD34E" required><p class="hint">Enter the receipt/reference from your payment message.</p></div>
+                    <div class="field" id="depositReferenceField" hidden><label for="depositReference">Payment receipt/reference</label><input id="depositReference" maxlength="32" autocomplete="off" placeholder="e.g. QAB12CD34E"><p class="hint">Manual receipt deposits are disabled.</p></div>
                     <div id="paypalDepositContainer" hidden></div>
                     <section class="notice" id="paystackBankInstructions" hidden aria-live="polite"></section>
                     <button class="button primary" id="depositButton" type="submit">Submit deposit request</button><p class="message" id="depositMessage" role="status" aria-live="polite"></p>
@@ -98,7 +98,8 @@
         function fillWalletPaymentMethods(methods) {
             // Bank details may still be saved for payouts, but never offer bank deposits
             // until Paystack has explicitly confirmed Pesalink eligibility.
-            const deposits=methods.filter(item=>['deposit','both'].includes(item.useFor)&&!['paypal','airtel','bank'].includes(item.kind));
+            // Deposits must use a verified provider flow; never offer manual receipt approval.
+            const deposits=methods.filter(item=>['deposit','both'].includes(item.useFor)&&item.kind==='mpesa'&&mpesaStkEnabled);
             const withdrawals=methods.filter(item=>['withdrawal','both'].includes(item.useFor)&&item.kind!=='airtel');
             const option=item=>`<option value="${escapeHtml(item.id)}" data-kind="${escapeHtml(item.kind)}">${escapeHtml(item.label)} · ${item.kind==='mpesa'?'M-Pesa':item.kind==='paypal'?'PayPal':'Bank'}</option>`;
             const previousDepositMethod=$('depositMethodId').value;
@@ -132,8 +133,8 @@
             const isPaypal=$('depositChannel').value==='paypal';
             const isMpesaStk=$('depositChannel').value==='mpesa_stk';
             const isPaystackBank=$('depositChannel').value==='paystack_bank';
-            $('depositReferenceField').hidden=isPaypal||isMpesaStk||isPaystackBank;
-            $('depositReference').required=!isPaypal&&!isMpesaStk&&!isPaystackBank;
+            $('depositReferenceField').hidden=true;
+            $('depositReference').required=false;
             $('depositPhoneField').hidden=!isMpesaStk;
             $('depositPhone').required=isMpesaStk;
             $('depositAmount').min=isMpesaStk?'1':'0.01';
@@ -143,7 +144,7 @@
             $('depositButton').textContent=isMpesaStk?'Send M-Pesa prompt':isPaystackBank?'Get bank transfer details':'Submit deposit request';
             $('paypalDepositContainer').hidden=!isPaypal;
             $('depositQuote').hidden=!isPaypal;
-            $('phoneHint').textContent=isPaypal?'Pay securely with PayPal. The amount is converted to USD using the rate shown below.':isMpesaStk?`Paystack M-Pesa ${mpesaStkEnabled?'STK prompt is enabled':'STK is not configured; enter your receipt after paying'}. Approve the prompt on your phone; we add funds after confirmation.`:isPaystackBank?'Pay through your bank using the temporary Pesalink account details. The transfer expires after 25 minutes.':'Enter the receipt/reference after paying. An administrator will verify the payment.';
+            $('phoneHint').textContent=isPaypal?'Pay securely with PayPal. The amount is converted to USD using the rate shown below.':isMpesaStk?'Paystack sends an M-Pesa prompt to your phone. Approve it; your wallet is credited after Paystack confirms payment.':isPaystackBank?'Pay through your bank using the temporary Pesalink account details. The transfer expires after 25 minutes.':'Choose PayPal or an enabled Paystack deposit method. Manual receipt deposits are disabled.';
             if(isPaypal){updatePaypalDepositQuote();renderPaypalButtons().catch(error=>setMessage('depositMessage',error.message,true));}
         }
         async function updatePaypalDepositQuote() {
@@ -306,6 +307,7 @@
             event.preventDefault(); const form = event.currentTarget; const button = $('depositButton'); button.disabled = true; setMessage('depositMessage','Submitting deposit request…');
             const channel = $('depositChannel').value;
             if(channel==='paypal'){button.disabled=false;setMessage('depositMessage','Use the PayPal Checkout button above to complete this deposit.');return;}
+            if(!['mpesa_stk','paystack_bank'].includes(channel)){button.disabled=false;setMessage('depositMessage','Manual receipt deposits are disabled. Choose PayPal or Paystack M-Pesa STK.',true);return;}
             if(channel==='paystack_bank'){
                 setMessage('depositMessage','Creating a temporary Pesalink bank transfer…');
                 try{
@@ -332,10 +334,7 @@
                 finally{button.disabled=currentWallet?.status!=='active';}
                 return;
             }
-            const body = { amount:$('depositAmount').value, channel, paymentReference:$('depositReference').value.trim(), idempotencyKey:depositSubmissionKey };
-            body.paymentMethodId=$('depositMethodId').value;
-            try { const data = await apiRequest('/api/wallet/deposits',{method:'POST',body:JSON.stringify(body)}); const success=`Request ${data.operation.id.slice(0,8)} submitted as pending. Funds appear after admin verification.`; depositSubmissionKey=crypto.randomUUID();form.reset(); try { await loadWallet(); setMessage('depositMessage',success); } catch { setMessage('depositMessage',`${success} Your wallet summary could not refresh; use Refresh to reload it.`); } }
-            catch(error){setMessage('depositMessage',error.message,true);} finally{button.disabled=currentWallet?.status!=='active';}
+            button.disabled=false;
         });
         async function pollMpesaDeposit(id){
             const button=$('depositButton');button.disabled=true;

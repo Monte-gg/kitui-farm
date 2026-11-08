@@ -2362,46 +2362,9 @@ function createApp(options = {}) {
         }
     });
 
-    app.post('/api/wallet/deposits', auth, async (req, res, next) => {
-        const cents = amountCents(req.body?.amount);
-        const methodId = text(req.body?.paymentMethodId, 80);
-        let channel = text(req.body?.channel, 32);
-        const idempotencyKey = text(req.body?.idempotencyKey, 80);
-        const allowedChannels = new Set(['mpesa_stk_simulation', 'bank_transfer']);
-        if (!cents) return res.status(400).json({ error: 'Enter an amount from KES 0.01 to KES 1,000,000.00.' });
-        if (!allowedChannels.has(channel)) return res.status(400).json({ error: 'Choose a supported deposit method.' });
-        if (!/^[A-Za-z0-9-]{16,80}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Refresh the page and try the deposit request again.' });
-        const paymentReference = text(req.body?.paymentReference, 32).toUpperCase();
-        if (paymentReference && !/^[A-Z0-9-]{5,32}$/.test(paymentReference)) return res.status(400).json({ error: 'Enter a valid payment reference.' });
-        try {
-            const prior = await store.get('SELECT id, kind, amount_cents, status, channel, payment_reference, created_at FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
-            if (prior) return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, status: prior.status, channel: prior.channel, paymentReference: prior.payment_reference || '', createdAt: prior.created_at } });
-            if (!paymentReference) return res.status(400).json({ error: 'Enter the payment receipt/reference. A real M-Pesa prompt is not connected yet.' });
-            await getActiveWallet(req.user.id);
-            const method = await ownedPaymentMethod(req.user.id, methodId, 'deposit');
-            if (method.kind === 'paypal') return res.status(400).json({ error: 'PayPal deposits are not enabled; use PayPal only for manual payout requests.' });
-            if (method.kind === 'bank') return res.status(503).json({ error: 'Bank transfer deposits are temporarily disabled until Paystack confirms Live Pesalink eligibility. Use M-Pesa STK instead.' });
-            channel = method.kind === 'mpesa' ? 'mpesa_stk_simulation' : 'bank_transfer';
-            const details = JSON.parse(method.details_json || '{}');
-            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND status IN ('pending', 'processing')", [req.user.id]);
-            if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several deposits awaiting review. Wait for those to be resolved first.' });
-            const id = crypto.randomUUID();
-            const now = new Date().toISOString();
-            await store.run(`
-                INSERT INTO wallet_operations
-                    (id, user_id, kind, amount_cents, currency, channel, details_json, payment_reference, status, idempotency_key, created_at, updated_at)
-                VALUES (?, ?, 'deposit', ?, 'KES', ?, ?, ?, 'pending', ?, ?, ?)
-            `, [id, req.user.id, cents, channel, JSON.stringify(details), paymentReference || null, idempotencyKey, now, now]);
-            res.status(201).json({ operation: { id, type: 'deposit', amount: cents / 100, status: 'pending', channel, paymentReference, createdAt: now } });
-        } catch (error) {
-            if (error.errcode === 2067) {
-                const prior = await store.get('SELECT id, kind, amount_cents, status, channel, payment_reference, created_at FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
-                if (prior) return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, status: prior.status, channel: prior.channel, paymentReference: prior.payment_reference || '', createdAt: prior.created_at } });
-                return res.status(409).json({ error: 'That payment reference has already been submitted.' });
-            }
-            next(error);
-        }
-    });
+    app.post('/api/wallet/deposits', auth, (_req, res) => res.status(410).json({
+        error: 'Manual receipt deposits are disabled. Use PayPal or Paystack M-Pesa STK; funds are added automatically after the provider confirms payment.'
+    }));
 
     app.post('/api/wallet/paystack/deposits/bank-transfer', auth, async (req, res, next) => {
         const cents = amountCents(req.body?.amount);
@@ -2588,8 +2551,6 @@ function createApp(options = {}) {
             const quote = priorDetails?.paypalDepositAmountUsd
                 ? { currency: 'USD', amount: String(priorDetails.paypalDepositAmountUsd), rate: Number(priorDetails.paypalKesToUsdRate) }
                 : paypalQuote(cents, config.kesToUsdRate);
-            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND status IN ('pending', 'processing')", [req.user.id]);
-            if (!prior && Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several deposits awaiting review or PayPal confirmation. Resolve those first.' });
             const id = prior?.id || idempotencyKey;
             const now = new Date().toISOString();
             const details = prior ? priorDetails : {
@@ -2970,6 +2931,7 @@ function createApp(options = {}) {
         try {
             const current = await store.get('SELECT * FROM wallet_operations WHERE id = ?', [req.params.id]);
             if (!current) throw walletError('Wallet request not found.', 404);
+            if (current.kind === 'deposit' && decision === 'approve') throw walletError('Deposit approvals are disabled. PayPal and Paystack deposits are credited only after provider confirmation.', 409);
             const currentDetails = JSON.parse(current.details_json || '{}');
             const manualMpesaFallback = current.kind === 'withdrawal' && current.channel === 'paystack_mpesa_transfer' && currentDetails.manualPayoutFallback === true;
             if (manualMpesaFallback && decision === 'approve') {
