@@ -238,6 +238,15 @@ async function paypalRequest(endpoint, { method = 'GET', body, config = paypalCo
     return data;
 }
 
+function paypalProviderErrorDetails(error) {
+    const entries = Array.isArray(error?.paypalData?.details) ? error.paypalData.details : [];
+    return entries.slice(0, 4).map(item => [
+        text(item?.issue, 80),
+        text(item?.description, 220),
+        text(item?.field, 120) ? `Field ${text(item.field, 120)}` : ''
+    ].filter(Boolean).join(': ')).filter(Boolean).join(' · ');
+}
+
 async function createOrRecoverPayPalPayout(operation) {
     const details = JSON.parse(operation.details_json || '{}');
     const config = paypalConfig({ requireRate: !details.paypalPayoutAmountUsd });
@@ -2611,8 +2620,14 @@ function createApp(options = {}) {
             } catch (error) {
                 // A retry with the same PayPal-Request-Id returns the same order,
                 // so a lost response cannot create an extra charge.
-                console.error('PayPal wallet deposit order creation failed', id, error.message);
-                const providerMessage = text(error.message, 180) || 'PayPal could not start checkout.';
+                const providerDetails = paypalProviderErrorDetails(error);
+                console.error('PayPal wallet deposit order creation failed', JSON.stringify({
+                    operationId: id,
+                    status: error.status || null,
+                    debugId: text(error.paypalData?.debug_id, 80),
+                    details: providerDetails || text(error.message, 220)
+                }));
+                const providerMessage = text(providerDetails || error.message, 360) || 'PayPal could not start checkout.';
                 const debugId = text(error.paypalData?.debug_id, 80);
                 return res.status(502).json({ error: `PayPal could not start checkout: ${providerMessage}${debugId ? ` (PayPal reference ${debugId})` : ''}. Retry this deposit; the same safe request will be reused.` });
             }
