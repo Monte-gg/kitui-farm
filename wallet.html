@@ -77,6 +77,7 @@
         let paypalSdkPromise = null;
         let paypalButtonsReady = false;
         let paypalPublicConfig = null;
+        let paypalCheckoutApiError = '';
         let mpesaStkEnabled = false;
         let paystackBankEnabled = false;
         let activePaystackDepositId = '';
@@ -183,13 +184,14 @@
                 await window.paypal.Buttons({
                     style:{layout:'vertical',shape:'rect',label:'paypal'},
                     createOrder:async()=>{
+                        paypalCheckoutApiError='';
                         const amount=$('depositAmount').value;
                         if(!amount||Number(amount)<=0)throw new Error('Enter a valid KES deposit amount first.');
                         $('depositAmount').disabled=true;
                         setMessage('depositMessage','Starting secure PayPal checkout…');
                         let result;
                         try{result=await apiRequest('/api/wallet/paypal/deposits/order',{method:'POST',body:JSON.stringify({amount,idempotencyKey:depositSubmissionKey})});}
-                        catch(error){$('depositAmount').disabled=false;throw error;}
+                        catch(error){paypalCheckoutApiError=error.message||'';$('depositAmount').disabled=false;throw error;}
                         if(result.operation.status==='completed'){$('depositAmount').disabled=false;throw new Error('This deposit was already completed. Refresh your wallet balance.');}
                         activePaypalDepositId=result.operation.id;
                         return result.operation.orderId;
@@ -221,7 +223,10 @@
                     onError:error=>{
                         console.error('PayPal wallet deposit checkout error',error);
                         if(!activePaypalDepositId)$('depositAmount').disabled=false;
-                        setMessage('depositMessage','PayPal checkout could not finish. If you approved payment, retry and the app will verify it before crediting your wallet.',true);
+                        const detail=paypalCheckoutApiError||error?.message||'';
+                        setMessage('depositMessage',detail
+                            ? `PayPal checkout could not finish: ${String(detail).slice(0,360)}. If you approved payment, do not pay again yet; refresh the wallet to check its status.`
+                            : 'PayPal checkout could not finish. If you approved payment, do not pay again yet; refresh the wallet to check its status. Try again or contact customer service if the error continues.',true);
                     }
                 }).render('#paypalDepositContainer');
             }catch(error){paypalButtonsReady=false;throw error;}
@@ -275,7 +280,18 @@
             const tx = data.transactions || [];
             $('transactions').innerHTML = tx.length ? tx.map(item => `<div class="entry"><span>${escapeHtml(item.description)}<small>${escapeHtml(item.type)} · ${escapeHtml(item.channel)} · ${new Date(item.createdAt).toLocaleString('en-KE')}</small></span><span class="amount ${item.direction === 'credit' ? 'credit' : 'debit'}">${item.direction === 'credit' ? '+' : '−'}${money(item.amount)}<small class="status ${escapeHtml(item.status)}">${escapeHtml(item.status)}</small></span></div>`).join('') : '<p class="empty">No wallet transactions yet.</p>';
             const ops = data.operations || [];
-            $('operations').innerHTML = ops.length ? ops.map(item => { const isPaystackMpesa=item.channel==='paystack_mpesa_transfer'; const channel=isPaystackMpesa||item.channel==='mpesa_b2c'?'M-Pesa payout':item.channel==='paystack_mpesa'?'M-Pesa deposit':item.channel==='mpesa_stk'?'M-Pesa deposit':item.channel; const state=item.status==='processing'&&isPaystackMpesa?'Waiting for Paystack confirmation':item.status==='processing'&&item.channel==='mpesa_b2c'?'Processing with Safaricom':item.status; return `<div class="entry"><span>${escapeHtml(item.type)} · ${escapeHtml(channel)}<small>${item.paymentReference ? `Reference ${escapeHtml(item.paymentReference)} · ` : ''}${new Date(item.createdAt).toLocaleString('en-KE')}</small></span><span class="amount">${money(item.amount)}<small class="status ${escapeHtml(item.status)}">${escapeHtml(state)}</small></span></div>`; }).join('') : '<p class="empty">No deposit or withdrawal requests yet.</p>';
+            $('operations').innerHTML = ops.length ? ops.map(item => { const isPaystackMpesa=item.channel==='paystack_mpesa_transfer'; const channel=isPaystackMpesa||item.channel==='mpesa_b2c'?'M-Pesa payout':item.channel==='paystack_mpesa'?'M-Pesa deposit':item.channel==='mpesa_stk'?'M-Pesa deposit':item.channel; const state=item.status==='processing'&&isPaystackMpesa?'Waiting for Paystack confirmation':item.status==='processing'&&item.channel==='mpesa_b2c'?'Processing with Safaricom':item.status; const verifyPaypal=item.type==='deposit'&&item.channel==='paypal'&&item.status==='processing'; return `<div class="entry"><span>${escapeHtml(item.type)} · ${escapeHtml(channel)}<small>${item.paymentReference ? `Reference ${escapeHtml(item.paymentReference)} · ` : ''}${new Date(item.createdAt).toLocaleString('en-KE')}</small>${verifyPaypal?`<button class="button secondary" type="button" data-verify-paypal="${escapeHtml(item.id)}">Check PayPal payment</button>`:''}</span><span class="amount">${money(item.amount)}<small class="status ${escapeHtml(item.status)}">${escapeHtml(state)}</small></span></div>`; }).join('') : '<p class="empty">No deposit or withdrawal requests yet.</p>';
+            $('operations').querySelectorAll('[data-verify-paypal]').forEach(button=>button.addEventListener('click',async()=>{
+                button.disabled=true;setMessage('depositMessage','Checking PayPal payment status…');
+                try{
+                    const result=await apiRequest(`/api/wallet/paypal/deposits/${encodeURIComponent(button.dataset.verifyPaypal)}/verify`,{method:'POST',body:'{}'});
+                    if(result.operation.status==='completed'){
+                        depositSubmissionKey=crypto.randomUUID();activePaypalDepositId='';
+                        await loadWallet();setMessage('depositMessage',`PayPal deposit verified. ${money(result.operation.amount)} was added to your wallet.`);
+                    }else setMessage('depositMessage','PayPal has not confirmed a completed payment yet. Your wallet has not been credited. Check again shortly; do not pay again.');
+                }catch(error){setMessage('depositMessage',`Could not verify PayPal payment: ${error.message}. Do not pay again until this deposit is resolved.`,true);}
+                finally{button.disabled=false;}
+            }));
             const activePaystack=data.operations?.find(item=>item.channel==='paystack_pesalink'&&item.status==='processing'&&item.details?.paystackInstructions);
             if(activePaystack){activePaystackDepositId=activePaystack.id;showPaystackBankInstructions({id:activePaystack.id,amount:Number(activePaystack.amount),...activePaystack.details.paystackInstructions});}
         }

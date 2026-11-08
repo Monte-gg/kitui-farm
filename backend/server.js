@@ -2612,7 +2612,9 @@ function createApp(options = {}) {
                 // A retry with the same PayPal-Request-Id returns the same order,
                 // so a lost response cannot create an extra charge.
                 console.error('PayPal wallet deposit order creation failed', id, error.message);
-                return res.status(502).json({ error: 'PayPal could not start checkout. Retry this deposit; the same safe request will be reused.' });
+                const providerMessage = text(error.message, 180) || 'PayPal could not start checkout.';
+                const debugId = text(error.paypalData?.debug_id, 80);
+                return res.status(502).json({ error: `PayPal could not start checkout: ${providerMessage}${debugId ? ` (PayPal reference ${debugId})` : ''}. Retry this deposit; the same safe request will be reused.` });
             }
             if (!order.id) throw walletError('PayPal did not return a checkout order ID.', 502);
             details.paypalOrderId = order.id;
@@ -2671,6 +2673,58 @@ function createApp(options = {}) {
                 [crypto.randomUUID(), req.user.id, operation.amount_cents, `wallet-deposit:${operation.id}`, capturedPayment.id || orderId, 'Wallet deposit via PayPal', req.user.id, now, operation.id]);
             });
             res.json({ operation: { id: operation.id, status: 'completed', amount: Number(operation.amount_cents) / 100, captureReference: capturedPayment.id || orderId } });
+        } catch (error) {
+            if (error.status) return res.status(error.status).json({ error: error.message });
+            next(error);
+        }
+    });
+
+    app.post('/api/wallet/paypal/deposits/:id/verify', auth, async (req, res, next) => {
+        try {
+            const operation = await store.get("SELECT * FROM wallet_operations WHERE id = ? AND user_id = ? AND kind = 'deposit' AND channel = 'paypal'", [text(req.params.id, 80), req.user.id]);
+            if (!operation) throw walletError('PayPal wallet deposit not found.', 404);
+            if (operation.status === 'completed') return res.json({ operation: { id: operation.id, status: 'completed', amount: Number(operation.amount_cents) / 100, captureReference: operation.payment_reference || '' } });
+            if (operation.status !== 'processing') throw walletError('This PayPal deposit is no longer awaiting verification.', 409);
+            const details = JSON.parse(operation.details_json || '{}');
+            const orderId = text(details.paypalOrderId, 80);
+            if (!orderId) throw walletError('The PayPal order reference is missing. Contact customer service before making another payment.', 409);
+            const config = paypalConfig();
+            let capture = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(orderId)}`, { config });
+            if (capture.status === 'APPROVED') {
+                try {
+                    capture = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`, {
+                        method: 'POST', config, requestId: `c${operation.id.replaceAll('-', '')}`, body: {}
+                    });
+                } catch (error) {
+                    // The first capture may have succeeded even if its response was lost.
+                    const verified = await paypalRequest(`/v2/checkout/orders/${encodeURIComponent(orderId)}`, { config }).catch(() => null);
+                    if (verified?.status === 'COMPLETED') capture = verified;
+                    else throw error;
+                }
+            }
+            const capturedUnit = capture.purchase_units?.find(unit => unit.reference_id === operation.id || unit.custom_id === operation.id) || capture.purchase_units?.[0];
+            const capturedPayment = capturedUnit?.payments?.captures?.find(item => item.status === 'COMPLETED') || capturedUnit?.payments?.captures?.[0];
+            if (capture.status !== 'COMPLETED' || capturedPayment?.status !== 'COMPLETED') {
+                return res.status(202).json({ operation: { id: operation.id, status: 'processing', providerStatus: capture.status || capturedPayment?.status || 'PENDING' }, message: 'PayPal has not confirmed a completed payment. The wallet has not been credited.' });
+            }
+            const capturedAmount = capturedPayment.amount;
+            if (capturedAmount?.currency_code !== 'USD' || Number(capturedAmount?.value) !== Number(details.paypalDepositAmountUsd)) {
+                throw walletError('The captured PayPal amount does not match this wallet deposit. The wallet was not credited; contact customer service.', 409);
+            }
+            const now = new Date().toISOString();
+            await store.transaction(async () => {
+                const completed = await store.run("UPDATE wallet_operations SET status = 'completed', payment_reference = ?, updated_at = ? WHERE id = ? AND user_id = ? AND status = 'processing'", [capturedPayment.id || orderId, now, operation.id, req.user.id]);
+                if (!completed.changes) return;
+                const credited = await store.run('UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ? WHERE user_id = ? AND status = \'active\' AND balance_cents <= ?', [operation.amount_cents, now, req.user.id, 2147483647 - operation.amount_cents]);
+                if (!credited.changes) throw walletError('PayPal confirmed the payment, but the wallet could not accept the funds. Contact customer service.', 409);
+                await store.run(`INSERT INTO wallet_transactions
+                    (id, user_id, kind, event_type, amount_cents, reference_key, payment_reference, description, created_by, created_at, status, channel, operation_id)
+                    VALUES (?, ?, 'credit', 'deposit', ?, ?, ?, 'Wallet deposit via PayPal', ?, ?, 'completed', 'paypal', ?)` ,
+                [crypto.randomUUID(), req.user.id, operation.amount_cents, `wallet-deposit:${operation.id}`, capturedPayment.id || orderId, req.user.id, now, operation.id]);
+            });
+            const finalOperation = await store.get('SELECT status, payment_reference FROM wallet_operations WHERE id = ?', [operation.id]);
+            if (finalOperation?.status !== 'completed') throw walletError('PayPal payment was confirmed but the wallet credit is still pending. Contact customer service and do not pay again.', 409);
+            res.json({ operation: { id: operation.id, status: 'completed', amount: Number(operation.amount_cents) / 100, captureReference: finalOperation.payment_reference || orderId } });
         } catch (error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
             next(error);
