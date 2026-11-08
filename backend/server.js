@@ -2701,7 +2701,7 @@ function createApp(options = {}) {
         const cents = amountCents(req.body?.amount);
         const methodId = text(req.body?.paymentMethodId, 80);
         let channel = '';
-        let paystackTransferConfig = null;
+        let darajaB2c = null;
         const idempotencyKey = text(req.body?.idempotencyKey, 80);
         if (!cents) return res.status(400).json({ error: 'Enter an amount from KES 0.01 to KES 1,000,000.00.' });
         if (!/^[A-Za-z0-9-]{16,80}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Refresh the page and try the withdrawal request again.' });
@@ -2714,20 +2714,10 @@ function createApp(options = {}) {
             const details = JSON.parse(method.details_json || '{}');
             if (channel === 'mpesa') {
                 if (cents % 100 !== 0) return res.status(400).json({ error: 'M-Pesa payouts must be a whole KES amount.' });
-                if (cents < 1000 || cents > 25_000_000) return res.status(400).json({ error: 'Paystack M-Pesa withdrawals must be between KES 10 and KES 250,000 per transaction.' });
-                paystackTransferConfig = paystackConfig({ requireTransfers: true });
-                const payoutUser = await store.get('SELECT name FROM users WHERE id = ?', [req.user.id]);
-                try {
-                    const recipientResult = await paystackRequest('/transferrecipient', { config: paystackTransferConfig, method: 'POST', body: {
-                        type: 'mobile_money', name: text(payoutUser?.name || 'KITUI FARM user', 100),
-                        account_number: details.phone.replace(/\D/g, '').replace(/^254/, '0'), bank_code: 'MPESA', currency: 'KES'
-                    } });
-                    details.paystackRecipientCode = text(recipientResult.data?.recipient_code, 100);
-                    if (!details.paystackRecipientCode) throw walletError('Paystack did not return an M-Pesa payout recipient. No money was withdrawn.', 502);
-                    details.paystackRecipientPhone = details.phone;
-                } catch (error) {
-                    return res.status(error.status || 502).json({ error: `Paystack could not validate this M-Pesa payout destination: ${text(error.message, 200)}. Your wallet has not been charged.` });
-                }
+                if (cents < 1000 || cents > 25_000_000) return res.status(400).json({ error: 'M-Pesa withdrawals must be between KES 10 and KES 250,000 per transaction.' });
+                if (!normalizedPhone(details.phone)) return res.status(400).json({ error: 'Add a valid Kenyan M-Pesa number to your saved payout method.' });
+                darajaB2c = mpesaB2CConfig();
+                details.mpesaB2CRecipientPhone = normalizedPhone(details.phone).replace(/^\+/, '');
             }
             if (channel === 'paypal') {
                 const config = paypalConfig({ requireRate: true });
@@ -2740,7 +2730,7 @@ function createApp(options = {}) {
             const id = crypto.randomUUID();
             const now = new Date().toISOString();
             const description = `Withdrawal request via ${channel === 'mpesa' ? 'M-Pesa' : channel === 'airtel' ? 'Airtel Money' : channel === 'paypal' ? 'PayPal' : 'bank transfer'}`;
-            const operationChannel = paystackTransferConfig ? 'paystack_mpesa_transfer' : channel;
+            const operationChannel = darajaB2c ? 'mpesa_b2c' : channel;
             await store.transaction(async () => {
                 const debited = await store.run(`
                     UPDATE wallet_accounts SET balance_cents = balance_cents - ?, updated_at = ?
@@ -2758,32 +2748,43 @@ function createApp(options = {}) {
                     VALUES (?, ?, 'debit', 'withdrawal', ?, ?, ?, ?, 'pending', ?, ?)
                 `, [crypto.randomUUID(), req.user.id, cents, `wallet-withdrawal:${id}`, description, now, operationChannel, id]);
             });
-            if (paystackTransferConfig) {
-                const reference = `kf-wd-${id}`;
-                details.paystackTransferReference = reference;
+            if (darajaB2c) {
+                // Use a stable merchant reference in Remarks so an ambiguous network
+                // timeout can be reconciled without submitting a duplicate payout.
+                const reference = `KF${id.replace(/-/g, '').slice(0, 24)}`;
+                details.mpesaB2CReference = reference;
+                details.mpesaB2CStatus = 'submitted';
                 await store.run("UPDATE wallet_operations SET status = 'processing', payment_reference = ?, details_json = ?, updated_at = ? WHERE id = ? AND status = 'pending'", [reference, JSON.stringify(details), new Date().toISOString(), id]);
                 try {
-                    const result = await paystackRequest('/transfer', { config: paystackTransferConfig, method: 'POST', body: {
-                        source: 'balance', amount: cents, currency: 'KES',
-                        recipient: details.paystackRecipientCode, reference,
-                        reason: `KITUI FARM wallet withdrawal ${id.slice(0, 8)}`
+                    const result = await mpesaRequest('/mpesa/b2c/v1/paymentrequest', { config: darajaB2c, method: 'POST', body: {
+                        InitiatorName: darajaB2c.initiatorName,
+                        SecurityCredential: darajaB2c.securityCredential,
+                        CommandID: darajaB2c.commandId,
+                        Amount: cents / 100,
+                        PartyA: darajaB2c.partyA,
+                        PartyB: details.mpesaB2CRecipientPhone,
+                        Remarks: `KITUI FARM withdrawal ${reference}`,
+                        QueueTimeOutURL: darajaB2c.timeoutUrl,
+                        ResultURL: darajaB2c.resultUrl,
+                        Occasion: reference
                     }});
-                    details.paystackTransferCode = text(result.data?.transfer_code, 120);
-                    details.paystackTransferStatus = text(result.data?.status || result.message || 'pending', 80);
-                    await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), id]);
+                    if (String(result.ResponseCode ?? '') !== '0') {
+                        const rejection = new Error(text(result.ResponseDescription || 'Safaricom rejected the M-Pesa payout request.', 240));
+                        rejection.status = 400;
+                        throw rejection;
+                    }
+                    details.mpesaB2CConversationId = text(result.ConversationID, 120);
+                    details.mpesaB2COriginatorConversationId = text(result.OriginatorConversationID, 120);
+                    details.mpesaB2CResponseDescription = text(result.ResponseDescription, 240);
+                    if (details.mpesaB2COriginatorConversationId) {
+                        await store.run("UPDATE wallet_operations SET payment_reference = ?, details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [details.mpesaB2COriginatorConversationId, JSON.stringify(details), new Date().toISOString(), id]);
+                    } else {
+                        await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), id]);
+                    }
                     return res.status(201).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'processing', channel: operationChannel, automatic: true, createdAt: now } });
                 } catch (error) {
-                    details.paystackTransferError = text(error.message, 240);
-                    if (error.status && error.status < 500) {
-                        // Some Paystack accounts cannot initiate third-party payouts yet.
-                        // Keep the reservation and place this request in the admin queue
-                        // so it can be paid manually or safely refunded.
-                        if (/third[\s-]?party payout|starter business/i.test(error.message)) {
-                            details.manualPayoutFallback = true;
-                            details.manualPayoutReason = 'Paystack has not enabled third-party payouts for this merchant account.';
-                            await store.run("UPDATE wallet_operations SET status = 'pending', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), id]);
-                            return res.status(201).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'pending', channel: operationChannel, automatic: false, manualFallback: true, createdAt: now } });
-                        }
+                    details.mpesaB2CError = text(error.message, 240);
+                    if (error.status && error.status >= 400 && error.status < 500) {
                         const failedAt = new Date().toISOString();
                         await store.transaction(async () => {
                             const changed = await store.run("UPDATE wallet_operations SET status = 'failed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), failedAt, id]);
@@ -2794,14 +2795,14 @@ function createApp(options = {}) {
                             await store.run(`INSERT INTO wallet_transactions
                                 (id,user_id,kind,event_type,amount_cents,reference_key,payment_reference,description,created_by,created_at,status,channel,operation_id)
                                 VALUES (?,?,'credit','refund',?,?,?,?,?,?,'completed','internal',?)`,
-                            [crypto.randomUUID(), req.user.id, cents, `wallet-withdrawal-refund:${id}`, reference, 'Automatic wallet refund after Paystack rejected M-Pesa payout', req.user.id, failedAt, id]);
+                            [crypto.randomUUID(), req.user.id, cents, `wallet-withdrawal-refund:${id}`, reference, 'Automatic wallet refund after Safaricom rejected M-Pesa payout', req.user.id, failedAt, id]);
                         });
-                        return res.status(502).json({ error: `Paystack rejected the M-Pesa payout: ${text(error.message, 200)}. The reserved amount was returned to your wallet.` });
+                        return res.status(502).json({ error: `Safaricom rejected the M-Pesa payout: ${text(error.message, 200)}. The reserved amount was returned to your wallet.` });
                     }
-                    // A timeout or 5xx can happen after Paystack queued the transfer. Keep
-                    // it processing and reconcile only by its stable reference/webhook.
+                    // A timeout or 5xx can occur after Safaricom queued the payout.
+                    // Keep funds reserved and reconcile with Daraja callbacks/admin.
                     await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), id]);
-                    return res.status(201).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'processing', channel: operationChannel, automatic: true, createdAt: now } });
+                    return res.status(201).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'processing', channel: operationChannel, automatic: true, createdAt: now, message: 'Safaricom is processing this payout. Do not submit it again while its status is pending.' } });
                 }
             }
             res.status(201).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'pending', channel, automatic: false, createdAt: now } });

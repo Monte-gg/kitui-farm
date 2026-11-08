@@ -55,9 +55,26 @@ services:
       # Keep false until Paystack confirms Live Pesalink eligibility for this merchant.
       - key: PAYSTACK_BANK_ELIGIBLE
         sync: false
-      # Enable only after Paystack activates the Transfers product for this account.
+      # Retained only for reconciliation of older Paystack withdrawal requests.
       - key: PAYSTACK_TRANSFERS_ENABLED
         sync: false
+      # Safaricom Daraja credentials. Use production-issued values for real payouts.
+      - key: MPESA_ENV
+        sync: false
+      - key: MPESA_CONSUMER_KEY
+        sync: false
+      - key: MPESA_CONSUMER_SECRET
+        sync: false
+      - key: MPESA_SHORTCODE
+        sync: false
+      - key: MPESA_PASSKEY
+        sync: false
+      - key: MPESA_CALLBACK_SECRET
+        sync: false
+      - key: MPESA_CALLBACK_BASE_URL
+        value: https://kitui-farm.onrender.com
+      - key: MPESA_TRANSACTION_TYPE
+        value: CustomerPayBillOnline
       # Daraja Business-to-Customer payouts. Requires Safaricom B2C approval;
       # keep SecurityCredential private and use the encrypted credential supplied for the app.
       - key: MPESA_B2C_ENABLED
