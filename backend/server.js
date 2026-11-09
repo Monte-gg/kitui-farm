@@ -2534,7 +2534,8 @@ function createApp(options = {}) {
             if (!phone) throw walletError('The saved M-Pesa number is invalid. Update the customer payout method before sending.', 409);
             if (Number(initial.amount_cents) % 100 !== 0) throw walletError('Daraja B2C requires a whole KES amount.', 409);
             const now = new Date().toISOString();
-            const originatorId = `KF${crypto.randomBytes(9).toString('hex').toUpperCase()}`;
+            // Safaricom requires a merchant-generated alphanumeric ID shorter than 20 chars.
+            const originatorId = `KF${crypto.randomBytes(8).toString('hex').toUpperCase()}`;
             if (details.darajaOriginatorConversationID) {
                 details.darajaAttempts = [...(Array.isArray(details.darajaAttempts) ? details.darajaAttempts : []), {
                     originatorConversationID: details.darajaOriginatorConversationID,
@@ -2561,13 +2562,14 @@ function createApp(options = {}) {
                 InitiatorName: config.initiatorName,
                 SecurityCredential: config.securityCredential,
                 CommandID: config.commandId,
+                OriginatorConversationID: originatorId,
                 Amount: String(Number(initial.amount_cents) / 100),
                 PartyA: config.partyA,
                 PartyB: phone.replace(/^\+/, ''),
                 Remarks: `KITUI FARM withdrawal ${initial.id.slice(0, 24)}`,
                 QueueTimeOutURL: config.timeoutUrl,
                 ResultURL: config.resultUrl,
-                Occassion: originatorId
+                Occassion: `KITUI FARM ${initial.id.slice(0, 16)}`
             };
             try {
                 const provider = await darajaB2cRequest('/mpesa/b2c/v3/paymentrequest', config, requestBody);
