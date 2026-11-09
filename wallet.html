@@ -25,13 +25,14 @@
 <body>
     <header class="topbar"><div class="topbar-inner"><a class="brand" id="brandLink" href="index.html">🌱 KITUI FARM</a><nav class="nav" aria-label="Wallet navigation"><a class="button" id="backLink" href="buyer-dashboard.html">← Dashboard</a><a class="button" href="customer-service.html">Customer service</a></nav></div></header>
     <main>
-        <h1>My wallet</h1><p class="intro">Manage your KES balance, move funds, and review every wallet transaction.</p>
-        <section class="card wide" id="walletSetup" hidden><h2 id="walletSetupTitle">Create your wallet</h2><p class="hint" id="walletSetupHint">Create a secure KES wallet to pay for farm products, add funds, and transfer money.</p><form id="createWalletForm"><button class="button primary" type="submit">Create KITUI FARM Wallet</button><p class="message" id="createWalletMessage" role="status" aria-live="polite"></p></form><form id="reopenWalletForm" hidden><div class="split"><div class="field"><label for="reopenPassword">Account password</label><input id="reopenPassword" type="password" autocomplete="current-password" required></div><div class="field"><label for="reopenConfirmation">Type REOPEN to confirm</label><input id="reopenConfirmation" required></div></div><button class="button primary" type="submit">Recover closed wallet</button><p class="message" id="reopenMessage" role="status" aria-live="polite"></p></form></section>
+        <h1>My wallet</h1><p class="intro">View your KES balance and wallet transaction history.</p>
+        <section class="notice wide" role="status"><strong>Wallet payments are temporarily paused.</strong> Deposits, withdrawals, wallet transfers, and product purchases are unavailable. Your existing wallet balance and transaction history are preserved while payment activity is reviewed.</section>
+        <section class="card wide" id="walletSetup" hidden><h2 id="walletSetupTitle">Create your wallet</h2><p class="hint" id="walletSetupHint">Create a secure KES wallet to view wallet activity.</p><form id="createWalletForm"><button class="button primary" type="submit">Create KITUI FARM Wallet</button><p class="message" id="createWalletMessage" role="status" aria-live="polite"></p></form><form id="reopenWalletForm" hidden><div class="split"><div class="field"><label for="reopenPassword">Account password</label><input id="reopenPassword" type="password" autocomplete="current-password" required></div><div class="field"><label for="reopenConfirmation">Type REOPEN to confirm</label><input id="reopenConfirmation" required></div></div><button class="button primary" type="submit">Recover closed wallet</button><p class="message" id="reopenMessage" role="status" aria-live="polite"></p></form></section>
         <div class="grid" id="walletContent">
-            <section class="card balance-card"><p class="label">Available balance</p><p class="balance" id="walletBalance">KES —</p><div class="wallet-meta"><span>Wallet ID: <strong id="walletId">Loading…</strong></span><span>Status: <strong id="walletStatus">—</strong></span></div><p class="hint">Internal wallet transfers and marketplace wallet payments update instantly.</p></section>
+            <section class="card balance-card"><p class="label">Available balance</p><p class="balance" id="walletBalance">KES —</p><div class="wallet-meta"><span>Wallet ID: <strong id="walletId">Loading…</strong></span><span>Status: <strong id="walletStatus">—</strong></span></div><p class="hint">Your displayed balance is the KITUI FARM wallet ledger balance.</p></section>
 
-            <section class="card"><h2>Add money</h2><p class="hint">Use Paystack M-Pesa STK. Your wallet is credited automatically after Paystack confirms payment. Manual receipt deposits are no longer accepted.</p>
-                <form id="depositForm"><div class="field"><label for="depositMethodId">Deposit method</label><select id="depositMethodId" required><option value="">Choose a deposit method</option></select><input id="depositChannel" type="hidden" value=""></div>
+            <section class="card"><h2>Deposits paused</h2><p class="hint">No deposit provider is currently available in KITUI FARM.</p>
+                <form id="depositForm" hidden><div class="field"><label for="depositMethodId">Deposit method</label><select id="depositMethodId" required><option value="">Choose a deposit method</option></select><input id="depositChannel" type="hidden" value=""></div>
                     <div class="field"><label for="depositAmount">Amount (KES)</label><input id="depositAmount" type="number" min="0.01" max="1000000" step="0.01" required></div>
                     <div class="field" id="depositPhoneField" hidden><label for="depositPhone">M-Pesa phone number</label><input id="depositPhone" type="tel" inputmode="tel" autocomplete="tel" placeholder="0712 345 678"><p class="hint">Enter the phone that should receive the payment prompt.</p></div>
                     <p class="hint" id="phoneHint">Choose a deposit method to continue.</p>
@@ -41,13 +42,13 @@
                 </form>
             </section>
 
-            <section class="card"><h2>Transfer to another wallet</h2><p class="hint">Find the recipient by wallet ID, Kenyan phone number, or exact account name. Check the recipient before sending.</p>
-                <form id="recipientForm"><div class="field"><label for="recipient">Recipient</label><input id="recipient" autocomplete="off" maxlength="120" required placeholder="Wallet ID, phone, or full name"></div><button class="button" type="submit">Check recipient</button><p id="recipientPreview" class="recipient-preview" aria-live="polite"></p></form>
-                <form id="transferForm"><div class="field"><label for="transferAmount">Amount (KES)</label><input id="transferAmount" type="number" min="0.01" max="1000000" step="0.01" required></div><button class="button primary" type="submit">Transfer funds</button><p class="message" id="transferMessage" role="status" aria-live="polite"></p></form>
+            <section class="card"><h2>Wallet transfers paused</h2><p class="hint">Wallet-to-wallet transfers are temporarily unavailable.</p>
+                <form id="recipientForm" hidden><div class="field"><label for="recipient">Recipient</label><input id="recipient" autocomplete="off" maxlength="120" required placeholder="Wallet ID, phone, or full name"></div><button class="button" type="submit">Check recipient</button><p id="recipientPreview" class="recipient-preview" aria-live="polite"></p></form>
+                <form id="transferForm" hidden><div class="field"><label for="transferAmount">Amount (KES)</label><input id="transferAmount" type="number" min="0.01" max="1000000" step="0.01" required></div><button class="button primary" type="submit">Transfer funds</button><p class="message" id="transferMessage" role="status" aria-live="polite"></p></form>
             </section>
 
-            <section class="card"><h2>Withdraw funds</h2><p class="hint" id="withdrawalGuidance">Checking M-Pesa withdrawal availability…</p>
-                <form id="withdrawalForm"><div class="field"><label for="withdrawMethodId">Payout destination</label><select id="withdrawMethodId" required><option value="">Add a withdrawal method in Settings first</option></select><input id="withdrawChannel" type="hidden" value="mpesa"></div>
+            <section class="card"><h2>Withdrawals paused</h2><p class="hint" id="withdrawalGuidance">No payout provider is currently available in KITUI FARM.</p>
+                <form id="withdrawalForm" hidden><div class="field"><label for="withdrawMethodId">Payout destination</label><select id="withdrawMethodId" required><option value="">Add a withdrawal method in Settings first</option></select><input id="withdrawChannel" type="hidden" value="mpesa"></div>
                     <div class="field"><label for="withdrawAmount">Amount (KES)</label><input id="withdrawAmount" type="number" min="10" max="250000" step="1" required></div>
                     <button class="button primary" id="withdrawButton" type="submit">Request M-Pesa withdrawal</button><p class="message" id="withdrawMessage" role="status" aria-live="polite"></p>
                 </form>
@@ -67,7 +68,7 @@
         let checkedRecipient = null;
         let depositSubmissionKey = crypto.randomUUID();
         let withdrawalSubmissionKey = crypto.randomUUID();
-        let darajaEnvironment = 'sandbox';
+        let darajaEnvironment = 'disabled';
         let transferSubmissionKey = crypto.randomUUID();
         let mpesaStkEnabled = false;
         let paystackBankEnabled = false;
@@ -176,7 +177,7 @@
                 $('walletId').textContent = data.wallet?.id || 'Not created';
                 $('walletStatus').textContent = data.wallet?.status || 'Not created';
                 $('walletSetupTitle').textContent = data.wallet ? 'Recover your closed wallet' : 'Create your KITUI FARM Wallet';
-                $('walletSetupHint').textContent = data.wallet ? 'Your zero-balance wallet is closed. Confirm your account password to reopen it and continue using the same wallet ID.' : 'Create a secure KES wallet to pay for farm products, request deposits, transfer funds, and receive payouts.';
+                $('walletSetupHint').textContent = data.wallet ? 'Your zero-balance wallet is closed. Confirm your account password to reopen it and view wallet activity.' : 'Create a secure KES wallet to view wallet activity. Payment features are temporarily paused.';
                 $('createWalletForm').hidden = Boolean(data.wallet);
                 $('reopenWalletForm').hidden = !data.wallet;
                 return;
@@ -200,7 +201,7 @@
         $('createWalletForm').addEventListener('submit', async event => { event.preventDefault(); const button=event.currentTarget.querySelector('button'); button.disabled=true; try { await apiRequest('/api/wallet/create',{method:'POST',body:'{}'}); await loadWallet(); } catch(error) { $('createWalletMessage').textContent=error.message; } finally { button.disabled=false; } });
         $('reopenWalletForm').addEventListener('submit', async event => { event.preventDefault(); const button=event.currentTarget.querySelector('button'); button.disabled=true; try { await apiRequest('/api/wallet/reopen',{method:'POST',body:JSON.stringify({password:$('reopenPassword').value,confirmation:$('reopenConfirmation').value})}); $('reopenMessage').textContent='Wallet recovered.'; await loadWallet(); } catch(error) { $('reopenMessage').textContent=error.message; } finally { button.disabled=false; } });
         async function initialize() {
-            try { const result = await apiRequest('/api/auth/me'); currentUser = result.user; try { const mpesa=await apiRequest('/api/wallet/mpesa/config'); mpesaStkEnabled=Boolean(mpesa.stkEnabled); } catch { mpesaStkEnabled=false; } try { const paystack=await apiRequest('/api/wallet/paystack/config'); paystackBankEnabled=Boolean(paystack.bankTransferEnabled); } catch { paystackBankEnabled=false; } try { const daraja=await apiRequest('/api/wallet/daraja/config'); darajaEnvironment=daraja.environment==='production'?'production':'sandbox'; } catch { darajaEnvironment='sandbox'; } $('withdrawalGuidance').innerHTML = darajaEnvironment==='production' ? '<strong>Live M-Pesa payout:</strong> Your withdrawal is sent to your saved M-Pesa number through Safaricom Daraja. The amount stays reserved until Safaricom confirms success or failure. If a callback is delayed, it remains reserved while the outcome is verified.' : '<strong>Daraja sandbox testing:</strong> Sandbox does not send real money. When Safaricom responds, the reserved amount is returned to your wallet. Use production credentials only after Safaricom has enabled B2C payouts for your shortcode.'; $('withdrawButton').textContent=darajaEnvironment==='production'?'Request M-Pesa withdrawal':'Request M-Pesa withdrawal test'; await loadWallet(); startWalletLiveUpdates(); }
+            try { const result = await apiRequest('/api/auth/me'); currentUser = result.user; $('withdrawalGuidance').textContent = 'Withdrawals are temporarily unavailable while existing payment activity is reconciled.'; await loadWallet(); startWalletLiveUpdates(); }
             catch (error) { if (error.status === 401) { location.replace('login.html'); return; } setMessage('depositMessage', error.message, true); }
         }
         $('depositForm').addEventListener('submit', async event => {

@@ -1191,6 +1191,21 @@ function createApp(options = {}) {
     });
     app.use('/api', express.json({ limit: '8mb', strict: true, verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 
+    // Payments are paused platform-wide at the API boundary. Keep read-only
+    // wallet/history endpoints and provider callbacks available so existing
+    // transactions can still settle and be reconciled safely.
+    app.use('/api', (req, res, next) => {
+        const path = req.path;
+        const isWalletMutation = req.method === 'POST' && /^\/wallet\/(?:payment-methods|transfers|deposits|withdrawals|paystack\/deposits|mpesa\/deposits\/stk|admin\/operations\/[^/]+\/(?:daraja-payout|review))(?:\/|$)/.test(path);
+        const isMarketplacePurchase = req.method === 'POST' && path === '/orders';
+        if (isWalletMutation || isMarketplacePurchase) {
+            return res.status(503).json({
+                error: 'Payments are temporarily unavailable. No new deposits, withdrawals, transfers, or wallet purchases can be made.'
+            });
+        }
+        next();
+    });
+
     async function createSession(user, res, remember) {
         const token = crypto.randomBytes(32).toString('hex');
         const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
@@ -1849,7 +1864,7 @@ function createApp(options = {}) {
 
     app.get('/api/wallet', auth, async (req, res, next) => {
         try {
-            const [account, transactions, operations, admin, paymentMethods] = await Promise.all([
+            const [account, transactions, operations, admin] = await Promise.all([
                 store.get('SELECT * FROM wallet_accounts WHERE user_id = ?', [req.user.id]),
                 store.all(`SELECT id, kind, event_type, amount_cents, description, status, channel,
                     counterparty_wallet_id, operation_id, created_at FROM wallet_transactions
@@ -1857,8 +1872,7 @@ function createApp(options = {}) {
                 store.all(`SELECT id, kind, amount_cents, fee_cents, currency, channel, details_json,
                     payment_reference, status, created_at, updated_at FROM wallet_operations
                     WHERE user_id = ? AND kind IN ('deposit', 'withdrawal') ORDER BY created_at DESC LIMIT 30`, [req.user.id]),
-                store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [req.user.id]),
-                store.all('SELECT id, kind, label, details_json, use_for, created_at FROM wallet_payment_methods WHERE user_id = ? ORDER BY created_at DESC', [req.user.id])
+                store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [req.user.id])
             ]);
             res.json({
                 wallet: account ? { id: account.wallet_id, balance: Number(account.balance_cents) / 100, currency: account.currency, status: account.status, createdAt: account.created_at } : null,
@@ -1873,27 +1887,23 @@ function createApp(options = {}) {
                     paymentReference: row.payment_reference || '', status: row.status, createdAt: row.created_at, updatedAt: row.updated_at
                 })),
                 isAdmin: Boolean(admin),
-                paymentMethods: paymentMethods.filter(row => row.kind !== 'airtel').map(row => ({ id: row.id, kind: row.kind, label: row.label, details: JSON.parse(row.details_json || '{}'), useFor: row.use_for, createdAt: row.created_at }))
+                paymentMethods: []
             });
         } catch (error) { next(error); }
     });
 
     app.get('/api/wallet/mpesa/config', auth, (req, res) => {
-        try { paystackConfig(); res.json({ stkEnabled: true, provider: 'paystack', mode: 'live' }); }
-        catch { res.json({ stkEnabled: false, provider: 'paystack', mode: 'live' }); }
+        res.json({ stkEnabled: false, provider: null, paymentsPaused: true });
     });
 
     app.get('/api/wallet/daraja/config', auth, (req, res) => {
         // Never return credentials. This endpoint only tells the signed-in user which
         // environment the withdrawal flow is configured to use.
-        res.json({ environment: String(process.env.DARAJA_ENV || 'sandbox').trim().toLowerCase() === 'production' ? 'production' : 'sandbox' });
+        res.json({ environment: null, payoutsEnabled: false, paymentsPaused: true });
     });
 
     app.get('/api/wallet/paystack/config', auth, (req, res) => {
-        let configured = false;
-        try { paystackConfig(); configured = true; } catch { /* Report unavailable channels without exposing secrets. */ }
-        try { paystackConfig({ requireBankEligibility: true }); res.json({ bankTransferEnabled: true, mpesaEnabled: configured }); }
-        catch { res.json({ bankTransferEnabled: false, mpesaEnabled: configured }); }
+        res.json({ bankTransferEnabled: false, mpesaEnabled: false, paymentsPaused: true });
     });
 
     app.post('/api/paystack/webhook', async (req, res) => {
@@ -2137,10 +2147,7 @@ function createApp(options = {}) {
     });
 
     app.get('/api/wallet/payment-methods', auth, async (req, res, next) => {
-        try {
-            const rows = (await store.all('SELECT id, kind, label, details_json, use_for, created_at FROM wallet_payment_methods WHERE user_id = ? ORDER BY created_at DESC', [req.user.id])).filter(row => ['mpesa', 'bank'].includes(row.kind));
-            res.json({ paymentMethods: rows.map(row => ({ id: row.id, kind: row.kind, label: row.label, details: JSON.parse(row.details_json || '{}'), useFor: row.use_for, createdAt: row.created_at })) });
-        } catch (error) { next(error); }
+        res.json({ paymentMethods: [], paymentsPaused: true });
     });
 
     async function ownedPaymentMethod(userId, methodId, useFor) {

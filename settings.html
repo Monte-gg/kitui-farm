@@ -156,9 +156,9 @@
         </form>
 
         <section class="card" id="paymentMethodsCard">
-            <div class="card-heading"><h2>Wallet payment methods</h2><p>Save the account details you use to receive wallet payouts. These are not marketplace checkout methods. Bank deposits require a supported live provider connection.</p></div>
+            <div class="card-heading"><h2>Payment methods paused</h2><p>Adding or using deposit and payout methods is temporarily unavailable. Existing saved details are not shown or used while payment activity is reviewed.</p></div>
             <div class="setting-row" style="display:block">
-                <form id="paymentMethodForm">
+                <form id="paymentMethodForm" hidden>
                     <div class="setting-row" style="padding:12px 0;border:0"><label>Method <select id="methodKind"><option value="mpesa">M-Pesa</option><option value="bank">Bank account</option></select></label><label>Use for <select id="methodUse"><option value="both">Deposits and withdrawals</option><option value="deposit">Deposits only</option><option value="withdrawal">Withdrawals only</option></select></label></div>
                     <div class="field"><label for="methodLabel">Name this method</label><input id="methodLabel" maxlength="60" required placeholder="e.g. My M-Pesa number"></div>
                     <div class="field" data-method="mpesa" hidden><label for="methodPhone">Kenyan phone number</label><input id="methodPhone" type="tel" inputmode="tel" placeholder="0712 345 678"></div>
@@ -168,7 +168,7 @@
                     <div class="field" data-method="bank" hidden><label for="methodBranch">Branch (optional)</label><input id="methodBranch" maxlength="80"></div>
                     <button class="button" type="submit">Save payment method</button><p class="message" id="methodMessage" role="status" aria-live="polite"></p>
                 </form>
-                <div id="paymentMethodList" class="stack" aria-live="polite"><p class="empty">Loading saved methods…</p></div>
+                <div id="paymentMethodList" class="stack" aria-live="polite" hidden><p class="empty">Payment methods are paused.</p></div>
             </div>
         </section>
 

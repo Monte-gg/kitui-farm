@@ -130,12 +130,12 @@
     </header>
     <main>
         <h1>Choose how to pay</h1>
-        <p class="intro">Marketplace orders are paid from your KITUI FARM Wallet. Add funds in your wallet before checkout.</p>
+        <p class="intro">Marketplace checkout is temporarily paused. No payment method is currently available.</p>
         <div class="layout">
             <section class="card">
-                <div class="card-heading"><h2>Pay with your wallet</h2><p>Saved payment methods are used to deposit into or withdraw from your wallet in Settings.</p></div>
+                <div class="card-heading"><h2>Purchases paused</h2><p>Your cart is saved. Existing wallet balances and transaction history are unchanged.</p></div>
                 <div class="card-body">
-                    <form id="paymentForm">
+                    <form id="paymentForm" hidden>
                         <div id="walletOptions"><p class="hint" id="walletBalanceMessage">Loading your wallet balance…</p><a href="wallet.html">Open wallet</a> · <a href="settings.html">Manage deposit and payout methods</a></div>
                         <div class="form-actions"><button class="button" type="submit" id="confirmButton">Loading wallet…</button></div>
                         <p class="message" id="paymentMessage" role="status" aria-live="polite"></p>
@@ -170,6 +170,7 @@
         let walletLoadError = false;
         let orderPlaced = false;
         let checkoutReady = false;
+        const paymentsPaused = true;
 
         function readArray(key) {
             const value = JSON.parse(localStorage.getItem(key) || '[]');
@@ -220,6 +221,12 @@
         function updatePaymentOptions() {
             const mode = 'wallet';
             const confirmButton = document.getElementById('confirmButton');
+            if (paymentsPaused) {
+                document.getElementById('walletBalanceMessage').textContent = 'Payments are temporarily paused. Your cart is saved and no charge will be made.';
+                confirmButton.textContent = 'Checkout unavailable';
+                confirmButton.disabled = true;
+                return;
+            }
             if (mode === 'wallet') {
                 const total = Number(document.getElementById('summaryTotal').textContent.replace(/[^\d.]/g, '')) || 0;
                 const balanceMessage = document.getElementById('walletBalanceMessage');
@@ -257,6 +264,11 @@
 
         document.getElementById('paymentForm').addEventListener('submit', async event => {
             event.preventDefault();
+            if (paymentsPaused) {
+                paymentMessage.textContent = 'Payments are temporarily paused. Your cart is saved and no charge was made.';
+                paymentMessage.classList.add('error');
+                return;
+            }
             paymentMessage.textContent = '';
             paymentMessage.classList.remove('error');
             try {
