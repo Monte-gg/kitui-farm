@@ -255,8 +255,8 @@
 
         <section class="panel" id="wallet-approvals" data-admin-view hidden aria-labelledby="approvalHeading">
             <div class="view-heading"><p class="eyebrow">Wallet management</p><h1>Wallet operations</h1><p class="intro">Review pending deposits and withdrawals.</p></div>
-            <div class="panel-head"><div><h2 id="approvalHeading">Wallet operation support</h2><p class="muted">Start Daraja B2C sandbox payouts or reject a request to refund its reserved amount. Internal wallet transfers complete automatically.</p></div><span class="count" id="pendingCount" aria-label="Pending requests">—</span></div>
-            <p class="notice"><strong>Sandbox testing only:</strong> Safaricom sandbox simulates B2C results and never sends real money. When Safaricom responds, the reserved wallet amount is returned automatically. Do not use this flow to pay real customer withdrawals. Rejecting a request also returns its reserved amount.</p>
+            <div class="panel-head"><div><h2 id="approvalHeading">Wallet operation support</h2><p class="muted" id="walletOperationGuidance">M-Pesa B2C payouts are started through Safaricom Daraja. Rejecting a request refunds its reserved amount. Internal wallet transfers complete automatically.</p></div><span class="count" id="pendingCount" aria-label="Pending requests">—</span></div>
+            <p class="notice" id="walletOperationNotice">Sandbox testing does not send real money. In production, Safaricom sends the payout and confirms its outcome asynchronously. A timed-out request remains reserved until its outcome is verified.</p>
             <p class="status" id="status" role="status" aria-live="polite">Checking admin access…</p>
             <div id="requestList" aria-label="Pending wallet operations"></div>
         </section>
@@ -290,15 +290,15 @@
     </main>
     <dialog class="manual-payout-dialog" id="manualPayoutDialog" aria-labelledby="manualPayoutTitle">
         <form id="manualPayoutForm">
-            <h2 id="manualPayoutTitle">Confirm Daraja sandbox payout</h2>
-            <p class="muted">This sends a B2C test request to Safaricom Daraja. Sandbox never delivers real money. After Safaricom responds, KITUI FARM returns the reserved wallet amount automatically.</p>
+            <h2 id="manualPayoutTitle">Confirm Daraja M-Pesa payout</h2>
+            <p class="muted" id="manualPayoutExplanation">The payout is sent by Safaricom Daraja. Confirm the recipient and amount before starting.</p>
             <div class="payout-recipient-details">
                 <p><strong>Customer:</strong> <span id="manualPayoutName"></span></p>
                 <p><strong>Email:</strong> <span id="manualPayoutEmail"></span></p>
                 <p><strong>M-Pesa number:</strong> <span id="manualPayoutPhone"></span></p>
                 <p><strong>Amount:</strong> <span id="manualPayoutAmount"></span></p>
             </div>
-            <div class="dialog-actions"><button class="refresh-data" type="button" id="cancelManualPayout">Cancel</button><button class="button primary" type="submit">Start sandbox payout</button></div>
+            <div class="dialog-actions"><button class="refresh-data" type="button" id="cancelManualPayout">Cancel</button><button class="button primary" id="startPayoutButton" type="submit">Start M-Pesa payout</button></div>
         </form>
     </dialog>
     <script>
@@ -481,6 +481,13 @@
         }
         async function loadRequests() {
             const data = await apiRequest('/api/wallet/admin/operations');
+            const payoutEnvironment = data.environment === 'production' ? 'production' : 'sandbox';
+            document.getElementById('walletOperationGuidance').textContent = payoutEnvironment === 'production'
+                ? 'Start live M-Pesa payouts through Safaricom Daraja or reject a request to refund its reserved amount. Internal wallet transfers complete automatically.'
+                : 'Start Daraja B2C sandbox tests or reject a request to refund its reserved amount. Sandbox tests do not send real money. Internal wallet transfers complete automatically.';
+            document.getElementById('walletOperationNotice').innerHTML = payoutEnvironment === 'production'
+                ? '<strong>Production payouts:</strong> Safaricom sends real money to the saved M-Pesa number. Funds stay reserved until a success or failure callback arrives. A timeout is uncertain; verify the payout with Safaricom before refunding or retrying.'
+                : '<strong>Sandbox testing:</strong> Safaricom simulates B2C results and sends no real money. Reserved funds are returned when the final callback arrives. A timeout is uncertain; verify the result before refunding or retrying.';
             const list = document.getElementById('requestList');
             const reviewCount = data.requests.filter(item => item.status === 'pending' || (item.type === 'withdrawal' && item.status === 'processing')).length;
             document.getElementById('pendingCount').textContent = reviewCount;
@@ -497,7 +504,8 @@
                 const legacyProcessing = item.type === 'withdrawal' && item.status === 'processing';
                 const legacyProviderReference = item.type === 'withdrawal' && Boolean(details.paystackPayoutReference);
                 const darajaInFlight = item.type === 'withdrawal' && Boolean(details.darajaOriginatorConversationID) && details.darajaPayoutStatus !== 'rejected';
-                const method = item.type === 'withdrawal' && item.channel === 'mpesa' ? 'Daraja M-Pesa B2C Sandbox'
+                const sandbox = details.darajaSandbox === true || details.darajaEnvironment === 'sandbox' || (!details.darajaEnvironment && payoutEnvironment === 'sandbox');
+                const method = item.type === 'withdrawal' && item.channel === 'mpesa' ? `Daraja M-Pesa B2C ${sandbox ? 'Sandbox' : 'Production'}`
                     : ['mpesa_b2c', 'paystack_mpesa_transfer'].includes(item.channel) ? 'Legacy M-Pesa request'
                     : ['bank', 'bank_transfer'].includes(item.channel) ? 'Bank payout'
                     : item.channel === 'paystack_mpesa' ? 'Paystack M-Pesa STK deposit'
@@ -509,10 +517,10 @@
                     : darajaInFlight
                     ? details.darajaPayoutStatus === 'timeout_uncertain' || details.darajaPayoutStatus === 'initiation_uncertain'
                         ? 'Daraja did not confirm the outcome. Do not retry until the payout status is checked; the wallet amount remains reserved.'
-                        : `Daraja sandbox status: ${details.darajaPayoutStatus || 'waiting for Safaricom callback'}. No real money is sent; the reserved amount is returned when a result arrives.`
+                        : `Daraja ${sandbox ? 'sandbox' : 'production'} status: ${details.darajaPayoutStatus || 'waiting for Safaricom callback'}.${sandbox ? ' No real money is sent; reserved funds are returned when a result arrives.' : ' Real money is sent only after Safaricom completes the payout; funds remain reserved until the result arrives.'}`
                     : legacyProcessing
                     ? 'This older request is still awaiting administrator review. Confirm the user and destination before sending.'
-                    : 'Start a Daraja B2C sandbox test for the saved M-Pesa number. No real money will be sent.';
+                    : sandbox ? 'Start a Daraja B2C sandbox test for the saved M-Pesa number. No real money will be sent.' : 'Start a live Daraja B2C payout to the saved M-Pesa number. This sends real money.';
                 const payoutActions = legacyProviderReference
                     ? '<span class="muted">Verify the earlier payment before resolving this request.</span>'
                     : darajaInFlight
@@ -520,7 +528,7 @@
                             ? `<span class="muted">Verify the outcome in Daraja first.</span><button class="button reject" data-review="reject" data-type="withdrawal" data-daraja-uncertain="1" data-id="${escapeHtml(item.id)}">Confirm no payout &amp; refund</button>`
                             : `<span class="muted">Waiting for Daraja callback</span>`
                     : item.type === 'withdrawal' && item.channel === 'mpesa' && item.status === 'pending'
-                        ? `<button class="button approve" data-daraja-payout data-id="${escapeHtml(item.id)}" data-name="${escapeHtml(item.name)}" data-email="${escapeHtml(item.email)}" data-phone="${escapeHtml(destination)}" data-amount="${escapeHtml(item.amount)}">Send via Daraja (Sandbox)</button><button class="button reject" data-review="reject" data-type="withdrawal" data-id="${escapeHtml(item.id)}">Reject &amp; refund</button>`
+                        ? `<button class="button approve" data-daraja-payout data-environment="${payoutEnvironment}" data-id="${escapeHtml(item.id)}" data-name="${escapeHtml(item.name)}" data-email="${escapeHtml(item.email)}" data-phone="${escapeHtml(destination)}" data-amount="${escapeHtml(item.amount)}">${payoutEnvironment === 'production' ? 'Send via Daraja' : 'Send via Daraja (Sandbox)'}</button><button class="button reject" data-review="reject" data-type="withdrawal" data-id="${escapeHtml(item.id)}">Reject &amp; refund</button>`
                         : `<button class="button reject" data-review="reject" data-type="withdrawal" data-id="${escapeHtml(item.id)}">Reject &amp; refund</button>`;
                 return `<article class="request"><div><h3>${escapeHtml(item.name)} · ${money(item.amount)} · ${deposit ? 'Deposit' : 'Withdrawal'}</h3>
                 <p>${escapeHtml(item.email)} · ${escapeHtml(item.phone)} · Wallet ${escapeHtml(item.walletId)}</p>
@@ -596,6 +604,12 @@
             document.getElementById('manualPayoutEmail').textContent = button.dataset.email || '—';
             document.getElementById('manualPayoutPhone').textContent = button.dataset.phone || '—';
             document.getElementById('manualPayoutAmount').textContent = money(button.dataset.amount);
+            const sandbox = button.dataset.environment !== 'production';
+            document.getElementById('manualPayoutTitle').textContent = sandbox ? 'Confirm Daraja sandbox test' : 'Confirm live M-Pesa payout';
+            document.getElementById('manualPayoutExplanation').textContent = sandbox
+                ? 'This sends a B2C test request to Safaricom Daraja. Sandbox sends no real money; the reserved amount is returned after the final callback.'
+                : 'This sends real money through Safaricom Daraja to the displayed M-Pesa number. The amount remains reserved until Safaricom confirms the outcome.';
+            document.getElementById('startPayoutButton').textContent = sandbox ? 'Start sandbox test' : 'Send live payout';
             manualPayoutDialog.showModal();
         });
         document.getElementById('cancelManualPayout').addEventListener('click', () => manualPayoutDialog.close());
@@ -606,9 +620,9 @@
             try {
                 const result = await apiRequest(`/api/wallet/admin/operations/${encodeURIComponent(manualPayoutForm.dataset.operationId)}/daraja-payout`, { method:'POST', body:'{}' });
                 manualPayoutDialog.close();
-                setStatus(result.message || 'Daraja sandbox payout started. Awaiting Safaricom callback.');
+                setStatus(result.message || 'Daraja payout started. Awaiting Safaricom callback.');
                 await loadRequests();
-            } catch (error) { setStatus(error.message || 'Could not start the Daraja sandbox payout.', true); }
+            } catch (error) { setStatus(error.message || 'Could not start the Daraja payout.', true); }
             finally { button.disabled = false; }
         });
         document.getElementById('requestList').addEventListener('click', async event => {
@@ -616,7 +630,7 @@
             const isDeposit = button.dataset.type === 'deposit';
             const uncertainDaraja = button.dataset.darajaUncertain === '1';
             const prompt = isDeposit ? 'Close this unverified deposit request?'
-                : uncertainDaraja ? 'Have you checked the Daraja portal and confirmed this sandbox request did not complete? Confirm only after checking. The reserved amount will be returned to the wallet.'
+                : uncertainDaraja ? 'Have you checked the Daraja portal and confirmed this request did not complete? Confirm only after checking. The reserved amount will be returned to the wallet.'
                 : 'Reject this withdrawal and return the reserved amount to the wallet?';
             if (!window.confirm(prompt)) return;
             button.disabled = true;

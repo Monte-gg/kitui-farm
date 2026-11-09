@@ -58,48 +58,43 @@ function mpesaConfig() {
         transactionType: String(process.env.MPESA_TRANSACTION_TYPE || 'CustomerPayBillOnline').trim() };
 }
 
-function mpesaB2cConfig() {
-    const mode = String(process.env.MPESA_ENV || 'sandbox').trim().toLowerCase();
-    if (mode !== 'sandbox') {
-        const error = new Error('Daraja withdrawals are configured for sandbox only. Set MPESA_ENV=sandbox; live payouts are not enabled by this flow.');
+function darajaB2cConfig() {
+    const mode = String(process.env.DARAJA_ENV || 'sandbox').trim().toLowerCase();
+    if (!['sandbox', 'production'].includes(mode)) {
+        const error = new Error('DARAJA_ENV must be sandbox or production.');
         error.status = 503;
         throw error;
     }
-    if (String(process.env.MPESA_B2C_ENABLED || '').trim().toLowerCase() !== 'true') {
-        const error = new Error('Daraja B2C withdrawals are disabled. Set MPESA_B2C_ENABLED=true in Render to enable sandbox testing.');
-        error.status = 503;
-        throw error;
-    }
-    const consumerKey = String(process.env.MPESA_CONSUMER_KEY || '').trim();
-    const consumerSecret = String(process.env.MPESA_CONSUMER_SECRET || '').trim();
-    const initiatorName = String(process.env.MPESA_B2C_INITIATOR_NAME || '').trim();
-    const securityCredential = String(process.env.MPESA_B2C_SECURITY_CREDENTIAL || '').trim();
-    const partyA = String(process.env.MPESA_B2C_PARTY_A || '').trim();
-    const commandId = String(process.env.MPESA_B2C_COMMAND_ID || 'BusinessPayment').trim();
-    const callbackSecret = String(process.env.MPESA_CALLBACK_SECRET || '').trim();
+    const consumerKey = String(process.env.DARAJA_CONSUMER_KEY || '').trim();
+    const consumerSecret = String(process.env.DARAJA_CONSUMER_SECRET || '').trim();
+    const initiatorName = String(process.env.DARAJA_INITIATOR_NAME || '').trim();
+    const securityCredential = String(process.env.DARAJA_SECURITY_CREDENTIAL || '').trim();
+    const partyA = String(process.env.DARAJA_SHORTCODE || '').trim();
+    const callbackSecret = String(process.env.DARAJA_CALLBACK_SECRET || '').trim();
     if (!consumerKey || !consumerSecret || !initiatorName || !securityCredential || !/^\d{5,6}$/.test(partyA)
-        || commandId !== 'BusinessPayment' || callbackSecret.length < 32) {
-        const error = new Error('Daraja B2C sandbox is missing valid Render settings. Check MPESA_CONSUMER_KEY, MPESA_CONSUMER_SECRET, MPESA_B2C_INITIATOR_NAME, MPESA_B2C_SECURITY_CREDENTIAL, MPESA_B2C_PARTY_A, MPESA_B2C_COMMAND_ID, and MPESA_CALLBACK_SECRET.');
+        || callbackSecret.length < 32) {
+        const error = new Error('Daraja B2C is missing valid Render settings. Check DARAJA_CONSUMER_KEY, DARAJA_CONSUMER_SECRET, DARAJA_INITIATOR_NAME, DARAJA_SECURITY_CREDENTIAL, DARAJA_SHORTCODE, and DARAJA_CALLBACK_SECRET.');
         error.status = 503;
         throw error;
     }
-    const callbackBase = String(process.env.MPESA_CALLBACK_BASE_URL || process.env.RENDER_EXTERNAL_URL || '').trim();
+    const renderUrl = String(process.env.RENDER_EXTERNAL_URL || '').trim();
     let origin;
     try {
-        const parsed = new URL(callbackBase);
-        if (parsed.protocol !== 'https:') throw new Error('HTTPS required');
+        const parsed = new URL(renderUrl);
+        if (parsed.protocol !== 'https:' || parsed.port) throw new Error('HTTPS on port 443 is required.');
         origin = parsed.origin;
     } catch {
-        const error = new Error('Set MPESA_CALLBACK_BASE_URL to the HTTPS Render service URL for Daraja callbacks.');
+        const error = new Error('RENDER_EXTERNAL_URL must be Render’s public HTTPS URL on port 443.');
         error.status = 503;
         throw error;
     }
     const token = encodeURIComponent(callbackSecret);
+    const baseUrl = mode === 'production' ? 'https://api.safaricom.co.ke' : 'https://sandbox.safaricom.co.ke';
     return {
-        mode, baseUrl: 'https://sandbox.safaricom.co.ke', consumerKey, consumerSecret,
-        initiatorName, securityCredential, partyA, commandId,
-        resultUrl: `${origin}/api/payments/mpesa/b2c/result/${token}`,
-        timeoutUrl: `${origin}/api/payments/mpesa/b2c/timeout/${token}`
+        mode, baseUrl, consumerKey, consumerSecret, initiatorName, securityCredential, partyA,
+        commandId: 'BusinessPayment',
+        resultUrl: `${origin}/api/v1/payments/b2c-callback?token=${token}`,
+        timeoutUrl: `${origin}/api/v1/payments/b2c-timeout?token=${token}`
     };
 }
 
@@ -110,7 +105,7 @@ async function darajaB2cRequest(endpoint, config, body) {
     });
     const authData = await authResponse.json().catch(() => ({}));
     if (!authResponse.ok || !authData.access_token) {
-        const error = new Error('Daraja sandbox could not authorize the B2C request. Check the sandbox consumer key and secret in Render.');
+        const error = new Error(`Daraja ${config.mode} could not authorize the B2C request. Check its consumer key and secret in Render.`);
         error.status = 502;
         error.providerRejected = true;
         error.providerResponse = authData;
@@ -124,7 +119,7 @@ async function darajaB2cRequest(endpoint, config, body) {
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || String(data.ResponseCode ?? '') !== '0') {
-        const error = new Error(text(data.errorMessage || data.ResponseDescription || data.error || 'Daraja sandbox rejected the B2C request.', 240));
+        const error = new Error(text(data.errorMessage || data.ResponseDescription || data.error || `Daraja ${config.mode} rejected the B2C request.`, 240));
         error.status = response.status || 502;
         error.providerRejected = response.ok || (response.status >= 400 && response.status < 500);
         error.providerResponse = data;
@@ -1888,6 +1883,12 @@ function createApp(options = {}) {
         catch { res.json({ stkEnabled: false, provider: 'paystack', mode: 'live' }); }
     });
 
+    app.get('/api/wallet/daraja/config', auth, (req, res) => {
+        // Never return credentials. This endpoint only tells the signed-in user which
+        // environment the withdrawal flow is configured to use.
+        res.json({ environment: String(process.env.DARAJA_ENV || 'sandbox').trim().toLowerCase() === 'production' ? 'production' : 'sandbox' });
+    });
+
     app.get('/api/wallet/paystack/config', auth, (req, res) => {
         let configured = false;
         try { paystackConfig(); configured = true; } catch { /* Report unavailable channels without exposing secrets. */ }
@@ -2000,16 +2001,21 @@ function createApp(options = {}) {
         return pending.find(operation => {
             const details = JSON.parse(operation.details_json || '{}');
             return details.darajaOriginatorConversationID === originatorId
+                || details.darajaClientRequestId === originatorId
                 || details.darajaProviderOriginatorConversationID === originatorId;
         }) || null;
     };
 
-    const darajaB2cCallback = async (req, res) => {
-        const expectedToken = String(process.env.MPESA_CALLBACK_SECRET || '').trim();
-        const receivedToken = String(req.params.token || '');
+    const validDarajaCallbackToken = (req, expectedSecret) => {
+        const expectedToken = String(expectedSecret || '').trim();
+        const receivedToken = String(req.params.token || req.query.token || '');
         const tokenMatches = expectedToken.length >= 32 && receivedToken.length === expectedToken.length
             && crypto.timingSafeEqual(Buffer.from(receivedToken), Buffer.from(expectedToken));
-        if (!tokenMatches) return res.status(404).json({ ResultCode: 1, ResultDesc: 'Not found.' });
+        return tokenMatches;
+    };
+
+    const darajaB2cCallback = async (req, res, expectedSecret = process.env.DARAJA_CALLBACK_SECRET) => {
+        if (!validDarajaCallbackToken(req, expectedSecret)) return res.status(404).json({ ResultCode: 1, ResultDesc: 'Not found.' });
         const payload = req.body?.Result || req.body;
         const originatorId = text(payload?.OriginatorConversationID, 120);
         if (!originatorId) return res.status(400).json({ ResultCode: 1, ResultDesc: 'OriginatorConversationID is required.' });
@@ -2031,52 +2037,62 @@ function createApp(options = {}) {
                 : resultParameters && ['ReceiptNo', 'TransactionReceipt'].includes(resultParameters.Key) ? resultParameters : null;
             const receipt = text(payload?.TransactionID || receiptParameter?.Value, 32).toUpperCase();
             const resultDescription = text(payload?.ResultDesc || 'Daraja B2C result received.', 240);
+            const conversationId = text(payload?.ConversationID, 120);
             await store.transaction(async () => {
                 const status = resultCode === 0 ? 'completed' : 'failed';
+                const sandbox = details.darajaSandbox === true || details.darajaEnvironment === 'sandbox';
                 const updatedDetails = {
                     ...details,
                     darajaPayoutStatus: status,
-                    darajaSandbox: true,
+                    darajaEnvironment: details.darajaEnvironment || (sandbox ? 'sandbox' : 'production'),
+                    darajaSandbox: sandbox,
                     darajaResultCode: Number.isFinite(resultCode) ? resultCode : null,
                     darajaResultDescription: resultDescription,
                     darajaTransactionId: receipt || null,
+                    darajaConversationID: conversationId || details.darajaConversationID || null,
+                    darajaProviderOriginatorConversationID: originatorId,
                     darajaCompletedAt: now,
-                    sandboxNotice: 'Sandbox responses do not send real money. Reserved wallet funds were returned.'
+                    ...(sandbox ? { sandboxNotice: 'Sandbox responses do not send real money. Reserved wallet funds were returned.' } : {})
                 };
                 const finalized = await store.run('UPDATE wallet_operations SET status = ?, payment_reference = COALESCE(NULLIF(?, \'\'), payment_reference), details_json = ?, updated_at = ? WHERE id = ? AND status = \'processing\'',
                     [status, receipt, JSON.stringify(updatedDetails), now, operation.id]);
                 if (!finalized.changes) return;
-                const ledgerStatus = resultCode === 0 ? 'sandbox_simulated' : 'failed';
+                const ledgerStatus = sandbox && resultCode === 0 ? 'sandbox_simulated' : status;
+                const ledgerDescription = sandbox
+                    ? resultCode === 0 ? 'Daraja sandbox payout simulated; no real money sent' : 'Daraja sandbox payout failed; reserved wallet funds returned'
+                    : resultCode === 0 ? 'Daraja M-Pesa B2C payout completed' : 'Daraja M-Pesa B2C payout failed; wallet funds returned';
                 await store.run('UPDATE wallet_transactions SET status = ?, payment_reference = COALESCE(NULLIF(?, \'\'), payment_reference), description = ? WHERE operation_id = ? AND event_type = \'withdrawal\'',
-                    [ledgerStatus, receipt, resultCode === 0 ? 'Daraja sandbox payout simulated; no real money sent' : 'Daraja sandbox payout failed', operation.id]);
-                const refundReference = `wallet-withdrawal-refund:${operation.id}`;
-                const priorRefund = await store.get('SELECT id FROM wallet_transactions WHERE reference_key = ?', [refundReference]);
-                if (!priorRefund) {
-                    const credited = await store.run("UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ? WHERE user_id = ? AND status = 'active' AND balance_cents <= ?",
-                        [operation.amount_cents, now, operation.user_id, 2147483647 - operation.amount_cents]);
-                    if (!credited.changes) throw new Error('Could not return the sandbox withdrawal amount to the active wallet.');
-                    await store.run(`INSERT INTO wallet_transactions
-                        (id, user_id, kind, event_type, amount_cents, reference_key, description, created_by, created_at, status, channel, operation_id)
-                        VALUES (?, ?, 'credit', 'refund', ?, ?, ?, NULL, ?, 'completed', 'internal', ?)
-                        ON CONFLICT(reference_key) DO NOTHING`,
-                    [crypto.randomUUID(), operation.user_id, operation.amount_cents, refundReference,
-                        resultCode === 0 ? 'Daraja sandbox test completed; no real payment was sent, so reserved wallet funds were returned' : 'Refund for failed Daraja sandbox withdrawal', now, operation.id]);
+                    [ledgerStatus, receipt, ledgerDescription, operation.id]);
+                const shouldRefund = sandbox || resultCode !== 0;
+                if (shouldRefund) {
+                    const refundReference = `wallet-withdrawal-refund:${operation.id}`;
+                    const priorRefund = await store.get('SELECT id FROM wallet_transactions WHERE reference_key = ?', [refundReference]);
+                    if (!priorRefund) {
+                        const credited = await store.run("UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ? WHERE user_id = ? AND status = 'active' AND balance_cents <= ?",
+                            [operation.amount_cents, now, operation.user_id, 2147483647 - operation.amount_cents]);
+                        if (!credited.changes) throw new Error('Could not return the reserved withdrawal amount to the active wallet.');
+                        const refundDescription = sandbox
+                            ? resultCode === 0 ? 'Daraja sandbox test completed; no real payment was sent, so reserved wallet funds were returned' : 'Refund for failed Daraja sandbox withdrawal'
+                            : 'Refund for failed Daraja production withdrawal';
+                        await store.run(`INSERT INTO wallet_transactions
+                            (id, user_id, kind, event_type, amount_cents, reference_key, description, created_by, created_at, status, channel, operation_id)
+                            VALUES (?, ?, 'credit', 'refund', ?, ?, ?, NULL, ?, 'completed', 'internal', ?)
+                            ON CONFLICT(reference_key) DO NOTHING`,
+                        [crypto.randomUUID(), operation.user_id, operation.amount_cents, refundReference, refundDescription, now, operation.id]);
+                    }
                 }
             });
-            return res.json({ ResultCode: 0, ResultDesc: 'B2C result recorded.' });
+            return res.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' });
         } catch (error) {
             console.error('Daraja B2C callback failed', error.message);
             return res.status(500).json({ ResultCode: 1, ResultDesc: 'B2C result could not be recorded.' });
         }
     };
 
-    app.post('/api/payments/mpesa/b2c/result/:token', darajaB2cCallback);
-    app.post('/api/payments/mpesa/b2c/timeout/:token', async (req, res) => {
-        const expectedToken = String(process.env.MPESA_CALLBACK_SECRET || '').trim();
-        const receivedToken = String(req.params.token || '');
-        const tokenMatches = expectedToken.length >= 32 && receivedToken.length === expectedToken.length
-            && crypto.timingSafeEqual(Buffer.from(receivedToken), Buffer.from(expectedToken));
-        if (!tokenMatches) return res.status(404).json({ ResultCode: 1, ResultDesc: 'Not found.' });
+    app.post('/api/v1/payments/b2c-callback', (req, res) => darajaB2cCallback(req, res));
+    app.post('/api/payments/mpesa/b2c/result/:token', (req, res) => darajaB2cCallback(req, res, process.env.MPESA_CALLBACK_SECRET));
+    const darajaB2cTimeout = async (req, res, expectedSecret = process.env.DARAJA_CALLBACK_SECRET) => {
+        if (!validDarajaCallbackToken(req, expectedSecret)) return res.status(404).json({ ResultCode: 1, ResultDesc: 'Not found.' });
         const timeoutPayload = req.body?.Result || req.body;
         const originatorId = text(timeoutPayload?.OriginatorConversationID, 120);
         try {
@@ -2086,16 +2102,18 @@ function createApp(options = {}) {
                     const details = JSON.parse(operation.details_json || '{}');
                     details.darajaPayoutStatus = 'timeout_uncertain';
                     details.darajaTimeoutAt = new Date().toISOString();
-                    details.darajaTimeoutDescription = text(timeoutPayload?.ResultDesc || timeoutPayload?.errorMessage || 'Daraja reported a request timeout. Check its status before retrying to avoid duplicate payment.', 240);
+                    details.darajaTimeoutDescription = text(timeoutPayload?.ResultDesc || timeoutPayload?.errorMessage || 'Daraja reported a timeout. Funds remain reserved until the payout status is verified to prevent a duplicate payment.', 240);
                     await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), operation.id]);
                 }
             }
-            return res.json({ ResultCode: 0, ResultDesc: 'Timeout notification recorded. Do not retry until the payout outcome is verified.' });
+            return res.status(200).json({ ResultCode: 0, ResultDesc: 'Accepted' });
         } catch (error) {
             console.error('Daraja B2C timeout callback failed', error.message);
             return res.status(500).json({ ResultCode: 1, ResultDesc: 'Timeout notification could not be recorded.' });
         }
-    });
+    };
+    app.post('/api/v1/payments/b2c-timeout', (req, res) => darajaB2cTimeout(req, res));
+    app.post('/api/payments/mpesa/b2c/timeout/:token', (req, res) => darajaB2cTimeout(req, res, process.env.MPESA_CALLBACK_SECRET));
 
     app.post('/api/wallet/create', auth, async (req, res, next) => {
         try {
@@ -2445,7 +2463,7 @@ function createApp(options = {}) {
             const payoutPhone = normalizedPhone(details.phone);
             if (!payoutPhone) return res.status(400).json({ error: 'Add a valid Kenyan M-Pesa number to your saved payout method.' });
             details.phone = payoutPhone;
-            details.withdrawalProcessing = 'daraja_b2c_sandbox';
+            details.withdrawalProcessing = 'daraja_b2c';
             const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'withdrawal' AND status IN ('pending', 'processing')", [req.user.id]);
             if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several withdrawals being processed. Wait for their payout results before requesting another.' });
             const id = crypto.randomUUID();
@@ -2468,7 +2486,11 @@ function createApp(options = {}) {
                     VALUES (?, ?, 'debit', 'withdrawal', ?, ?, ?, ?, 'pending', ?, ?)
                 `, [crypto.randomUUID(), req.user.id, cents, `wallet-withdrawal:${id}`, description, now, channel, id]);
             });
-            res.status(202).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'pending', channel, createdAt: now, message: 'Your balance is reserved. An administrator will start a Daraja sandbox payout. Sandbox tests do not send real money; the reserved amount is returned after Safaricom responds.' } });
+            const environment = String(process.env.DARAJA_ENV || 'sandbox').trim().toLowerCase() === 'production' ? 'production' : 'sandbox';
+            const message = environment === 'production'
+                ? 'Your balance is reserved. An administrator will start the M-Pesa payout through Safaricom Daraja. The amount stays reserved until Safaricom confirms the outcome.'
+                : 'Your balance is reserved. An administrator will start a Daraja sandbox test. Sandbox does not send real money; the reserved amount is returned after Safaricom responds.';
+            res.status(202).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'pending', channel, createdAt: now, message } });
         } catch (error) {
             if (error.errcode === 2067) {
                 const prior = await store.get('SELECT id, kind, amount_cents, fee_cents, status, channel, created_at FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
@@ -2510,7 +2532,7 @@ function createApp(options = {}) {
                    OR (wallet_operations.status = 'processing' AND wallet_operations.kind = 'withdrawal')
                 ORDER BY wallet_operations.created_at ASC LIMIT 100
             `);
-            res.json({ requests: rows.map(row => ({
+            res.json({ environment: String(process.env.DARAJA_ENV || 'sandbox').trim().toLowerCase() === 'production' ? 'production' : 'sandbox', requests: rows.map(row => ({
                 id: row.id, type: row.kind, amount: Number(row.amount_cents) / 100, fee: Number(row.fee_cents) / 100,
                 currency: row.currency, channel: row.channel, details: JSON.parse(row.details_json || '{}'),
                 paymentReference: row.payment_reference || '', status: row.status, createdAt: row.created_at,
@@ -2521,12 +2543,12 @@ function createApp(options = {}) {
 
     app.post('/api/wallet/admin/operations/:id/daraja-payout', auth, walletAdmin, async (req, res, next) => {
         let config;
-        try { config = mpesaB2cConfig(); }
+        try { config = darajaB2cConfig(); }
         catch (error) { return res.status(error.status || 503).json({ error: error.message }); }
         try {
             const initial = await store.get("SELECT * FROM wallet_operations WHERE id = ? AND kind = 'withdrawal'", [req.params.id]);
             if (!initial) throw walletError('Withdrawal request not found.', 404);
-            if (initial.channel !== 'mpesa') throw walletError('Only M-Pesa withdrawal requests can use the Daraja B2C sandbox.', 409);
+            if (initial.channel !== 'mpesa') throw walletError('Only M-Pesa withdrawal requests can use Daraja B2C.', 409);
             if (initial.status !== 'pending') throw walletError('This withdrawal has already been started or reviewed. Refresh the requests list before continuing.', 409);
             const details = JSON.parse(initial.details_json || '{}');
             if (details.paystackPayoutReference || (details.darajaOriginatorConversationID && details.darajaPayoutStatus !== 'rejected')) throw walletError('This request already has a payment-provider reference. Check its result before attempting another payout.', 409);
@@ -2535,7 +2557,7 @@ function createApp(options = {}) {
             if (Number(initial.amount_cents) % 100 !== 0) throw walletError('Daraja B2C requires a whole KES amount.', 409);
             const now = new Date().toISOString();
             // Safaricom requires a merchant-generated alphanumeric ID shorter than 20 chars.
-            const originatorId = `KF${crypto.randomBytes(8).toString('hex').toUpperCase()}`;
+            const originatorId = BigInt(`0x${crypto.randomBytes(12).toString('hex')}`).toString(36).toUpperCase().padStart(19, '0');
             if (details.darajaOriginatorConversationID) {
                 details.darajaAttempts = [...(Array.isArray(details.darajaAttempts) ? details.darajaAttempts : []), {
                     originatorConversationID: details.darajaOriginatorConversationID,
@@ -2544,11 +2566,12 @@ function createApp(options = {}) {
                 }].slice(-5);
             }
             details.phone = phone;
-            details.withdrawalProcessing = 'daraja_b2c_sandbox';
+            details.withdrawalProcessing = 'daraja_b2c';
             details.darajaClientRequestId = originatorId;
-            details.darajaOriginatorConversationID = '';
+            details.darajaOriginatorConversationID = originatorId;
             details.darajaPayoutStatus = 'initiating';
-            details.darajaSandbox = true;
+            details.darajaEnvironment = config.mode;
+            details.darajaSandbox = config.mode === 'sandbox';
             const claimed = await store.transaction(async () => {
                 const fresh = await store.get('SELECT status, reviewed_by FROM wallet_operations WHERE id = ?', [initial.id]);
                 if (!fresh || fresh.status !== 'pending' || fresh.reviewed_by) return false;
@@ -2576,12 +2599,15 @@ function createApp(options = {}) {
                 const acceptedAt = new Date().toISOString();
                 details.darajaPayoutStatus = 'accepted';
                 details.darajaConversationID = text(provider.ConversationID, 120);
-                details.darajaOriginatorConversationID = text(provider.OriginatorConversationID || originatorId, 120);
-                details.darajaResponseDescription = text(provider.ResponseDescription || 'Daraja accepted the sandbox request.', 240);
+                details.darajaProviderOriginatorConversationID = text(provider.OriginatorConversationID || originatorId, 120);
+                details.darajaResponseDescription = text(provider.ResponseDescription || `Daraja accepted the ${config.mode} request.`, 240);
                 details.darajaAcceptedAt = acceptedAt;
                 await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'",
                     [JSON.stringify(details), acceptedAt, initial.id]);
-                return res.status(202).json({ operation: { id: initial.id, status: 'processing', amount: Number(initial.amount_cents) / 100 }, message: 'Daraja accepted the sandbox payout request. Waiting for its callback. Sandbox sends no real money; the reserved amount will be returned when Safaricom responds.' });
+                const message = config.mode === 'sandbox'
+                    ? 'Daraja accepted the sandbox payout request. Waiting for its callback. Sandbox sends no real money; reserved funds will be returned when Safaricom responds.'
+                    : 'Daraja accepted the M-Pesa payout request. The amount remains reserved until Safaricom confirms the outcome.';
+                return res.status(202).json({ operation: { id: initial.id, status: 'processing', amount: Number(initial.amount_cents) / 100 }, message });
             } catch (providerError) {
                 const failedAt = new Date().toISOString();
                 details.darajaInitiationError = text(providerError.message, 240);
@@ -2590,7 +2616,7 @@ function createApp(options = {}) {
                     details.darajaPayoutStatus = 'rejected';
                     await store.run("UPDATE wallet_operations SET status = 'pending', reviewed_by = NULL, reviewed_at = NULL, details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'",
                         [JSON.stringify(details), failedAt, initial.id]);
-                    throw walletError(`Daraja sandbox declined the payout request: ${text(providerError.message, 220)}`, 502);
+                    throw walletError(`Daraja ${config.mode} declined the payout request: ${text(providerError.message, 220)}`, 502);
                 }
                 details.darajaPayoutStatus = 'initiation_uncertain';
                 await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'",
@@ -2612,7 +2638,6 @@ function createApp(options = {}) {
             if (current.kind === 'withdrawal' && JSON.parse(current.details_json || '{}').paystackPayoutReference) throw walletError('This older withdrawal has a payment-provider reference. Verify its outcome before resolving it to avoid paying or refunding twice.', 409);
             const currentDetails = JSON.parse(current.details_json || '{}');
             const darajaUncertainRefund = current.kind === 'withdrawal' && decision === 'reject'
-                && currentDetails.darajaSandbox === true
                 && ['timeout_uncertain', 'initiation_uncertain'].includes(currentDetails.darajaPayoutStatus)
                 && req.body?.confirmedNoPayout === true;
             if (current.kind === 'withdrawal' && current.status === 'processing' && currentDetails.darajaOriginatorConversationID && !darajaUncertainRefund) {

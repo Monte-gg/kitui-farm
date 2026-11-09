@@ -43,7 +43,7 @@ services:
       # Keep false until Paystack confirms Live Pesalink eligibility for this merchant.
       - key: PAYSTACK_BANK_ELIGIBLE
         sync: false
-      # Daraja sandbox credentials are used for M-Pesa STK deposits and B2C withdrawal testing.
+      # Daraja STK credentials continue to serve deposits. B2C withdrawals use DARAJA_* below.
       - key: MPESA_ENV
         sync: false
       - key: MPESA_CONSUMER_KEY
@@ -60,13 +60,19 @@ services:
         value: https://kitui-farm.onrender.com
       - key: MPESA_TRANSACTION_TYPE
         value: CustomerPayBillOnline
-      - key: MPESA_B2C_ENABLED
+      # B2C withdrawal callbacks use RENDER_EXTERNAL_URL and a separate callback token.
+      # Keep sandbox until Safaricom approves B2C production access for this shortcode.
+      - key: DARAJA_ENV
+        value: sandbox
+      - key: DARAJA_CONSUMER_KEY
         sync: false
-      - key: MPESA_B2C_INITIATOR_NAME
+      - key: DARAJA_CONSUMER_SECRET
         sync: false
-      - key: MPESA_B2C_SECURITY_CREDENTIAL
+      - key: DARAJA_INITIATOR_NAME
         sync: false
-      - key: MPESA_B2C_PARTY_A
+      - key: DARAJA_SECURITY_CREDENTIAL
         sync: false
-      - key: MPESA_B2C_COMMAND_ID
-        value: BusinessPayment
+      - key: DARAJA_SHORTCODE
+        sync: false
+      - key: DARAJA_CALLBACK_SECRET
+        sync: false
