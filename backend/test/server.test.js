@@ -377,3 +377,297 @@ test('returns reserved stock when a buyer cancels through the status endpoint', 
     })).status, 403);
     assert.equal(await stock(), 30);
 });
+
+// ---------------------------------------------------------------------------
+// Daraja M-Pesa deposits and withdrawals
+// ---------------------------------------------------------------------------
+
+const MPESA_ENV_KEYS = ['MPESA_ENV', 'MPESA_CONSUMER_KEY', 'MPESA_CONSUMER_SECRET', 'MPESA_SHORTCODE',
+    'MPESA_PASSKEY', 'MPESA_CALLBACK_SECRET', 'MPESA_CALLBACK_BASE_URL', 'MPESA_TRANSACTION_TYPE',
+    'DARAJA_ENV', 'DARAJA_CONSUMER_KEY', 'DARAJA_CONSUMER_SECRET', 'DARAJA_INITIATOR_NAME',
+    'DARAJA_SECURITY_CREDENTIAL', 'DARAJA_SHORTCODE', 'DARAJA_CALLBACK_SECRET', 'DARAJA_AUTO_PAYOUT',
+    'RENDER_EXTERNAL_URL'];
+
+function useMpesaEnv(overrides = {}) {
+    const previous = Object.fromEntries(MPESA_ENV_KEYS.map(key => [key, process.env[key]]));
+    for (const key of MPESA_ENV_KEYS) delete process.env[key];
+    Object.assign(process.env, {
+        MPESA_ENV: 'sandbox',
+        MPESA_CONSUMER_KEY: 'test-consumer-key',
+        MPESA_CONSUMER_SECRET: 'test-consumer-secret',
+        MPESA_SHORTCODE: '174379',
+        MPESA_PASSKEY: 'test-passkey',
+        MPESA_CALLBACK_SECRET: 'c'.repeat(40),
+        MPESA_CALLBACK_BASE_URL: 'https://kitui-farm.onrender.com',
+        MPESA_TRANSACTION_TYPE: 'CustomerPayBillOnline'
+    }, overrides);
+    return () => {
+        for (const key of MPESA_ENV_KEYS) {
+            if (previous[key] === undefined) delete process.env[key];
+            else process.env[key] = previous[key];
+        }
+    };
+}
+
+function stubDaraja(routes) {
+    const realFetch = global.fetch;
+    const calls = [];
+    global.fetch = async (url, options = {}) => {
+        const target = String(url);
+        if (target.startsWith('https://sandbox.safaricom.co.ke') || target.startsWith('https://api.safaricom.co.ke')) {
+            const body = options.body ? JSON.parse(options.body) : null;
+            calls.push({ target, body });
+            if (target.includes('/oauth/v1/generate')) return jsonResponse({ access_token: 'test-token', expires_in: '3599' });
+            for (const [fragment, reply] of routes) {
+                if (target.includes(fragment)) return jsonResponse(reply, 200);
+            }
+            return jsonResponse({ errorMessage: `Unexpected Daraja call to ${target}` }, 404);
+        }
+        return realFetch(url, options);
+    };
+    return { calls, restore: () => { global.fetch = realFetch; } };
+}
+
+function jsonResponse(body, status = 200) {
+    return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+}
+
+function stkCallback({ checkoutId, resultCode = 0, resultDesc = 'The service request is processed successfully.', amount = 250, receipt = 'QAB12CD34E', phone = 254712345678 }) {
+    return {
+        Body: {
+            stkCallback: {
+                MerchantRequestID: 'MR-1', CheckoutRequestID: checkoutId, ResultCode: resultCode, ResultDesc: resultDesc,
+                ...(resultCode === 0 ? { CallbackMetadata: { Item: [
+                    { Name: 'Amount', Value: amount },
+                    { Name: 'MpesaReceiptNumber', Value: receipt },
+                    { Name: 'TransactionDate', Value: 20261111134455 },
+                    { Name: 'PhoneNumber', Value: phone }
+                ] } } : {})
+            }
+        }
+    };
+}
+
+test('reports Daraja M-Pesa availability without leaking credentials', async () => {
+    const restore = useMpesaEnv({ MPESA_CONSUMER_KEY: '' });
+    try {
+        const buyer = await signup('buyer', 40);
+        const config = await request('/api/wallet/mpesa/config', { cookie: buyer.cookie });
+        assert.equal(config.data.stkEnabled, false);
+        assert.equal(config.data.provider, 'daraja');
+        const deposit = await request('/api/wallet/mpesa/deposits/stk', {
+            method: 'POST', cookie: buyer.cookie,
+            body: { amount: 100, phone: '0712345678', idempotencyKey: crypto.randomUUID() }
+        });
+        assert.equal(deposit.status, 503);
+        assert.match(deposit.data.error, /M-Pesa STK Push is not configured/);
+        assert.equal(JSON.stringify(config.data).includes('test-consumer-key'), false);
+    } finally { restore(); }
+});
+
+test('starts a Daraja STK Push deposit and credits the wallet exactly once', async () => {
+    const buyer = await signup('buyer', 41);
+    await fundWallet(buyer, 0);
+    const restoreEnv = useMpesaEnv();
+    const daraja = stubDaraja([['/mpesa/stkpush/v1/processrequest', {
+        MerchantRequestID: 'MR-1', CheckoutRequestID: 'ws_CO_DEPOSIT_1', ResponseCode: '0',
+        ResponseDescription: 'Success. Request accepted for processing',
+        CustomerMessage: 'Success. Request accepted for processing'
+    }]]);
+    try {
+        const deposit = await request('/api/wallet/mpesa/deposits/stk', {
+            method: 'POST', cookie: buyer.cookie,
+            body: { amount: 250, phone: '0712 345 678', idempotencyKey: crypto.randomUUID() }
+        });
+        assert.equal(deposit.status, 202);
+        assert.equal(deposit.data.operation.status, 'processing');
+        const push = daraja.calls.find(call => call.target.includes('/processrequest'));
+        assert.equal(push.body.Amount, 250);
+        assert.equal(push.body.PhoneNumber, '254712345678');
+        assert.equal(push.body.BusinessShortCode, '174379');
+        assert.equal(push.body.CallBackURL, `https://kitui-farm.onrender.com/api/payments/mpesa/callback/${'c'.repeat(40)}`);
+        assert.match(push.body.Timestamp, /^\d{14}$/);
+        assert.equal(Buffer.from(push.body.Password, 'base64').toString(), `174379test-passkey${push.body.Timestamp}`);
+
+        const callback = await request(`/api/payments/mpesa/callback/${'c'.repeat(40)}`, {
+            method: 'POST', body: stkCallback({ checkoutId: 'ws_CO_DEPOSIT_1' })
+        });
+        assert.equal(callback.status, 200);
+        let wallet = (await request('/api/wallet', { cookie: buyer.cookie })).data;
+        assert.equal(wallet.wallet.balance, 250);
+        assert.equal(wallet.transactions.filter(row => row.type === 'deposit').length, 1);
+
+        await request(`/api/payments/mpesa/callback/${'c'.repeat(40)}`, { method: 'POST', body: stkCallback({ checkoutId: 'ws_CO_DEPOSIT_1' }) });
+        wallet = (await request('/api/wallet', { cookie: buyer.cookie })).data;
+        assert.equal(wallet.wallet.balance, 250);
+        assert.equal(wallet.transactions.filter(row => row.type === 'deposit').length, 1);
+
+        const status = await request(`/api/wallet/mpesa/deposits/${deposit.data.operation.id}`, { cookie: buyer.cookie });
+        assert.equal(status.data.operation.status, 'completed');
+        assert.equal(status.data.operation.receipt, 'QAB12CD34E');
+    } finally { daraja.restore(); restoreEnv(); }
+});
+
+test('records a cancelled M-Pesa prompt as a failed deposit without touching the balance', async () => {
+    const buyer = await signup('buyer', 42);
+    await fundWallet(buyer, 0);
+    const restoreEnv = useMpesaEnv();
+    const daraja = stubDaraja([['/mpesa/stkpush/v1/processrequest', {
+        MerchantRequestID: 'MR-2', CheckoutRequestID: 'ws_CO_CANCEL_1', ResponseCode: '0',
+        ResponseDescription: 'Success. Request accepted for processing'
+    }]]);
+    try {
+        const deposit = await request('/api/wallet/mpesa/deposits/stk', {
+            method: 'POST', cookie: buyer.cookie,
+            body: { amount: 100, phone: '0712345678', idempotencyKey: crypto.randomUUID() }
+        });
+        assert.equal(deposit.status, 202);
+        await request(`/api/payments/mpesa/callback/${'c'.repeat(40)}`, {
+            method: 'POST', body: stkCallback({ checkoutId: 'ws_CO_CANCEL_1', resultCode: 1032, resultDesc: 'Request cancelled by user' })
+        });
+        const status = await request(`/api/wallet/mpesa/deposits/${deposit.data.operation.id}`, { cookie: buyer.cookie });
+        assert.equal(status.data.operation.status, 'failed');
+        assert.match(status.data.operation.message, /cancelled/i);
+        assert.equal((await request('/api/wallet', { cookie: buyer.cookie })).data.wallet.balance, 0);
+    } finally { daraja.restore(); restoreEnv(); }
+});
+
+test('reserves withdrawal funds, validates the M-Pesa number, and refunds a rejected request', async () => {
+    const buyer = await signup('buyer', 43);
+    await fundWallet(buyer, 100000);
+    const admin = await signup('buyer', 44);
+    await db.run('INSERT INTO wallet_admins (user_id, created_at) VALUES (?, ?)', [admin.id, new Date().toISOString()]);
+    const restoreEnv = useMpesaEnv({ DARAJA_AUTO_PAYOUT: 'false' });
+    try {
+        const tooSmall = await request('/api/wallet/withdrawals', {
+            method: 'POST', cookie: buyer.cookie,
+            body: { amount: 5, phone: '0712345678', idempotencyKey: crypto.randomUUID() }
+        });
+        assert.equal(tooSmall.status, 400);
+        const noPhone = await request('/api/wallet/withdrawals', {
+            method: 'POST', cookie: buyer.cookie,
+            body: { amount: 400, phone: '12345', idempotencyKey: crypto.randomUUID() }
+        });
+        assert.equal(noPhone.status, 400);
+
+        const withdrawal = await request('/api/wallet/withdrawals', {
+            method: 'POST', cookie: buyer.cookie,
+            body: { amount: 400, phone: '0712 345 678', idempotencyKey: crypto.randomUUID() }
+        });
+        assert.equal(withdrawal.status, 202);
+        assert.equal(withdrawal.data.operation.status, 'pending');
+        assert.equal((await request('/api/wallet', { cookie: buyer.cookie })).data.wallet.balance, 600);
+
+        const tooMuch = await request('/api/wallet/withdrawals', {
+            method: 'POST', cookie: buyer.cookie,
+            body: { amount: 5000, phone: '0712345678', idempotencyKey: crypto.randomUUID() }
+        });
+        assert.equal(tooMuch.status, 402);
+
+        const requests = await request('/api/wallet/admin/operations', { cookie: admin.cookie });
+        assert.equal(requests.data.requests.length, 1);
+        assert.equal(requests.data.requests[0].details.phone, '+254712345678');
+        const rejected = await request(`/api/wallet/admin/operations/${withdrawal.data.operation.id}/review`, {
+            method: 'POST', cookie: admin.cookie, body: { decision: 'reject' }
+        });
+        assert.equal(rejected.status, 200);
+        assert.equal((await request('/api/wallet', { cookie: buyer.cookie })).data.wallet.balance, 1000);
+    } finally { restoreEnv(); }
+});
+
+test('pays a withdrawal through Daraja B2C automatically when DARAJA_AUTO_PAYOUT is on', async () => {
+    const buyer = await signup('buyer', 45);
+    await fundWallet(buyer, 100000);
+    const restoreEnv = useMpesaEnv({
+        DARAJA_ENV: 'sandbox',
+        DARAJA_CONSUMER_KEY: 'b2c-key',
+        DARAJA_CONSUMER_SECRET: 'b2c-secret',
+        DARAJA_INITIATOR_NAME: 'testapi',
+        DARAJA_SECURITY_CREDENTIAL: 'credential',
+        DARAJA_SHORTCODE: '600000',
+        DARAJA_CALLBACK_SECRET: 'd'.repeat(40),
+        DARAJA_AUTO_PAYOUT: 'true',
+        RENDER_EXTERNAL_URL: 'https://kitui-farm.onrender.com'
+    });
+    const daraja = stubDaraja([['/mpesa/b2c/v3/paymentrequest', {
+        ConversationID: 'AG_20261111_1', OriginatorConversationID: 'ORIG_1', ResponseCode: '0',
+        ResponseDescription: 'Accept the service request successfully.'
+    }]]);
+    try {
+        const withdrawal = await request('/api/wallet/withdrawals', {
+            method: 'POST', cookie: buyer.cookie,
+            body: { amount: 400, phone: '0712345678', idempotencyKey: crypto.randomUUID() }
+        });
+        assert.equal(withdrawal.status, 202);
+        assert.equal(withdrawal.data.operation.status, 'processing');
+        const payout = daraja.calls.find(call => call.target.includes('/mpesa/b2c/v3/paymentrequest'));
+        assert.equal(payout.body.Amount, '400');
+        assert.equal(payout.body.PartyB, '254712345678');
+        assert.equal(payout.body.PartyA, '600000');
+        assert.match(payout.body.ResultURL, /\/api\/v1\/payments\/b2c-callback\?token=/);
+        assert.equal((await request('/api/wallet', { cookie: buyer.cookie })).data.wallet.balance, 600);
+
+        const wallet = (await request('/api/wallet', { cookie: buyer.cookie })).data;
+        const details = wallet.operations[0].details;
+        const callback = await request(`/api/v1/payments/b2c-callback?token=${'d'.repeat(40)}`, {
+            method: 'POST',
+            body: { Result: {
+                ResultType: 0, ResultCode: 0, ResultDesc: 'The service request is processed successfully.',
+                OriginatorConversationID: details.darajaOriginatorConversationID,
+                ConversationID: 'AG_20261111_1', TransactionID: 'QCD33EFGHI',
+                ResultParameters: { ResultParameter: [{ Key: 'TransactionAmount', Value: 400 }] }
+            } }
+        });
+        assert.equal(callback.status, 200);
+        const after = (await request('/api/wallet', { cookie: buyer.cookie })).data;
+        assert.equal(after.wallet.balance, 1000, 'sandbox payouts return the reserved funds');
+        assert.equal(after.operations[0].status, 'completed');
+        assert.equal(after.operations[0].paymentReference, 'QCD33EFGHI');
+        assert.ok(after.transactions.some(row => row.type === 'refund'));
+    } finally { daraja.restore(); restoreEnv(); }
+});
+
+test('lets an administrator start a Daraja B2C payout from the admin console', async () => {
+    const buyer = await signup('buyer', 46);
+    await fundWallet(buyer, 100000);
+    const admin = await signup('buyer', 47);
+    await db.run('INSERT INTO wallet_admins (user_id, created_at) VALUES (?, ?)', [admin.id, new Date().toISOString()]);
+    const restoreEnv = useMpesaEnv({
+        DARAJA_CONSUMER_KEY: 'b2c-key', DARAJA_CONSUMER_SECRET: 'b2c-secret',
+        DARAJA_INITIATOR_NAME: 'testapi', DARAJA_SECURITY_CREDENTIAL: 'credential',
+        DARAJA_SHORTCODE: '600000', DARAJA_CALLBACK_SECRET: 'e'.repeat(40),
+        DARAJA_AUTO_PAYOUT: 'false', RENDER_EXTERNAL_URL: 'https://kitui-farm.onrender.com'
+    });
+    const daraja = stubDaraja([['/mpesa/b2c/v3/paymentrequest', {
+        ConversationID: 'AG_20261111_2', OriginatorConversationID: 'ORIG_2', ResponseCode: '0',
+        ResponseDescription: 'Accept the service request successfully.'
+    }]]);
+    try {
+        const withdrawal = await request('/api/wallet/withdrawals', {
+            method: 'POST', cookie: buyer.cookie,
+            body: { amount: 300, phone: '0712345678', idempotencyKey: crypto.randomUUID() }
+        });
+        assert.equal(withdrawal.data.operation.status, 'pending');
+
+        const forbidden = await request(`/api/wallet/admin/operations/${withdrawal.data.operation.id}/daraja-payout`, {
+            method: 'POST', cookie: buyer.cookie, body: {}
+        });
+        assert.equal(forbidden.status, 403);
+
+        const payout = await request(`/api/wallet/admin/operations/${withdrawal.data.operation.id}/daraja-payout`, {
+            method: 'POST', cookie: admin.cookie, body: {}
+        });
+        assert.equal(payout.status, 202);
+        assert.equal(payout.data.operation.status, 'processing');
+        const call = daraja.calls.find(item => item.target.includes('/mpesa/b2c/v3/paymentrequest'));
+        assert.equal(call.body.Amount, '300');
+        assert.equal(call.body.PartyB, '254712345678');
+        assert.match(call.body.OriginatorConversationID, /^[A-Z0-9]{1,19}$/);
+
+        const again = await request(`/api/wallet/admin/operations/${withdrawal.data.operation.id}/daraja-payout`, {
+            method: 'POST', cookie: admin.cookie, body: {}
+        });
+        assert.equal(again.status, 409, 'a started payout cannot be sent twice');
+        assert.equal((await request('/api/wallet', { cookie: buyer.cookie })).data.wallet.balance, 700);
+    } finally { daraja.restore(); restoreEnv(); }
+});

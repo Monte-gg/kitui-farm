@@ -255,7 +255,7 @@
 
         <section class="panel" id="wallet-approvals" data-admin-view hidden aria-labelledby="approvalHeading">
             <div class="view-heading"><p class="eyebrow">Wallet management</p><h1>Wallet operations</h1><p class="intro">Review pending deposits and withdrawals.</p></div>
-            <div class="panel-head"><div><h2 id="approvalHeading">Wallet operation support</h2><p class="muted" id="walletOperationGuidance">All payment activity is paused. Review existing transactions for reconciliation; do not initiate or mark external payments here.</p></div><span class="count" id="pendingCount" aria-label="Pending requests">—</span></div>
+            <div class="panel-head"><div><h2 id="approvalHeading">Wallet operation support</h2><p class="muted" id="walletOperationGuidance">M-Pesa B2C payouts are started through Safaricom Daraja. Rejecting a request refunds its reserved amount. Internal wallet transfers complete automatically.</p></div><span class="count" id="pendingCount" aria-label="Pending requests">—</span></div>
             <p class="notice" id="walletOperationNotice">Sandbox testing does not send real money. In production, Safaricom sends the payout and confirms its outcome asynchronously. A timed-out request remains reserved until its outcome is verified.</p>
             <p class="status" id="status" role="status" aria-live="polite">Checking admin access…</p>
             <div id="requestList" aria-label="Pending wallet operations"></div>
@@ -481,8 +481,13 @@
         }
         async function loadRequests() {
             const data = await apiRequest('/api/wallet/admin/operations');
-            document.getElementById('walletOperationGuidance').textContent = 'All deposits, withdrawals, transfers, and wallet purchases are paused. Existing records remain visible for review; reconcile real provider transactions before changing any balances.';
-            document.getElementById('walletOperationNotice').innerHTML = '<strong>Payment pause:</strong> No new payment or payout can be initiated. A wallet-ledger adjustment is not an external refund. Confirm successful live transactions with Paystack or Safaricom and refund them through the same provider before recording resolution.';
+            const payoutEnvironment = data.environment === 'production' ? 'production' : 'sandbox';
+            document.getElementById('walletOperationGuidance').textContent = payoutEnvironment === 'production'
+                ? 'Start live M-Pesa payouts through Safaricom Daraja or reject a request to refund its reserved amount. Internal wallet transfers complete automatically.'
+                : 'Start Daraja B2C sandbox tests or reject a request to refund its reserved amount. Sandbox tests do not send real money. Internal wallet transfers complete automatically.';
+            document.getElementById('walletOperationNotice').innerHTML = payoutEnvironment === 'production'
+                ? '<strong>Production payouts:</strong> Safaricom sends real money to the saved M-Pesa number. Funds stay reserved until a success or failure callback arrives. A timeout is uncertain; verify the payout with Safaricom before refunding or retrying.'
+                : '<strong>Sandbox testing:</strong> Safaricom simulates B2C results and sends no real money. Reserved funds are returned when the final callback arrives. A timeout is uncertain; verify the result before refunding or retrying.';
             const list = document.getElementById('requestList');
             const reviewCount = data.requests.filter(item => item.status === 'pending' || (item.type === 'withdrawal' && item.status === 'processing')).length;
             document.getElementById('pendingCount').textContent = reviewCount;
@@ -491,12 +496,15 @@
             const withdrawalCount = data.requests.filter(item => item.type === 'withdrawal' && ['pending', 'processing'].includes(item.status)).length;
             const depositCount = data.requests.filter(item => item.type === 'deposit' && item.status === 'pending').length;
             setStatus(withdrawalCount || depositCount
-                ? `${withdrawalCount} withdrawal${withdrawalCount === 1 ? '' : 's'} and ${depositCount} deposit request${depositCount === 1 ? '' : 's'} need reconciliation. Payment actions are paused.`
+                ? `${withdrawalCount} withdrawal${withdrawalCount === 1 ? '' : 's'} need admin processing; ${depositCount} unverified deposit request${depositCount === 1 ? '' : 's'} need review.`
                 : 'You’re signed in as an administrator. There are no pending wallet operations.');
             list.innerHTML = data.requests.map(item => {
                 const details = item.details || {};
                 const deposit = item.type === 'deposit';
-                const sandbox = details.darajaSandbox === true || details.darajaEnvironment === 'sandbox';
+                const legacyProcessing = item.type === 'withdrawal' && item.status === 'processing';
+                const legacyProviderReference = item.type === 'withdrawal' && Boolean(details.paystackPayoutReference);
+                const darajaInFlight = item.type === 'withdrawal' && Boolean(details.darajaOriginatorConversationID) && details.darajaPayoutStatus !== 'rejected';
+                const sandbox = details.darajaSandbox === true || details.darajaEnvironment === 'sandbox' || (!details.darajaEnvironment && payoutEnvironment === 'sandbox');
                 const method = item.type === 'withdrawal' && item.channel === 'mpesa' ? `Daraja M-Pesa B2C ${sandbox ? 'Sandbox' : 'Production'}`
                     : ['mpesa_b2c', 'paystack_mpesa_transfer'].includes(item.channel) ? 'Legacy M-Pesa request'
                     : ['bank', 'bank_transfer'].includes(item.channel) ? 'Bank payout'
@@ -504,15 +512,31 @@
                     : item.channel === 'paystack_pesalink' ? 'Paystack bank deposit'
                     : item.channel;
                 const destination = details.phone || [details.accountName, details.accountNumber, details.bankName, details.branch].filter(Boolean).join(' · ');
-                const payoutNote = 'Payment actions are paused. Verify whether this provider transaction moved real money before any refund or balance change.';
-                const payoutActions = '<span class="muted">Payment actions are paused. Verify the provider outcome before any refund or balance change.</span>';
+                const payoutNote = legacyProviderReference
+                    ? 'This older request has a previous provider reference. Verify the payment outcome before sending or refunding it.'
+                    : darajaInFlight
+                    ? details.darajaPayoutStatus === 'timeout_uncertain' || details.darajaPayoutStatus === 'initiation_uncertain'
+                        ? 'Daraja did not confirm the outcome. Do not retry until the payout status is checked; the wallet amount remains reserved.'
+                        : `Daraja ${sandbox ? 'sandbox' : 'production'} status: ${details.darajaPayoutStatus || 'waiting for Safaricom callback'}.${sandbox ? ' No real money is sent; reserved funds are returned when a result arrives.' : ' Real money is sent only after Safaricom completes the payout; funds remain reserved until the result arrives.'}`
+                    : legacyProcessing
+                    ? 'This older request is still awaiting administrator review. Confirm the user and destination before sending.'
+                    : sandbox ? 'Start a Daraja B2C sandbox test for the saved M-Pesa number. No real money will be sent.' : 'Start a live Daraja B2C payout to the saved M-Pesa number. This sends real money.';
+                const payoutActions = legacyProviderReference
+                    ? '<span class="muted">Verify the earlier payment before resolving this request.</span>'
+                    : darajaInFlight
+                        ? ['timeout_uncertain', 'initiation_uncertain'].includes(details.darajaPayoutStatus)
+                            ? `<span class="muted">Verify the outcome in Daraja first.</span><button class="button reject" data-review="reject" data-type="withdrawal" data-daraja-uncertain="1" data-id="${escapeHtml(item.id)}">Confirm no payout &amp; refund</button>`
+                            : `<span class="muted">Waiting for Daraja callback</span>`
+                    : item.type === 'withdrawal' && item.channel === 'mpesa' && item.status === 'pending'
+                        ? `<button class="button approve" data-daraja-payout data-environment="${payoutEnvironment}" data-id="${escapeHtml(item.id)}" data-name="${escapeHtml(item.name)}" data-email="${escapeHtml(item.email)}" data-phone="${escapeHtml(destination)}" data-amount="${escapeHtml(item.amount)}">${payoutEnvironment === 'production' ? 'Send via Daraja' : 'Send via Daraja (Sandbox)'}</button><button class="button reject" data-review="reject" data-type="withdrawal" data-id="${escapeHtml(item.id)}">Reject &amp; refund</button>`
+                        : `<button class="button reject" data-review="reject" data-type="withdrawal" data-id="${escapeHtml(item.id)}">Reject &amp; refund</button>`;
                 return `<article class="request"><div><h3>${escapeHtml(item.name)} · ${money(item.amount)} · ${deposit ? 'Deposit' : 'Withdrawal'}</h3>
                 <p>${escapeHtml(item.email)} · ${escapeHtml(item.phone)} · Wallet ${escapeHtml(item.walletId)}</p>
                 <p>Method: <strong>${escapeHtml(method)}</strong>${destination ? ` · ${escapeHtml(destination)}` : ''}</p>
                 ${deposit ? `<p>Payment reference: <strong>${escapeHtml(item.paymentReference || 'Not provided')}</strong>${details.bankName ? ` · Bank: ${escapeHtml(details.bankName)}` : ''}</p>` : `<p>${payoutNote} Fee: ${money(item.fee)}.</p>`}
                 ${item.paymentReference ? `<p>Existing payment reference: <strong>${escapeHtml(item.paymentReference)}</strong></p>` : ''}
                 <p>Submitted ${new Date(item.createdAt).toLocaleString('en-KE')}</p></div>
-                <div class="actions">${deposit ? '<span class="muted">Awaiting reconciliation; no admin payment action is available.</span>' : payoutActions}</div></article>`;
+                <div class="actions">${deposit ? `<span class="muted">Waiting for provider confirmation</span><button class="button reject" data-review="reject" data-type="deposit" data-id="${escapeHtml(item.id)}">Close unverified request</button>` : payoutActions}</div></article>`;
             }).join('');
         }
         const moreMenu = document.getElementById('moreMenu');

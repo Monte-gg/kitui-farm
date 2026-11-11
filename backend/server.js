@@ -58,6 +58,79 @@ function mpesaConfig() {
         transactionType: String(process.env.MPESA_TRANSACTION_TYPE || 'CustomerPayBillOnline').trim() };
 }
 
+// Daraja expects its timestamp in East Africa Time as YYYYMMDDHHmmss.
+function darajaTimestamp(date = new Date()) {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+        timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
+    }).formatToParts(date).filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+    return `${parts.year}${parts.month}${parts.day}${parts.hour}${parts.minute}${parts.second}`;
+}
+
+function mpesaStkPassword(config, timestamp) {
+    return Buffer.from(`${config.shortCode}${config.passkey}${timestamp}`).toString('base64');
+}
+
+async function mpesaAccessToken(config) {
+    const response = await fetch(`${config.baseUrl}/oauth/v1/generate?grant_type=client_credentials`, {
+        headers: { Authorization: `Basic ${Buffer.from(`${config.consumerKey}:${config.consumerSecret}`).toString('base64')}` },
+        signal: AbortSignal.timeout(15_000)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.access_token) {
+        const error = new Error(`Daraja ${config.mode} could not authorize the M-Pesa request. Check MPESA_CONSUMER_KEY and MPESA_CONSUMER_SECRET in Render.`);
+        error.status = 502;
+        error.providerRejected = true;
+        error.providerResponse = data;
+        throw error;
+    }
+    return data.access_token;
+}
+
+async function mpesaRequest(endpoint, { method = 'POST', body, config = mpesaConfig() } = {}) {
+    const token = await mpesaAccessToken(config);
+    const response = await fetch(`${config.baseUrl}${endpoint}`, {
+        method,
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+        signal: AbortSignal.timeout(20_000)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const error = new Error(text(data.errorMessage || data.ResponseDescription || data.error || `Daraja ${config.mode} rejected the M-Pesa request.`, 240));
+        error.status = response.status || 502;
+        error.providerRejected = response.status >= 400 && response.status < 500;
+        error.providerResponse = data;
+        throw error;
+    }
+    return data;
+}
+
+// Asks Daraja for the latest state of an STK Push when the callback is delayed.
+async function mpesaStkQuery(config, { checkoutRequestId, timestamp = darajaTimestamp() }) {
+    return mpesaRequest('/mpesa/stkpushquery/v1/query', { config, body: {
+        BusinessShortCode: config.shortCode,
+        Password: mpesaStkPassword(config, timestamp),
+        Timestamp: timestamp,
+        CheckoutRequestID: checkoutRequestId
+    } });
+}
+
+// Result codes Safaricom returns when the customer did not complete the payment.
+const MPESA_STK_FAILURE_MESSAGES = new Map([
+    ['1', 'Not enough money in the M-Pesa account to complete this deposit.'],
+    ['1019', 'The M-Pesa prompt expired before it was approved. Try again.'],
+    ['1032', 'The M-Pesa prompt was cancelled on the phone. Try again when ready.'],
+    ['1034', 'Safaricom rejected the M-Pesa request. Try again.'],
+    ['1037', 'No response from the phone before the M-Pesa prompt timed out. Check the number and try again.'],
+    ['2001', 'The M-Pesa PIN entered was wrong. Try again.'],
+    ['9999', 'Safaricom could not process the M-Pesa request. Try again later.']
+]);
+
+function darajaAutoPayoutEnabled() {
+    return String(process.env.DARAJA_AUTO_PAYOUT || '').trim().toLowerCase() === 'true';
+}
+
 function darajaB2cConfig() {
     const mode = String(process.env.DARAJA_ENV || 'sandbox').trim().toLowerCase();
     if (!['sandbox', 'production'].includes(mode)) {
@@ -1191,21 +1264,6 @@ function createApp(options = {}) {
     });
     app.use('/api', express.json({ limit: '8mb', strict: true, verify: (req, res, buffer) => { req.rawBody = Buffer.from(buffer); } }));
 
-    // Payments are paused platform-wide at the API boundary. Keep read-only
-    // wallet/history endpoints and provider callbacks available so existing
-    // transactions can still settle and be reconciled safely.
-    app.use('/api', (req, res, next) => {
-        const path = req.path;
-        const isWalletMutation = req.method === 'POST' && /^\/wallet\/(?:payment-methods|transfers|deposits|withdrawals|paystack\/deposits|mpesa\/deposits\/stk|admin\/operations\/[^/]+\/(?:daraja-payout|review))(?:\/|$)/.test(path);
-        const isMarketplacePurchase = req.method === 'POST' && path === '/orders';
-        if (isWalletMutation || isMarketplacePurchase) {
-            return res.status(503).json({
-                error: 'Payments are temporarily unavailable. No new deposits, withdrawals, transfers, or wallet purchases can be made.'
-            });
-        }
-        next();
-    });
-
     async function createSession(user, res, remember) {
         const token = crypto.randomBytes(32).toString('hex');
         const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
@@ -1313,6 +1371,124 @@ function createApp(options = {}) {
         const error = new Error(message);
         error.status = status;
         return error;
+    }
+
+    // Credits a Daraja STK Push deposit exactly once. Both the Safaricom
+    // callback and the status-query reconciliation call this, and the
+    // `status = 'processing'` guard makes the ledger entry idempotent.
+    async function completeMpesaDeposit(operation, { receipt = '', transactionDate = null, verifiedVia = 'callback', note = '' } = {}) {
+        if (!operation || operation.status !== 'processing') return false;
+        const details = JSON.parse(operation.details_json || '{}');
+        const now = new Date().toISOString();
+        let credited = false;
+        await store.transaction(async () => {
+            const updated = await store.run(`UPDATE wallet_operations
+                SET status = 'completed', payment_reference = COALESCE(NULLIF(?, ''), payment_reference), details_json = ?, updated_at = ?
+                WHERE id = ? AND status = 'processing'`,
+            [receipt, JSON.stringify({
+                ...details,
+                mpesaReceiptNumber: receipt || details.mpesaReceiptNumber || null,
+                mpesaTransactionDate: transactionDate || details.mpesaTransactionDate || null,
+                mpesaVerifiedVia: verifiedVia,
+                mpesaCompletedAt: now,
+                ...(note ? { mpesaNote: note } : {})
+            }), now, operation.id]);
+            if (!updated.changes) return;
+            const balance = await store.run(`UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ?
+                WHERE user_id = ? AND status = 'active' AND balance_cents <= ?`,
+            [operation.amount_cents, now, operation.user_id, 2147483647 - operation.amount_cents]);
+            if (!balance.changes) throw new Error('Active wallet was not available for the M-Pesa credit.');
+            await store.run(`INSERT INTO wallet_transactions
+                (id, user_id, kind, event_type, amount_cents, reference_key, payment_reference, description, created_by, created_at, status, channel, operation_id)
+                VALUES (?, ?, 'credit', 'deposit', ?, ?, ?, 'Wallet deposit via M-Pesa STK Push', ?, ?, 'completed', 'mpesa_stk', ?)`,
+            [crypto.randomUUID(), operation.user_id, operation.amount_cents, `wallet-deposit:${operation.id}`, receipt || null, operation.user_id, now, operation.id]);
+            credited = true;
+        });
+        return credited;
+    }
+
+    // Starts the Daraja B2C payout for a reserved withdrawal. Used by the
+    // admin console and, when DARAJA_AUTO_PAYOUT=true, by the request itself.
+    async function startDarajaPayout(operationId, { actorId = null } = {}) {
+        const config = darajaB2cConfig();
+        const initial = await store.get("SELECT * FROM wallet_operations WHERE id = ? AND kind = 'withdrawal'", [operationId]);
+        if (!initial) throw walletError('Withdrawal request not found.', 404);
+        if (initial.channel !== 'mpesa') throw walletError('Only M-Pesa withdrawal requests can use Daraja B2C.', 409);
+        if (initial.status !== 'pending') throw walletError('This withdrawal has already been started or reviewed. Refresh the requests list before continuing.', 409);
+        const details = JSON.parse(initial.details_json || '{}');
+        if (details.paystackPayoutReference || (details.darajaOriginatorConversationID && details.darajaPayoutStatus !== 'rejected')) throw walletError('This request already has a payment-provider reference. Check its result before attempting another payout.', 409);
+        const phone = normalizedPhone(details.phone);
+        if (!phone) throw walletError('The saved M-Pesa number is invalid. Update the customer payout number before sending.', 409);
+        if (Number(initial.amount_cents) % 100 !== 0) throw walletError('Daraja B2C requires a whole KES amount.', 409);
+        const now = new Date().toISOString();
+        // Safaricom requires a merchant-generated alphanumeric ID shorter than 20 chars.
+        const originatorId = BigInt(`0x${crypto.randomBytes(12).toString('hex')}`).toString(36).toUpperCase().padStart(19, '0');
+        if (details.darajaOriginatorConversationID) {
+            details.darajaAttempts = [...(Array.isArray(details.darajaAttempts) ? details.darajaAttempts : []), {
+                originatorConversationID: details.darajaOriginatorConversationID,
+                status: details.darajaPayoutStatus,
+                error: details.darajaInitiationError || ''
+            }].slice(-5);
+        }
+        details.phone = phone;
+        details.withdrawalProcessing = 'daraja_b2c';
+        details.darajaClientRequestId = originatorId;
+        details.darajaOriginatorConversationID = originatorId;
+        details.darajaPayoutStatus = 'initiating';
+        details.darajaEnvironment = config.mode;
+        details.darajaSandbox = config.mode === 'sandbox';
+        details.darajaStartedAutomatically = !actorId;
+        const claimed = await store.transaction(async () => {
+            const fresh = await store.get('SELECT status, reviewed_by FROM wallet_operations WHERE id = ?', [initial.id]);
+            if (!fresh || fresh.status !== 'pending' || fresh.reviewed_by) return false;
+            const result = await store.run("UPDATE wallet_operations SET status = 'processing', reviewed_by = ?, reviewed_at = ?, details_json = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND reviewed_by IS NULL",
+                [actorId, now, JSON.stringify(details), now, initial.id]);
+            return Boolean(result.changes);
+        });
+        if (!claimed) throw walletError('Another administrator has already started this withdrawal. Refresh the requests list.', 409);
+
+        const requestBody = {
+            InitiatorName: config.initiatorName,
+            SecurityCredential: config.securityCredential,
+            CommandID: config.commandId,
+            OriginatorConversationID: originatorId,
+            Amount: String(Number(initial.amount_cents) / 100),
+            PartyA: config.partyA,
+            PartyB: phone.replace(/^\+/, ''),
+            Remarks: `KITUI FARM withdrawal ${initial.id.slice(0, 24)}`,
+            QueueTimeOutURL: config.timeoutUrl,
+            ResultURL: config.resultUrl,
+            Occassion: `KITUI FARM ${initial.id.slice(0, 16)}`
+        };
+        try {
+            const provider = await darajaB2cRequest('/mpesa/b2c/v3/paymentrequest', config, requestBody);
+            const acceptedAt = new Date().toISOString();
+            details.darajaPayoutStatus = 'accepted';
+            details.darajaConversationID = text(provider.ConversationID, 120);
+            details.darajaProviderOriginatorConversationID = text(provider.OriginatorConversationID || originatorId, 120);
+            details.darajaResponseDescription = text(provider.ResponseDescription || `Daraja accepted the ${config.mode} request.`, 240);
+            details.darajaAcceptedAt = acceptedAt;
+            await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'",
+                [JSON.stringify(details), acceptedAt, initial.id]);
+            const message = config.mode === 'sandbox'
+                ? 'Daraja accepted the sandbox payout request. Waiting for its callback. Sandbox sends no real money; reserved funds will be returned when Safaricom responds.'
+                : 'Daraja accepted the M-Pesa payout request. The amount remains reserved until Safaricom confirms the outcome.';
+            return { operation: { id: initial.id, status: 'processing', amount: Number(initial.amount_cents) / 100 }, message };
+        } catch (providerError) {
+            const failedAt = new Date().toISOString();
+            details.darajaInitiationError = text(providerError.message, 240);
+            details.darajaInitiationResponse = providerError.providerResponse || null;
+            if (providerError.providerRejected) {
+                details.darajaPayoutStatus = 'rejected';
+                await store.run("UPDATE wallet_operations SET status = 'pending', reviewed_by = NULL, reviewed_at = NULL, details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'",
+                    [JSON.stringify(details), failedAt, initial.id]);
+                throw walletError(`Daraja ${config.mode} declined the payout request: ${text(providerError.message, 220)}`, 502);
+            }
+            details.darajaPayoutStatus = 'initiation_uncertain';
+            await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'",
+                [JSON.stringify(details), failedAt, initial.id]);
+            return { operation: { id: initial.id, status: 'processing', amount: Number(initial.amount_cents) / 100 }, message: 'Daraja did not return a definite response. The request is held to prevent a duplicate payout. Check Safaricom status before retrying.' };
+        }
     }
 
     async function addDeliveryUpdate(orderId, status, note, userId) {
@@ -1864,7 +2040,7 @@ function createApp(options = {}) {
 
     app.get('/api/wallet', auth, async (req, res, next) => {
         try {
-            const [account, transactions, operations, admin] = await Promise.all([
+            const [account, transactions, operations, admin, paymentMethods] = await Promise.all([
                 store.get('SELECT * FROM wallet_accounts WHERE user_id = ?', [req.user.id]),
                 store.all(`SELECT id, kind, event_type, amount_cents, description, status, channel,
                     counterparty_wallet_id, operation_id, created_at FROM wallet_transactions
@@ -1872,7 +2048,8 @@ function createApp(options = {}) {
                 store.all(`SELECT id, kind, amount_cents, fee_cents, currency, channel, details_json,
                     payment_reference, status, created_at, updated_at FROM wallet_operations
                     WHERE user_id = ? AND kind IN ('deposit', 'withdrawal') ORDER BY created_at DESC LIMIT 30`, [req.user.id]),
-                store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [req.user.id])
+                store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [req.user.id]),
+                store.all('SELECT id, kind, label, details_json, use_for, created_at FROM wallet_payment_methods WHERE user_id = ? ORDER BY created_at DESC', [req.user.id])
             ]);
             res.json({
                 wallet: account ? { id: account.wallet_id, balance: Number(account.balance_cents) / 100, currency: account.currency, status: account.status, createdAt: account.created_at } : null,
@@ -1887,23 +2064,38 @@ function createApp(options = {}) {
                     paymentReference: row.payment_reference || '', status: row.status, createdAt: row.created_at, updatedAt: row.updated_at
                 })),
                 isAdmin: Boolean(admin),
-                paymentMethods: []
+                paymentMethods: paymentMethods.filter(row => row.kind !== 'airtel').map(row => ({ id: row.id, kind: row.kind, label: row.label, details: JSON.parse(row.details_json || '{}'), useFor: row.use_for, createdAt: row.created_at }))
             });
         } catch (error) { next(error); }
     });
 
     app.get('/api/wallet/mpesa/config', auth, (req, res) => {
-        res.json({ stkEnabled: false, provider: null, paymentsPaused: true });
+        // Never return credentials. This only tells the signed-in user whether
+        // Daraja STK Push deposits are ready to use.
+        try {
+            const config = mpesaConfig();
+            res.json({ stkEnabled: true, provider: 'daraja', environment: config.mode === 'live' ? 'production' : 'sandbox' });
+        } catch (error) {
+            res.json({ stkEnabled: false, provider: 'daraja', environment: null, message: error.message });
+        }
     });
 
     app.get('/api/wallet/daraja/config', auth, (req, res) => {
         // Never return credentials. This endpoint only tells the signed-in user which
         // environment the withdrawal flow is configured to use.
-        res.json({ environment: null, payoutsEnabled: false, paymentsPaused: true });
+        const environment = String(process.env.DARAJA_ENV || 'sandbox').trim().toLowerCase() === 'production' ? 'production' : 'sandbox';
+        let payoutsEnabled = false;
+        let message = '';
+        try { darajaB2cConfig(); payoutsEnabled = true; }
+        catch (error) { message = error.message; }
+        res.json({ environment, payoutsEnabled, autoPayout: darajaAutoPayoutEnabled(), message });
     });
 
     app.get('/api/wallet/paystack/config', auth, (req, res) => {
-        res.json({ bankTransferEnabled: false, mpesaEnabled: false, paymentsPaused: true });
+        let configured = false;
+        try { paystackConfig(); configured = true; } catch { /* Report unavailable channels without exposing secrets. */ }
+        try { paystackConfig({ requireBankEligibility: true }); res.json({ bankTransferEnabled: true, mpesaEnabled: configured }); }
+        catch { res.json({ bankTransferEnabled: false, mpesaEnabled: configured }); }
     });
 
     app.post('/api/paystack/webhook', async (req, res) => {
@@ -1972,8 +2164,9 @@ function createApp(options = {}) {
             const details = JSON.parse(operation.details_json || '{}');
             const now = new Date().toISOString();
             if (Number(callback.ResultCode) !== 0) {
-                details.mpesaResultCode = Number(callback.ResultCode);
-                details.mpesaResultDescription = text(callback.ResultDesc, 240);
+                const code = String(callback.ResultCode);
+                details.mpesaResultCode = code;
+                details.mpesaResultDescription = MPESA_STK_FAILURE_MESSAGES.get(code) || text(callback.ResultDesc, 240);
                 await store.run("UPDATE wallet_operations SET status = 'failed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, operation.id]);
                 return res.json({ ResultCode: 0, ResultDesc: 'Payment failure recorded.' });
             }
@@ -1989,16 +2182,7 @@ function createApp(options = {}) {
                 await store.run("UPDATE wallet_operations SET status = 'pending', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, operation.id]);
                 return res.json({ ResultCode: 0, ResultDesc: 'Payment requires merchant review.' });
             }
-            await store.transaction(async () => {
-                const changed = await store.run("UPDATE wallet_operations SET status = 'completed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify({ ...details, mpesaReceiptNumber: receipt, mpesaTransactionDate: valueOf('TransactionDate') || null }), now, operation.id]);
-                if (!changed.changes) return;
-                const credited = await store.run('UPDATE wallet_accounts SET balance_cents = balance_cents + ?, updated_at = ? WHERE user_id = ? AND status = \'active\' AND balance_cents <= ?', [operation.amount_cents, now, operation.user_id, 2147483647 - operation.amount_cents]);
-                if (!credited.changes) throw new Error('Active wallet was not available for M-Pesa credit.');
-                await store.run(`INSERT INTO wallet_transactions
-                    (id, user_id, kind, event_type, amount_cents, reference_key, payment_reference, description, created_by, created_at, status, channel, operation_id)
-                    VALUES (?, ?, 'credit', 'deposit', ?, ?, ?, ?, ?, ?, 'completed', 'mpesa_stk', ?)` ,
-                [crypto.randomUUID(), operation.user_id, operation.amount_cents, `wallet-deposit:${operation.id}`, receipt, 'Wallet deposit via M-Pesa STK Push', operation.user_id, now, operation.id]);
-            });
+            await completeMpesaDeposit(operation, { receipt, transactionDate: valueOf('TransactionDate') || null, verifiedVia: 'callback' });
             return res.json({ ResultCode: 0, ResultDesc: 'Payment callback processed.' });
         } catch (error) {
             console.error('M-Pesa callback processing failed', error.message);
@@ -2147,7 +2331,10 @@ function createApp(options = {}) {
     });
 
     app.get('/api/wallet/payment-methods', auth, async (req, res, next) => {
-        res.json({ paymentMethods: [], paymentsPaused: true });
+        try {
+            const rows = (await store.all('SELECT id, kind, label, details_json, use_for, created_at FROM wallet_payment_methods WHERE user_id = ? ORDER BY created_at DESC', [req.user.id])).filter(row => ['mpesa', 'bank'].includes(row.kind));
+            res.json({ paymentMethods: rows.map(row => ({ id: row.id, kind: row.kind, label: row.label, details: JSON.parse(row.details_json || '{}'), useFor: row.use_for, createdAt: row.created_at })) });
+        } catch (error) { next(error); }
     });
 
     async function ownedPaymentMethod(userId, methodId, useFor) {
@@ -2378,74 +2565,127 @@ function createApp(options = {}) {
     app.post('/api/wallet/mpesa/deposits/stk', auth, async (req, res, next) => {
         const cents = amountCents(req.body?.amount);
         const phone = normalizedPhone(req.body?.phone);
-        const methodId = text(req.body?.paymentMethodId, 80);
         const idempotencyKey = text(req.body?.idempotencyKey, 80);
-        if (!cents || cents % 100 !== 0 || cents > 15000000) return res.status(400).json({ error: 'Enter a whole-number M-Pesa deposit between KES 1 and KES 150,000.' });
+        if (!cents || cents % 100 !== 0 || cents < 100 || cents > 15000000) return res.status(400).json({ error: 'Enter a whole KES M-Pesa deposit between KES 1 and KES 150,000.' });
         if (!phone) return res.status(400).json({ error: 'Enter a valid Kenyan phone number to receive the M-Pesa prompt.' });
         if (!/^[A-Za-z0-9-]{16,80}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Refresh the page and try the M-Pesa deposit again.' });
         let config;
-        try { config = paystackConfig(); } catch (error) { return res.status(error.status || 503).json({ error: error.message }); }
+        try { config = mpesaConfig(); } catch (error) { return res.status(error.status || 503).json({ error: error.message }); }
         try {
             const prior = await store.get('SELECT * FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
             if (prior) {
-                if (prior.kind !== 'deposit' || !['mpesa_stk', 'paystack_mpesa'].includes(prior.channel) || Number(prior.amount_cents) !== cents) return res.status(409).json({ error: 'This M-Pesa request key was already used. Refresh and try again.' });
+                if (prior.kind !== 'deposit' || prior.channel !== 'mpesa_stk' || Number(prior.amount_cents) !== cents) return res.status(409).json({ error: 'This M-Pesa request key was already used. Refresh and try again.' });
                 const priorDetails = JSON.parse(prior.details_json || '{}');
-                if (prior.status === 'failed') return res.status(409).json({ error: priorDetails.paystackInitiationError || priorDetails.mpesaResultDescription || 'The previous M-Pesa request did not complete. You can start a new deposit.' });
+                if (prior.status === 'failed') return res.status(409).json({ error: priorDetails.mpesaResultDescription || 'The previous M-Pesa request did not complete. You can start a new deposit.' });
                 return res.json({ operation: { id: prior.id, status: prior.status, amount: cents / 100, phone: priorDetails.payerPhone, message: prior.status === 'completed' ? 'Payment received and wallet credited.' : 'M-Pesa request already started. Check your phone and wait for confirmation.' } });
             }
             await getActiveWallet(req.user.id);
-            const method = await ownedPaymentMethod(req.user.id, methodId, 'deposit');
-            if (method.kind !== 'mpesa') return res.status(400).json({ error: 'Choose a saved M-Pesa deposit method to use the Paystack STK prompt.' });
-            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND channel IN ('mpesa_stk', 'paystack_mpesa') AND status IN ('pending', 'processing')", [req.user.id]);
-            if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several deposits awaiting confirmation. Resolve those first.' });
+            const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'deposit' AND status IN ('pending', 'processing')", [req.user.id]);
+            if (Number(pending.total) >= 3) return res.status(429).json({ error: 'You have M-Pesa deposits waiting for confirmation. Finish or wait for those before starting another.' });
             const id = crypto.randomUUID();
             const now = new Date().toISOString();
-            const reference = `kf-mpesa-${id}`;
-            const details = { payerPhone: phone, paystackReference: reference, paymentProvider: 'Paystack' };
+            const timestamp = darajaTimestamp();
+            const details = { payerPhone: phone, paymentProvider: 'Daraja', mpesaEnvironment: config.mode, mpesaTimestamp: timestamp };
             await store.run(`INSERT INTO wallet_operations
-                (id, user_id, kind, amount_cents, fee_cents, currency, channel, details_json, payment_reference, status, idempotency_key, created_at, updated_at)
-                VALUES (?, ?, 'deposit', ?, 0, 'KES', 'paystack_mpesa', ?, ?, 'processing', ?, ?, ?)`,
-            [id, req.user.id, cents, JSON.stringify(details), reference, idempotencyKey, now, now]);
+                (id, user_id, kind, amount_cents, fee_cents, currency, channel, details_json, status, idempotency_key, created_at, updated_at)
+                VALUES (?, ?, 'deposit', ?, 0, 'KES', 'mpesa_stk', ?, 'processing', ?, ?, ?)`,
+            [id, req.user.id, cents, JSON.stringify(details), idempotencyKey, now, now]);
 
+            let result;
             try {
-                const user = await store.get('SELECT email FROM users WHERE id = ?', [req.user.id]);
-                const result = await paystackRequest('/charge', { config, method: 'POST', body: {
-                    email: user.email, amount: cents, currency: 'KES', reference,
-                    mobile_money: { phone, provider: 'mpesa' },
-                    metadata: { wallet_operation_id: id, purpose: 'KITUI FARM wallet deposit' }
+                result = await mpesaRequest('/mpesa/stkpush/v1/processrequest', { config, body: {
+                    BusinessShortCode: config.shortCode,
+                    Password: mpesaStkPassword(config, timestamp),
+                    Timestamp: timestamp,
+                    TransactionType: config.transactionType,
+                    Amount: Math.round(cents / 100),
+                    PartyA: phone.slice(1),
+                    PartyB: config.shortCode,
+                    PhoneNumber: phone.slice(1),
+                    CallBackURL: config.callbackUrl,
+                    AccountReference: `KF${id.replaceAll('-', '').slice(0, 10)}`,
+                    TransactionDesc: 'KITUI FARM wallet deposit'
                 } });
-                const charge = result.data || {};
-                if (charge.reference && charge.reference !== reference) {
-                    details.paystackReview = 'Paystack returned a different reference than the one reserved for this wallet deposit.';
-                    details.paystackReturnedReference = text(charge.reference, 120);
-                    await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), id]);
-                    return res.status(202).json({ operation: { id, status: 'processing', amount: cents / 100, phone, message: 'Paystack is processing this M-Pesa request. Do not start another payment.' } });
-                }
-                details.paystackChargeStatus = text(charge.status, 40);
-                details.paystackDisplayText = text(charge.display_text || result.message, 240);
-                await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), id]);
-                res.status(202).json({ operation: { id, status: 'processing', amount: cents / 100, phone, message: details.paystackDisplayText || 'Check your phone and approve the Paystack M-Pesa prompt.' } });
             } catch (error) {
-                details.paystackInitiationError = text(error.message, 240);
-                const status = error.status && error.status < 500 ? 'failed' : 'processing';
-                await store.run('UPDATE wallet_operations SET status = ?, details_json = ?, updated_at = ? WHERE id = ? AND status = \'processing\'', [status, JSON.stringify(details), new Date().toISOString(), id]);
+                // A timeout or network failure may happen after Safaricom has
+                // already sent the prompt, so uncertain requests stay visible
+                // for reconciliation instead of being marked failed.
+                details.mpesaInitiationError = text(error.message, 240);
+                const status = error.providerRejected ? 'failed' : 'pending';
+                await store.run("UPDATE wallet_operations SET status = ?, details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [status, JSON.stringify(details), new Date().toISOString(), id]);
                 return res.status(status === 'failed' ? 502 : 202).json({
-                    operation: { id, status, amount: cents / 100 },
-                    error: status === 'processing' ? 'Paystack has not returned a final response. Check your phone and wallet activity before trying again.' : `Paystack could not start the M-Pesa prompt: ${text(error.message, 200)}`
+                    operation: { id, status, amount: cents / 100, phone },
+                    error: status === 'pending'
+                        ? 'Safaricom has not answered yet. Check your phone before trying again; this request is still being confirmed.'
+                        : `Daraja ${config.mode} could not start the M-Pesa prompt: ${text(error.message, 200)}`
                 });
             }
+            if (String(result.ResponseCode) !== '0' || !result.CheckoutRequestID) {
+                details.mpesaResultCode = text(result.ResponseCode, 20);
+                details.mpesaResultDescription = text(result.ResponseDescription || result.errorMessage, 240);
+                await store.run("UPDATE wallet_operations SET status = 'failed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), new Date().toISOString(), id]);
+                return res.status(502).json({ error: details.mpesaResultDescription || 'Daraja could not start the M-Pesa prompt.' });
+            }
+            details.mpesaCheckoutRequestId = text(result.CheckoutRequestID, 120);
+            details.mpesaMerchantRequestId = text(result.MerchantRequestID, 120);
+            details.mpesaPromptSentAt = new Date().toISOString();
+            await store.run("UPDATE wallet_operations SET payment_reference = ?, details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'",
+                [details.mpesaCheckoutRequestId, JSON.stringify(details), new Date().toISOString(), id]);
+            res.status(202).json({ operation: {
+                id, status: 'processing', amount: cents / 100, phone,
+                message: text(result.CustomerMessage || result.ResponseDescription, 240) || 'Check your phone and enter your M-Pesa PIN to approve the payment.'
+            } });
         } catch (error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
             next(error);
         }
     });
 
+    // Confirms an STK Push deposit. When Safaricom's callback is delayed the
+    // page polls this endpoint, which asks Daraja for the latest result.
+    async function reconcileMpesaDeposit(operation) {
+        const details = JSON.parse(operation.details_json || '{}');
+        if (operation.status !== 'processing' || !details.mpesaCheckoutRequestId) return operation;
+        const lastChecked = Date.parse(details.mpesaStatusCheckedAt || '') || 0;
+        if (Date.now() - lastChecked < 8000) return operation;
+        details.mpesaStatusCheckedAt = new Date().toISOString();
+        let query;
+        try {
+            query = await mpesaStkQuery(mpesaConfig(), { checkoutRequestId: details.mpesaCheckoutRequestId });
+        } catch (error) {
+            details.mpesaStatusQueryError = text(error.message, 240);
+            await store.run('UPDATE wallet_operations SET details_json = ? WHERE id = ?', [JSON.stringify(details), operation.id]);
+            return operation;
+        }
+        const resultCode = String(query.ResultCode ?? '');
+        const now = new Date().toISOString();
+        if (resultCode === '0') {
+            await completeMpesaDeposit(operation, { receipt: text(query.MpesaReceiptNumber, 32).toUpperCase(), verifiedVia: 'status_query' });
+        } else if (!resultCode.startsWith('500.')) {
+            details.mpesaResultCode = resultCode;
+            details.mpesaResultDescription = MPESA_STK_FAILURE_MESSAGES.get(resultCode) || text(query.ResultDesc, 240) || 'The M-Pesa payment was not completed.';
+            delete details.mpesaStatusQueryError;
+            await store.run("UPDATE wallet_operations SET status = 'failed', details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, operation.id]);
+        } else {
+            // Daraja still reports the prompt as pending on the customer's phone.
+            details.mpesaQueryStatus = 'awaiting_customer';
+            await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'", [JSON.stringify(details), now, operation.id]);
+        }
+        return store.get('SELECT * FROM wallet_operations WHERE id = ?', [operation.id]);
+    }
+
     app.get('/api/wallet/mpesa/deposits/:id', auth, async (req, res, next) => {
         try {
-            const operation = await store.get("SELECT id, amount_cents, status, details_json, created_at, updated_at FROM wallet_operations WHERE id = ? AND user_id = ? AND kind = 'deposit' AND channel IN ('mpesa_stk', 'paystack_mpesa')", [text(req.params.id, 80), req.user.id]);
+            let operation = await store.get("SELECT id, amount_cents, status, details_json, created_at, updated_at FROM wallet_operations WHERE id = ? AND user_id = ? AND kind = 'deposit' AND channel = 'mpesa_stk'", [text(req.params.id, 80), req.user.id]);
             if (!operation) return res.status(404).json({ error: 'M-Pesa deposit request not found.' });
+            if (operation.status === 'processing') operation = await reconcileMpesaDeposit(operation) || operation;
             const details = JSON.parse(operation.details_json || '{}');
-            res.json({ operation: { id: operation.id, amount: Number(operation.amount_cents) / 100, status: operation.status, receipt: details.mpesaReceiptNumber || details.paystackReference || '', message: details.mpesaResultDescription || details.paystackDisplayText || details.paystackInitiationError || '', updatedAt: operation.updated_at } });
+            res.json({ operation: {
+                id: operation.id, amount: Number(operation.amount_cents) / 100, status: operation.status,
+                receipt: details.mpesaReceiptNumber || '', phone: details.payerPhone || '',
+                message: details.mpesaResultDescription || details.mpesaInitiationError || '',
+                updatedAt: operation.updated_at
+            } });
         } catch (error) { next(error); }
     });
 
@@ -2453,7 +2693,9 @@ function createApp(options = {}) {
         const cents = amountCents(req.body?.amount);
         const methodId = text(req.body?.paymentMethodId, 80);
         const idempotencyKey = text(req.body?.idempotencyKey, 80);
-        if (!cents) return res.status(400).json({ error: 'Enter a whole KES amount from KES 10 to KES 250,000.' });
+        let payoutPhone = normalizedPhone(req.body?.phone);
+        if (!cents || cents % 100 !== 0) return res.status(400).json({ error: 'Enter a whole KES amount from KES 10 to KES 250,000.' });
+        if (cents < 1000 || cents > 25_000_000) return res.status(400).json({ error: 'M-Pesa withdrawals must be between KES 10 and KES 250,000 per transaction.' });
         if (!/^[A-Za-z0-9-]{16,80}$/.test(idempotencyKey)) return res.status(400).json({ error: 'Refresh the page and try the withdrawal request again.' });
         try {
             const prior = await store.get('SELECT id, kind, amount_cents, fee_cents, status, channel, created_at FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
@@ -2461,21 +2703,22 @@ function createApp(options = {}) {
                 return res.json({ operation: { id: prior.id, type: prior.kind, amount: Number(prior.amount_cents) / 100, fee: Number(prior.fee_cents) / 100, status: prior.status, channel: prior.channel, createdAt: prior.created_at } });
             }
             await getActiveWallet(req.user.id);
-            const method = await ownedPaymentMethod(req.user.id, methodId, 'withdrawal');
-            const channel = method.kind;
-            const details = JSON.parse(method.details_json || '{}');
-            if (channel !== 'mpesa') return res.status(400).json({ error: 'Withdrawals are currently paid manually to a saved M-Pesa number. Add an M-Pesa payout method in Settings.' });
-            if (cents % 100 !== 0) return res.status(400).json({ error: 'M-Pesa withdrawals must be a whole KES amount.' });
-            if (cents < 1000 || cents > 25_000_000) return res.status(400).json({ error: 'M-Pesa withdrawals must be between KES 10 and KES 250,000 per transaction.' });
-            const payoutPhone = normalizedPhone(details.phone);
-            if (!payoutPhone) return res.status(400).json({ error: 'Add a valid Kenyan M-Pesa number to your saved payout method.' });
-            details.phone = payoutPhone;
-            details.withdrawalProcessing = 'daraja_b2c';
+            if (methodId) {
+                // A saved payout method can pre-fill the number, but the typed
+                // number always wins so customers can pay out to any M-Pesa line.
+                const method = await ownedPaymentMethod(req.user.id, methodId, 'withdrawal');
+                if (method.kind !== 'mpesa') return res.status(400).json({ error: 'M-Pesa withdrawals are paid through Daraja. Choose or enter an M-Pesa number.' });
+                const saved = JSON.parse(method.details_json || '{}');
+                payoutPhone = payoutPhone || normalizedPhone(saved.phone);
+            }
+            if (!payoutPhone) return res.status(400).json({ error: 'Enter the Kenyan M-Pesa number that should receive the payout.' });
+            const channel = 'mpesa';
+            const details = { phone: payoutPhone, withdrawalProcessing: 'daraja_b2c' };
             const pending = await store.get("SELECT COUNT(*) AS total FROM wallet_operations WHERE user_id = ? AND kind = 'withdrawal' AND status IN ('pending', 'processing')", [req.user.id]);
-            if (Number(pending.total) >= 5) return res.status(429).json({ error: 'You have several withdrawals being processed. Wait for their payout results before requesting another.' });
+            if (Number(pending.total) >= 3) return res.status(429).json({ error: 'You have withdrawals being processed. Wait for their payout results before requesting another.' });
             const id = crypto.randomUUID();
             const now = new Date().toISOString();
-            const description = 'Manual M-Pesa withdrawal request';
+            const description = 'M-Pesa withdrawal to ' + payoutPhone;
             await store.transaction(async () => {
                 const debited = await store.run(`
                     UPDATE wallet_accounts SET balance_cents = balance_cents - ?, updated_at = ?
@@ -2494,10 +2737,22 @@ function createApp(options = {}) {
                 `, [crypto.randomUUID(), req.user.id, cents, `wallet-withdrawal:${id}`, description, now, channel, id]);
             });
             const environment = String(process.env.DARAJA_ENV || 'sandbox').trim().toLowerCase() === 'production' ? 'production' : 'sandbox';
+            if (darajaAutoPayoutEnabled()) {
+                try {
+                    const started = await startDarajaPayout(id, { actorId: null });
+                    return res.status(202).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: started.operation.status, channel, createdAt: now, phone: payoutPhone }, message: started.message });
+                } catch (error) {
+                    // The funds stay reserved and the request waits for an
+                    // administrator instead of failing the customer's request.
+                    console.error('Automatic Daraja payout could not start', error.message);
+                    const message = `Your balance is reserved. The automatic payout could not start (${text(error.message, 160)}), so an administrator will complete it.`;
+                    return res.status(202).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'pending', channel, createdAt: now, phone: payoutPhone }, message });
+                }
+            }
             const message = environment === 'production'
                 ? 'Your balance is reserved. An administrator will start the M-Pesa payout through Safaricom Daraja. The amount stays reserved until Safaricom confirms the outcome.'
                 : 'Your balance is reserved. An administrator will start a Daraja sandbox test. Sandbox does not send real money; the reserved amount is returned after Safaricom responds.';
-            res.status(202).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'pending', channel, createdAt: now, message } });
+            res.status(202).json({ operation: { id, type: 'withdrawal', amount: cents / 100, fee: 0, status: 'pending', channel, createdAt: now, phone: payoutPhone }, message });
         } catch (error) {
             if (error.errcode === 2067) {
                 const prior = await store.get('SELECT id, kind, amount_cents, fee_cents, status, channel, created_at FROM wallet_operations WHERE idempotency_key = ? AND user_id = ?', [idempotencyKey, req.user.id]);
@@ -2549,87 +2804,9 @@ function createApp(options = {}) {
     });
 
     app.post('/api/wallet/admin/operations/:id/daraja-payout', auth, walletAdmin, async (req, res, next) => {
-        let config;
-        try { config = darajaB2cConfig(); }
-        catch (error) { return res.status(error.status || 503).json({ error: error.message }); }
         try {
-            const initial = await store.get("SELECT * FROM wallet_operations WHERE id = ? AND kind = 'withdrawal'", [req.params.id]);
-            if (!initial) throw walletError('Withdrawal request not found.', 404);
-            if (initial.channel !== 'mpesa') throw walletError('Only M-Pesa withdrawal requests can use Daraja B2C.', 409);
-            if (initial.status !== 'pending') throw walletError('This withdrawal has already been started or reviewed. Refresh the requests list before continuing.', 409);
-            const details = JSON.parse(initial.details_json || '{}');
-            if (details.paystackPayoutReference || (details.darajaOriginatorConversationID && details.darajaPayoutStatus !== 'rejected')) throw walletError('This request already has a payment-provider reference. Check its result before attempting another payout.', 409);
-            const phone = normalizedPhone(details.phone);
-            if (!phone) throw walletError('The saved M-Pesa number is invalid. Update the customer payout method before sending.', 409);
-            if (Number(initial.amount_cents) % 100 !== 0) throw walletError('Daraja B2C requires a whole KES amount.', 409);
-            const now = new Date().toISOString();
-            // Safaricom requires a merchant-generated alphanumeric ID shorter than 20 chars.
-            const originatorId = BigInt(`0x${crypto.randomBytes(12).toString('hex')}`).toString(36).toUpperCase().padStart(19, '0');
-            if (details.darajaOriginatorConversationID) {
-                details.darajaAttempts = [...(Array.isArray(details.darajaAttempts) ? details.darajaAttempts : []), {
-                    originatorConversationID: details.darajaOriginatorConversationID,
-                    status: details.darajaPayoutStatus,
-                    error: details.darajaInitiationError || ''
-                }].slice(-5);
-            }
-            details.phone = phone;
-            details.withdrawalProcessing = 'daraja_b2c';
-            details.darajaClientRequestId = originatorId;
-            details.darajaOriginatorConversationID = originatorId;
-            details.darajaPayoutStatus = 'initiating';
-            details.darajaEnvironment = config.mode;
-            details.darajaSandbox = config.mode === 'sandbox';
-            const claimed = await store.transaction(async () => {
-                const fresh = await store.get('SELECT status, reviewed_by FROM wallet_operations WHERE id = ?', [initial.id]);
-                if (!fresh || fresh.status !== 'pending' || fresh.reviewed_by) return false;
-                const result = await store.run("UPDATE wallet_operations SET status = 'processing', reviewed_by = ?, reviewed_at = ?, details_json = ?, updated_at = ? WHERE id = ? AND status = 'pending' AND reviewed_by IS NULL",
-                    [req.user.id, now, JSON.stringify(details), now, initial.id]);
-                return Boolean(result.changes);
-            });
-            if (!claimed) throw walletError('Another administrator has already started this withdrawal. Refresh the requests list.', 409);
-
-            const requestBody = {
-                InitiatorName: config.initiatorName,
-                SecurityCredential: config.securityCredential,
-                CommandID: config.commandId,
-                OriginatorConversationID: originatorId,
-                Amount: String(Number(initial.amount_cents) / 100),
-                PartyA: config.partyA,
-                PartyB: phone.replace(/^\+/, ''),
-                Remarks: `KITUI FARM withdrawal ${initial.id.slice(0, 24)}`,
-                QueueTimeOutURL: config.timeoutUrl,
-                ResultURL: config.resultUrl,
-                Occassion: `KITUI FARM ${initial.id.slice(0, 16)}`
-            };
-            try {
-                const provider = await darajaB2cRequest('/mpesa/b2c/v3/paymentrequest', config, requestBody);
-                const acceptedAt = new Date().toISOString();
-                details.darajaPayoutStatus = 'accepted';
-                details.darajaConversationID = text(provider.ConversationID, 120);
-                details.darajaProviderOriginatorConversationID = text(provider.OriginatorConversationID || originatorId, 120);
-                details.darajaResponseDescription = text(provider.ResponseDescription || `Daraja accepted the ${config.mode} request.`, 240);
-                details.darajaAcceptedAt = acceptedAt;
-                await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'",
-                    [JSON.stringify(details), acceptedAt, initial.id]);
-                const message = config.mode === 'sandbox'
-                    ? 'Daraja accepted the sandbox payout request. Waiting for its callback. Sandbox sends no real money; reserved funds will be returned when Safaricom responds.'
-                    : 'Daraja accepted the M-Pesa payout request. The amount remains reserved until Safaricom confirms the outcome.';
-                return res.status(202).json({ operation: { id: initial.id, status: 'processing', amount: Number(initial.amount_cents) / 100 }, message });
-            } catch (providerError) {
-                const failedAt = new Date().toISOString();
-                details.darajaInitiationError = text(providerError.message, 240);
-                details.darajaInitiationResponse = providerError.providerResponse || null;
-                if (providerError.providerRejected) {
-                    details.darajaPayoutStatus = 'rejected';
-                    await store.run("UPDATE wallet_operations SET status = 'pending', reviewed_by = NULL, reviewed_at = NULL, details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'",
-                        [JSON.stringify(details), failedAt, initial.id]);
-                    throw walletError(`Daraja ${config.mode} declined the payout request: ${text(providerError.message, 220)}`, 502);
-                }
-                details.darajaPayoutStatus = 'initiation_uncertain';
-                await store.run("UPDATE wallet_operations SET details_json = ?, updated_at = ? WHERE id = ? AND status = 'processing'",
-                    [JSON.stringify(details), failedAt, initial.id]);
-                return res.status(202).json({ operation: { id: initial.id, status: 'processing', amount: Number(initial.amount_cents) / 100 }, message: 'Daraja did not return a definite response. The request is held to prevent a duplicate payout. Check Safaricom status before retrying.' });
-            }
+            const result = await startDarajaPayout(text(req.params.id, 80), { actorId: req.user.id });
+            res.status(202).json(result);
         } catch (error) {
             if (error.status) return res.status(error.status).json({ error: error.message });
             next(error);

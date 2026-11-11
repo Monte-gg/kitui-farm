@@ -76,3 +76,6 @@ services:
         sync: false
       - key: DARAJA_CALLBACK_SECRET
         sync: false
+      # true: pay withdrawals automatically. false: an administrator starts each payout.
+      - key: DARAJA_AUTO_PAYOUT
+        value: "false"
