@@ -17,10 +17,11 @@
     try {
         session = JSON.parse(sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession') || 'null');
     } catch { /* use the customer dashboard as the signed-out fallback */ }
+    const isAdmin = session?.role === 'admin';
     const role = session?.role === 'farmer' ? 'farmer' : 'buyer';
-    const profileHref = session?.userId ? `profile.html?accountId=${encodeURIComponent(session.userId)}` : 'profile.html';
-    const dashboardUrl = role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
-    const dashboardLabel = role === 'farmer' ? 'Farmer dashboard' : 'Customer dashboard';
+    const profileHref = isAdmin ? 'admin-profile.html' : (session?.userId ? `profile.html?accountId=${encodeURIComponent(session.userId)}` : 'profile.html');
+    const dashboardUrl = isAdmin ? 'admin.html' : (role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html');
+    const dashboardLabel = isAdmin ? 'Admin console' : (role === 'farmer' ? 'Farmer dashboard' : 'Customer dashboard');
 
     header.classList.add('kf-subpage-header');
     const back = container.querySelector('.kf-back-button') || document.createElement('button');

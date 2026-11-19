@@ -9,9 +9,14 @@ services:
     buildFilter:
       paths:
         - backend/**
+        - assets/**
         - "*.html"
         - "**/*.html"
+        - "*.css"
+        - "**/*.css"
+        - "*.js"
         - "**/*.js"
+        - version.json
         - render.yaml
     buildCommand: npm install
     startCommand: npm start

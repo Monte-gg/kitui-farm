@@ -68,6 +68,13 @@ async function fundWallet(user, balance = 100000) {
 test('serves the health endpoint and existing app pages', async () => {
     assert.deepEqual((await request('/api/health')).data, { status: 'ok' });
     assert.equal((await fetch(`${baseUrl}/signup.html`)).status, 200);
+    assert.equal((await fetch(`${baseUrl}/brand-theme.css`)).status, 200);
+    assert.equal((await fetch(`${baseUrl}/brand.js`)).status, 200);
+    assert.equal((await fetch(`${baseUrl}/mobile-layout.css`)).status, 200);
+    assert.equal((await fetch(`${baseUrl}/assets/kitui-farm-emblem.png`)).status, 200);
+    const versionResponse = await fetch(`${baseUrl}/version.json`);
+    assert.equal(versionResponse.status, 200);
+    assert.match((await versionResponse.json()).version, /^\d+\.\d+/);
 });
 
 test('authenticates users, rejects duplicate identities, and uses an HTTP-only cookie', async () => {

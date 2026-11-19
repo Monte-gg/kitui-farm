@@ -18,6 +18,10 @@ const CATEGORIES = new Set(['Fruits', 'Vegetables', 'Grains & Pulses', 'Roots & 
 const PAYMENT_METHODS = new Set([
     'KITUI FARM Wallet'
 ]);
+const STATIC_ASSETS = [
+    'api-base.js', 'brand-theme.css', 'brand.js', 'mobile-layout.css',
+    'site-only.js', 'subpage-nav.css', 'subpage-nav.js', 'theme-init.js', 'update-notification.js'
+];
 const PAGES = [
     'about-us.html', 'admin-register.html', 'admin-signin.html', 'buyer-dashboard.html', 'chat.html', 'customer-service.html', 'email-verify.html', 'farmer-dashboard.html', 'farmer-store.html',
     'forgot-password.html', 'index.html', 'login.html', 'payment.html', 'profile.html', 'receipt.html', 'receipts.html',
@@ -4095,30 +4099,42 @@ function createApp(options = {}) {
         }
     });
 
-    app.get('/', (req, res) => res.sendFile(path.join(ROOT, 'login.html')));
+    app.get('/', (req, res) => res.sendFile('login.html', { root: ROOT, dotfiles: 'allow' }));
+    app.get('/version.json', (req, res) => {
+        res.setHeader('Cache-Control', 'no-store');
+        try {
+            const raw = fs.readFileSync(path.join(ROOT, 'version.json'), 'utf8')
+                .replace(/^---\r?\n---\r?\n/, '').trim();
+            const parsed = JSON.parse(raw);
+            if (typeof parsed.version === 'string' && !parsed.version.includes('{{')) {
+                return res.json({ version: parsed.version.trim() });
+            }
+        } catch { /* fall back to package version */ }
+        res.json({ version: '1.0.0' });
+    });
+    app.use('/assets', express.static(path.join(ROOT, 'assets'), { dotfiles: 'allow', fallthrough: false }));
     app.get('/wallet.html', (req, res) => {
         res.setHeader('Cache-Control', 'no-store');
-        res.sendFile(path.join(ROOT, 'wallet.html'));
+        res.sendFile('wallet.html', { root: ROOT, dotfiles: 'allow' });
     });
     app.get('/admin.html', adminPageAuth, (req, res) => {
         res.setHeader('Cache-Control', 'no-store, private');
         res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-        res.sendFile(path.join(ROOT, 'admin.html'));
+        res.sendFile('admin.html', { root: ROOT, dotfiles: 'allow' });
     });
     app.get('/admin-chat.html', adminPageAuth, (req, res) => {
         res.setHeader('Cache-Control', 'no-store, private');
         res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-        res.sendFile(path.join(ROOT, 'chat.html'));
+        res.sendFile('chat.html', { root: ROOT, dotfiles: 'allow' });
     });
     app.get('/admin-profile.html', adminPageAuth, (req, res) => {
         res.setHeader('Cache-Control', 'no-store, private');
         res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-        res.sendFile(path.join(ROOT, 'admin-profile.html'));
+        res.sendFile('admin-profile.html', { root: ROOT, dotfiles: 'allow' });
     });
     app.get('/wallet-admin.html', adminPageAuth, (req, res) => res.redirect('/admin.html#wallet-approvals'));
-    for (const page of PAGES) app.get(`/${page}`, (req, res) => res.sendFile(path.join(ROOT, page)));
-    app.get('/site-only.js', (req, res) => res.sendFile(path.join(ROOT, 'site-only.js')));
-    app.get('/api-base.js', (req, res) => res.sendFile(path.join(ROOT, 'api-base.js')));
+    for (const page of PAGES) app.get(`/${page}`, (req, res) => res.sendFile(page, { root: ROOT, dotfiles: 'allow' }));
+    for (const asset of STATIC_ASSETS) app.get(`/${asset}`, (req, res) => res.sendFile(asset, { root: ROOT, dotfiles: 'allow' }));
 
     app.use('/api', (req, res) => res.status(404).json({ error: 'API endpoint not found.' }));
     app.use((error, req, res, next) => {

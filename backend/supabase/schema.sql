@@ -116,6 +116,32 @@ create table if not exists order_items (
 create index if not exists idx_order_items_farmer on order_items (farmer_id);
 create index if not exists idx_order_items_order on order_items (order_id);
 
+create table if not exists order_delivery_updates (
+    id text primary key,
+    order_id text not null references orders (id) on delete cascade,
+    status text not null,
+    note text not null default '',
+    updated_by text references users (id) on delete set null,
+    created_at text not null
+);
+
+create index if not exists idx_order_delivery_updates_order on order_delivery_updates (order_id, created_at);
+
+create table if not exists order_return_requests (
+    id text primary key,
+    order_id text not null unique references orders (id) on delete cascade,
+    buyer_id text not null references users (id) on delete cascade,
+    reason text not null,
+    photo_data text not null default '',
+    status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+    response text not null default '',
+    reviewed_by text references users (id) on delete set null,
+    created_at text not null,
+    updated_at text not null
+);
+
+create index if not exists idx_order_return_requests_status on order_return_requests (status, created_at);
+
 create table if not exists user_settings (
     user_id text primary key references users (id) on delete cascade,
     settings_json text not null
@@ -160,6 +186,20 @@ create table if not exists chat_conversation_states (
     deleted_at text,
     primary key (conversation_id, user_id)
 );
+
+create table if not exists chat_presence (
+    user_id text primary key references users(id) on delete cascade,
+    last_seen text not null
+);
+
+create table if not exists wishlist_items (
+    user_id text not null references users(id) on delete cascade,
+    listing_id text not null,
+    created_at text not null,
+    primary key (user_id, listing_id)
+);
+
+create index if not exists idx_wishlist_items_user on wishlist_items(user_id, created_at);
 
 create index if not exists idx_chat_conversations_buyer on chat_conversations(buyer_id, last_message_at);
 create index if not exists idx_chat_conversations_farmer on chat_conversations(farmer_id, last_message_at);
@@ -219,6 +259,18 @@ create table if not exists wallet_operations (
 create index if not exists idx_wallet_operations_user on wallet_operations (user_id, created_at);
 create index if not exists idx_wallet_operations_status on wallet_operations (status, created_at);
 create unique index if not exists idx_wallet_operations_payment_reference on wallet_operations (payment_reference) where payment_reference is not null;
+
+create table if not exists wallet_payment_methods (
+    id text primary key,
+    user_id text not null references users (id) on delete cascade,
+    kind text not null check (kind in ('mpesa', 'airtel', 'bank')),
+    label text not null,
+    details_json text not null,
+    use_for text not null check (use_for in ('deposit', 'withdrawal', 'both')),
+    created_at text not null,
+    updated_at text not null
+);
+
 create table if not exists wallet_schema_migrations (version integer primary key, applied_at text not null);
 
 create table if not exists wallet_admins (
@@ -243,6 +295,11 @@ alter table wallet_transactions enable row level security;
 alter table wallet_operations enable row level security;
 alter table wallet_schema_migrations enable row level security;
 alter table wallet_admins enable row level security;
+alter table order_delivery_updates enable row level security;
+alter table order_return_requests enable row level security;
+alter table chat_presence enable row level security;
+alter table wishlist_items enable row level security;
+alter table wallet_payment_methods enable row level security;
 
 -- Demo listings, matching seedListings() in backend/server.js.
 insert into listings (id, farmer_id, seller_name, name, category, quantity, minimum_order, price, location, image, created_at)

@@ -612,8 +612,8 @@
             if (!window.confirm(`Cancel order ${orderId}? Any wallet payment will be refunded if cancellation is accepted.`)) return;
             try {
                 await apiRequest(`/api/orders/${encodeURIComponent(orderId)}`, { method:'DELETE' });
-                const order = readArray('kituiFarmOrders').find(item => item.id === orderId);
-                if (order) { order.status = 'Cancelled'; order.deliveryUpdates = [...(order.deliveryUpdates || []), { status:'Cancelled', note:'The buyer cancelled before dispatch.', createdAt:new Date().toISOString() }]; writeArray('kituiFarmOrders', readArray('kituiFarmOrders')); }
+                const orders = readArray('kituiFarmOrders').filter(item => item.id !== orderId);
+                writeArray('kituiFarmOrders', orders);
                 marketNotice.textContent = 'Order cancelled. Any eligible wallet payment has been refunded.'; marketNotice.hidden = false; render();
             } catch (error) { marketNotice.textContent = error.message || 'Could not cancel the order.'; marketNotice.hidden = false; }
         }
