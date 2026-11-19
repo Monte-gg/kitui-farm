@@ -2,8 +2,8 @@
   'use strict';
   const scriptEl = document.currentScript || document.querySelector('script[src*="brand.js"]');
   const siteRoot = new URL('.', scriptEl ? scriptEl.src : window.location.href);
-  const iconUrl = new URL('assets/kitui-farm-emblem.png', siteRoot).href;
-  const manifestUrl = new URL('manifest.webmanifest', siteRoot).href;
+  const iconUrl = new URL('assets/kitui-farm-emblem.png?v=2', siteRoot).href;
+  const manifestUrl = new URL('manifest.webmanifest?v=2', siteRoot).href;
   const swUrl = new URL('sw.js', siteRoot).href;
   const APP_INSTALLED_KEY = 'kituiFarmAppInstalled';
 
@@ -51,10 +51,11 @@
 
   // 2. Keep the signed-in user present while they browse any page.
   let activeSession = null;
+  let activeToken = '';
   try {
     activeSession = JSON.parse(sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession') || 'null');
-    const token = sessionStorage.getItem('kituiFarmToken') || localStorage.getItem('kituiFarmToken');
-    if (activeSession && token && ['buyer', 'farmer'].includes(activeSession.role)) {
+    activeToken = sessionStorage.getItem('kituiFarmToken') || localStorage.getItem('kituiFarmToken') || '';
+    if (activeSession && activeToken && ['buyer', 'farmer'].includes(activeSession.role)) {
       const heartbeat = () => fetch('/api/chat/presence', { method: 'POST' }).catch(() => {});
       heartbeat();
       window.setInterval(heartbeat, 25_000);
@@ -75,10 +76,10 @@
       brandStylesheet.href = new URL('brand-theme.css?siteVersion=' + version, siteRoot).href;
     }
     const favicon = document.querySelector('link[rel="icon"]');
-    if (favicon) favicon.href = iconUrl + '?siteVersion=' + version;
-    if (appleIcon) appleIcon.href = iconUrl + '?siteVersion=' + version;
+    if (favicon) favicon.href = new URL('assets/kitui-farm-emblem.png?siteVersion=' + version, siteRoot).href;
+    if (appleIcon) appleIcon.href = new URL('assets/kitui-farm-emblem.png?siteVersion=' + version, siteRoot).href;
     document.querySelectorAll('.kitui-brand-icon, .kitui-login-emblem, .kitui-avatar-icon').forEach((image) => {
-      image.src = iconUrl + '?siteVersion=' + version;
+      image.src = new URL('assets/kitui-farm-emblem.png?siteVersion=' + version, siteRoot).href;
     });
   }).catch(() => {});
 
@@ -181,7 +182,6 @@
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault();
     deferredInstallPrompt = event;
-    // If the browser fires beforeinstallprompt, the app is not currently installed
     try { localStorage.removeItem(APP_INSTALLED_KEY); } catch (error) {}
     document.documentElement.classList.remove('kf-is-installed');
     document.documentElement.classList.add('kf-can-install');
@@ -215,14 +215,14 @@
         <button type="button" class="button secondary kf-install-close" aria-label="Close install guide">Close</button>
       </div>
       <div class="kf-install-dialog__body">
-        <p class="kf-install-lead" id="kfInstallDialogLead">Add KITUI FARM to your home screen with our official emblem icon for full-screen browsing, M-Pesa wallet payments, and automatic update notifications.</p>
+        <p class="kf-install-lead" id="kfInstallDialogLead">Add KITUI FARM to your home screen with our official emblem icon for full-screen browsing, M-Pesa wallet payments, and real-time notifications.</p>
         <div class="kf-install-guides">
           <article class="kf-install-guide" data-guide="android">
             <h3><span aria-hidden="true">🤖</span> Android (Chrome / Edge / Samsung)</h3>
             <ol>
               <li>Tap <strong>Install App Now</strong> below (or tap your browser menu <strong>⋮</strong> in the top-right corner).</li>
               <li>Select <strong>Install app</strong> or <strong>Add to Home screen</strong>.</li>
-              <li>Confirm <strong>Install</strong> — the KITUI FARM icon will appear on your phone and this download card will disappear automatically.</li>
+              <li><em>Tip:</em> If you installed an earlier version with the old sprout icon, remove that old shortcut from your home screen and install again to get the new KITUI FARM emblem icon.</li>
             </ol>
           </article>
           <article class="kf-install-guide" data-guide="ios">
@@ -288,7 +288,7 @@
   }
 
   // Build the "Download the KITUI FARM Mobile App (Android & iOS)" section
-  // (Skipped automatically once the app is installed)
+  // (Only on public/auth & dashboard pages; skipped on restricted admin sign-in/register pages or once installed)
   function injectAppDownloadSection() {
     if (isAppInstalled()) {
       document.documentElement.classList.add('kf-is-installed');
@@ -298,7 +298,10 @@
     }
     if (document.getElementById('kfAppDownloadSection')) return;
     const path = location.pathname.split('/').pop() || 'index.html';
-    if (['admin-chat.html', 'wallet-admin.html', 'receipt.html'].includes(path)) return;
+    if ([
+      'admin-chat.html', 'wallet-admin.html', 'receipt.html',
+      'admin-signin.html', 'admin-register.html', 'admin.html', 'admin-profile.html'
+    ].includes(path)) return;
 
     const section = document.createElement('section');
     section.id = 'kfAppDownloadSection';
@@ -319,7 +322,7 @@
           <ul class="kf-app-features" aria-label="Mobile app highlights">
             <li><span aria-hidden="true">✓</span> One-tap access with the KITUI FARM emblem on your home screen</li>
             <li><span aria-hidden="true">✓</span> Instant M-Pesa STK Push wallet deposits &amp; payouts</li>
-            <li><span aria-hidden="true">✓</span> In-app "Update Available" notifications with 1-tap download &amp; update</li>
+            <li><span aria-hidden="true">✓</span> Live app notifications for messages, orders, and wallet activity</li>
           </ul>
           <div class="kf-store-buttons" role="group" aria-label="Download KITUI FARM app for Android or iOS">
             <button type="button" class="kf-store-btn kf-store-btn--android" data-kf-install="android">
@@ -372,7 +375,8 @@
     `;
 
     const main = document.querySelector('main');
-    if (main && main.classList.contains('container')) {
+    const isAuthCardPage = main && (main.classList.contains('container') || main.classList.contains('card'));
+    if (isAuthCardPage) {
       document.body.classList.add('kf-auth-page');
       section.classList.add('kf-app-download--compact');
       main.insertAdjacentElement('afterend', section);
@@ -383,6 +387,289 @@
     section.querySelectorAll('[data-kf-install]').forEach((button) => {
       button.addEventListener('click', () => triggerAppInstall(button.dataset.kfInstall));
     });
+  }
+
+  // 5. Real-Time App Notifications Center (Bell in topbar + Push/System notifications)
+  function initAppNotifications() {
+    if (!activeSession || !activeToken || !activeSession.userId) return;
+    if (!['buyer', 'farmer'].includes(activeSession.role)) return;
+    const path = location.pathname.split('/').pop() || 'index.html';
+    if (['login.html', 'signup.html', 'forgot-password.html', 'admin-signin.html', 'admin-register.html'].includes(path)) return;
+
+    const topbarContainer = document.querySelector('.header-actions')
+      || document.querySelector('.topbar-inner')
+      || document.querySelector('.bar');
+    if (!topbarContainer || document.getElementById('kfNotifWrap')) return;
+
+    const SEEN_KEY = `kituiFarmNotifSeen_${activeSession.userId}`;
+    const SNAP_KEY = `kituiFarmNotifSnap_${activeSession.userId}`;
+    const PUSH_PREF_KEY = `kituiFarmPushEnabled_${activeSession.userId}`;
+    let notifications = [];
+
+    const readJson = (key, fallback) => {
+      try { return JSON.parse(localStorage.getItem(key) || 'null') || fallback; }
+      catch { return fallback; }
+    };
+    const writeJson = (key, val) => {
+      try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+    };
+
+    const wrap = document.createElement('div');
+    wrap.id = 'kfNotifWrap';
+    wrap.className = 'kf-notif-wrap';
+    wrap.innerHTML = `
+      <button type="button" class="kf-notif-button" id="kfNotifButton" aria-label="Open notifications" aria-haspopup="true" aria-expanded="false" aria-controls="kfNotifPanel">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
+          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </svg>
+        <span class="kf-notif-badge" id="kfNotifBadge" hidden>0</span>
+      </button>
+      <aside class="kf-notif-panel" id="kfNotifPanel" aria-label="Notifications" hidden>
+        <div class="kf-notif-panel__head">
+          <div>
+            <strong>Notifications</strong>
+            <small id="kfNotifSummary">Messages, orders &amp; wallet updates</small>
+          </div>
+          <button type="button" class="kf-notif-mark-read" id="kfNotifMarkRead">Mark all read</button>
+        </div>
+        <div class="kf-notif-push-bar" id="kfNotifPushBar" hidden>
+          <span>Get alerts on your phone screen</span>
+          <button type="button" class="button primary small" id="kfEnablePushBtn">Enable alerts</button>
+        </div>
+        <div class="kf-notif-list" id="kfNotifList" role="list">
+          <p class="kf-notif-empty">Checking for updates…</p>
+        </div>
+      </aside>
+    `;
+
+    // Place the notification bell right before the 3-dot menu or at the end of the header
+    const moreMenu = topbarContainer.querySelector('#moreMenu, .kf-menu-wrap');
+    if (moreMenu) {
+      topbarContainer.insertBefore(wrap, moreMenu);
+    } else {
+      topbarContainer.appendChild(wrap);
+    }
+
+    const button = wrap.querySelector('#kfNotifButton');
+    const badge = wrap.querySelector('#kfNotifBadge');
+    const panel = wrap.querySelector('#kfNotifPanel');
+    const listNode = wrap.querySelector('#kfNotifList');
+    const markReadBtn = wrap.querySelector('#kfNotifMarkRead');
+    const pushBar = wrap.querySelector('#kfNotifPushBar');
+    const enablePushBtn = wrap.querySelector('#kfEnablePushBtn');
+
+    function updatePushBarVisibility() {
+      if (!('Notification' in window)) { pushBar.hidden = true; return; }
+      if (Notification.permission === 'granted') {
+        pushBar.hidden = true;
+      } else if (Notification.permission === 'default') {
+        pushBar.hidden = false;
+      } else {
+        pushBar.hidden = true;
+      }
+    }
+    updatePushBarVisibility();
+
+    enablePushBtn.addEventListener('click', async () => {
+      if (!('Notification' in window)) return;
+      try {
+        const perm = await Notification.requestPermission();
+        if (perm === 'granted') {
+          localStorage.setItem(PUSH_PREF_KEY, '1');
+          showSystemNotification('KITUI FARM notifications enabled', 'You will receive alerts for new messages, orders, and wallet activity.', location.href);
+        }
+      } catch {}
+      updatePushBarVisibility();
+    });
+
+    function showSystemNotification(title, body, url, tag) {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      try {
+        if ('serviceWorker' in navigator && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.controller.postMessage({
+            type: 'SHOW_NOTIFICATION',
+            title,
+            body,
+            url,
+            icon: iconUrl,
+            tag: tag || 'kitui-farm-alert'
+          });
+          return;
+        }
+        new Notification(title, { body, icon: iconUrl, tag: tag || 'kitui-farm-alert' });
+      } catch {}
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    }
+
+    function formatTime(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return '';
+      return d.toLocaleString('en-KE', { dateStyle: 'medium', timeStyle: 'short' });
+    }
+
+    function renderNotificationList() {
+      const seenMap = readJson(SEEN_KEY, {});
+      const unread = notifications.filter((item) => !seenMap[item.key]);
+      badge.hidden = unread.length === 0;
+      badge.textContent = unread.length > 99 ? '99+' : String(unread.length);
+      button.setAttribute(
+        'aria-label',
+        unread.length ? `Open notifications (${unread.length} unread)` : 'Open notifications'
+      );
+
+      if (!notifications.length) {
+        listNode.innerHTML = '<p class="kf-notif-empty">No notifications yet. Messages, order updates, and wallet activity will appear here.</p>';
+        return;
+      }
+
+      listNode.innerHTML = notifications.slice(0, 20).map((item) => {
+        const isUnread = !seenMap[item.key];
+        return `<a href="${escapeHtml(item.href)}" class="kf-notif-item ${isUnread ? 'unread' : ''}" data-notif-key="${escapeHtml(item.key)}" role="listitem">
+          <span class="kf-notif-item__icon" aria-hidden="true">${item.icon}</span>
+          <span class="kf-notif-item__body">
+            <strong>${escapeHtml(item.title)}</strong>
+            <span>${escapeHtml(item.body)}</span>
+            <time>${escapeHtml(formatTime(item.time))}</time>
+          </span>
+          ${isUnread ? '<span class="kf-notif-dot" aria-label="Unread"></span>' : ''}
+        </a>`;
+      }).join('');
+    }
+
+    function markAllRead() {
+      const seenMap = readJson(SEEN_KEY, {});
+      notifications.forEach((item) => { seenMap[item.key] = true; });
+      writeJson(SEEN_KEY, seenMap);
+      renderNotificationList();
+    }
+
+    markReadBtn.addEventListener('click', markAllRead);
+    listNode.addEventListener('click', (event) => {
+      const link = event.target.closest('[data-notif-key]');
+      if (!link) return;
+      const seenMap = readJson(SEEN_KEY, {});
+      seenMap[link.dataset.notifKey] = true;
+      writeJson(SEEN_KEY, seenMap);
+      renderNotificationList();
+    });
+
+    const setOpen = (open) => {
+      panel.hidden = !open;
+      button.setAttribute('aria-expanded', String(open));
+      if (open) updatePushBarVisibility();
+    };
+    button.addEventListener('click', () => setOpen(panel.hidden));
+    document.addEventListener('click', (event) => {
+      if (!wrap.contains(event.target) && !panel.hidden) setOpen(false);
+    });
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !panel.hidden) {
+        setOpen(false);
+        button.focus();
+      }
+    });
+
+    async function pollNotifications(isFirstRun) {
+      if (document.visibilityState === 'hidden' && !isFirstRun) return;
+      try {
+        const role = activeSession.role === 'farmer' ? 'farmer' : 'buyer';
+        const ordersEndpoint = role === 'farmer' ? '/api/orders' : '/api/orders/purchases';
+        const [chatRes, ordersRes, walletRes] = await Promise.all([
+          fetch('/api/chat/conversations').then((r) => (r.ok ? r.json() : { conversations: [] })).catch(() => ({ conversations: [] })),
+          fetch(ordersEndpoint).then((r) => (r.ok ? r.json() : { orders: [] })).catch(() => ({ orders: [] })),
+          fetch('/api/wallet').then((r) => (r.ok ? r.json() : { transactions: [] })).catch(() => ({ transactions: [] }))
+        ]);
+
+        const items = [];
+        const prevSnap = readJson(SNAP_KEY, { initialized: false, keys: {} });
+        const nextSnapKeys = { ...(prevSnap.keys || {}) };
+        const freshAlerts = [];
+
+        // 1. Unread chat messages
+        for (const conv of chatRes.conversations || []) {
+          if (Number(conv.unreadCount) > 0) {
+            const key = `chat:${conv.id}:${conv.updatedAt}:${conv.unreadCount}`;
+            const item = {
+              key,
+              icon: '💬',
+              title: `${conv.unreadCount} unread message${conv.unreadCount === 1 ? '' : 's'} from ${conv.peerName}`,
+              body: conv.lastMessage || `Regarding ${conv.listingName}`,
+              time: conv.updatedAt,
+              href: 'chat.html'
+            };
+            items.push(item);
+            if (prevSnap.initialized && !prevSnap.keys[key]) freshAlerts.push(item);
+            nextSnapKeys[key] = true;
+          }
+        }
+
+        // 2. Orders & delivery status updates
+        for (const order of (ordersRes.orders || []).slice(0, 12)) {
+          const latestUpdate = Array.isArray(order.deliveryUpdates) && order.deliveryUpdates.length
+            ? order.deliveryUpdates[order.deliveryUpdates.length - 1]
+            : null;
+          const time = (latestUpdate && latestUpdate.createdAt) || order.createdAt;
+          const status = order.status || 'Processing';
+          const key = `order:${order.id}:${status}:${order.returnRequest ? order.returnRequest.status : ''}`;
+          const productNames = Array.isArray(order.items) ? order.items.map((i) => i.name).join(', ') : 'Order';
+          const title = role === 'farmer'
+            ? `Order ${order.id} · ${status}`
+            : `Order ${order.id} is ${status}`;
+          const body = latestUpdate && latestUpdate.note
+            ? `${productNames} — ${latestUpdate.note}`
+            : `${productNames} · KES ${Number(order.total || 0).toLocaleString('en-KE')}`;
+          const item = {
+            key,
+            icon: status === 'Delivered' || status === 'Completed' ? '✅' : '📦',
+            title,
+            body,
+            time,
+            href: role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html#orders'
+          };
+          items.push(item);
+          if (prevSnap.initialized && !prevSnap.keys[key]) freshAlerts.push(item);
+          nextSnapKeys[key] = true;
+        }
+
+        // 3. Recent wallet transactions
+        for (const tx of (walletRes.transactions || []).slice(0, 8)) {
+          const key = `wallet:${tx.id}:${tx.status}`;
+          const sign = tx.direction === 'credit' ? '+' : '−';
+          const item = {
+            key,
+            icon: tx.direction === 'credit' ? '💰' : '💳',
+            title: `Wallet ${tx.type}: ${sign}KES ${Number(tx.amount || 0).toLocaleString('en-KE')}`,
+            body: tx.description || 'KITUI FARM Wallet activity',
+            time: tx.createdAt,
+            href: 'wallet.html'
+          };
+          items.push(item);
+          if (prevSnap.initialized && !prevSnap.keys[key]) freshAlerts.push(item);
+          nextSnapKeys[key] = true;
+        }
+
+        items.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
+        notifications = items;
+        writeJson(SNAP_KEY, { initialized: true, keys: nextSnapKeys });
+        renderNotificationList();
+
+        if (freshAlerts.length > 0) {
+          const top = freshAlerts[0];
+          showSystemNotification(top.title, top.body, top.href, top.key);
+        }
+      } catch (error) {
+        /* Never disrupt normal browsing if notification polling fails */
+      }
+    }
+
+    pollNotifications(true);
+    window.setInterval(() => pollNotifications(false), 20_000);
+    window.addEventListener('focus', () => pollNotifications(false));
   }
 
   // Inject a mobile bottom app navigation bar for signed-in buyer/farmer pages
@@ -436,4 +723,5 @@
 
   injectAppDownloadSection();
   injectMobileAppTabBar();
+  initAppNotifications();
 })();

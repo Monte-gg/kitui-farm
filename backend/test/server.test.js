@@ -74,6 +74,8 @@ test('serves the health endpoint and existing app pages', async () => {
     assert.equal((await fetch(`${baseUrl}/manifest.webmanifest`)).status, 200);
     assert.equal((await fetch(`${baseUrl}/sw.js`)).status, 200);
     assert.equal((await fetch(`${baseUrl}/icons/icon-192x192.png`)).status, 200);
+    assert.equal((await fetch(`${baseUrl}/icons/emblem-192x192.png`)).status, 200);
+    assert.equal((await fetch(`${baseUrl}/icons/emblem-512x512.png`)).status, 200);
     assert.equal((await fetch(`${baseUrl}/assets/kitui-farm-emblem.png`)).status, 200);
     const versionResponse = await fetch(`${baseUrl}/version.json`);
     assert.equal(versionResponse.status, 200);
@@ -680,4 +682,33 @@ test('lets an administrator start a Daraja B2C payout from the admin console', a
         assert.equal(again.status, 409, 'a started payout cannot be sent twice');
         assert.equal((await request('/api/wallet', { cookie: buyer.cookie })).data.wallet.balance, 700);
     } finally { daraja.restore(); restoreEnv(); }
+});
+
+test('enables admin access for an existing Gmail account and signs in with tolerant name matching', async () => {
+    const existing = await signup('buyer', 90);
+    // Update the stored name to Samuel Sila, then sign in with "Nzung'a Samuel Sila" and the 4-digit security code
+    await db.run('UPDATE users SET name = ? WHERE id = ?', ['Samuel Sila', existing.id]);
+    const loginWithCode = await request('/api/admin/login', {
+        method: 'POST',
+        body: {
+            name: "Nzung'a Samuel Sila",
+            email: existing.email,
+            password: 'StrongPass123',
+            code: '0987'
+        }
+    });
+    assert.equal(loginWithCode.status, 200);
+    assert.equal(loginWithCode.data.user.role, 'admin');
+
+    // Subsequent admin logins work with either "Samuel Sila" or "Nzung'a Samuel Sila" without needing the code again
+    const loginAgain = await request('/api/admin/login', {
+        method: 'POST',
+        body: {
+            name: 'Samuel Sila',
+            email: existing.email,
+            password: 'StrongPass123'
+        }
+    });
+    assert.equal(loginAgain.status, 200);
+    assert.equal(loginAgain.data.user.role, 'admin');
 });

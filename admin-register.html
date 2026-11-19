@@ -51,9 +51,9 @@
     <main class="card">
         <a class="brand" href="login.html">🌱 KITUI FARM</a>
         <p class="eyebrow">Restricted access</p>
-        <h1>Create admin access</h1>
-        <p class="intro">Enter the registration security code, then create a separate admin account for the console.</p>
-        <p class="note">Admin accounts use their own name, Gmail address, and password for admin console sign-in.</p>
+        <h1>Create or enable admin access</h1>
+        <p class="intro">Enter the 4-digit registration security code (default: 0987), then create a new admin account or enable admin console access for your existing KITUI FARM Gmail.</p>
+        <p class="note">If your Gmail already has a KITUI FARM account, entering it here upgrades it for the Admin Console and sets its password.</p>
         <form id="gateForm">
             <div class="field"><label for="securityCode">4-digit security code</label><input id="securityCode" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="one-time-code" placeholder="4-digit code" required></div>
             <button class="button" id="gateButton" type="submit">Continue to admin registration</button>
@@ -62,7 +62,7 @@
             <div class="field"><label for="adminName">Full name</label><input id="adminName" type="text" autocomplete="name" maxlength="100" required></div>
             <div class="field"><label for="adminEmail">Admin Gmail</label><input id="adminEmail" type="email" autocomplete="email" maxlength="254" required></div>
             <div class="field"><label for="adminPassword">Create password</label><div class="password-wrap"><input id="adminPassword" type="password" autocomplete="new-password" minlength="8" maxlength="128" required><button class="toggle-password" type="button" aria-label="Show password" aria-pressed="false" aria-controls="adminPassword"><svg class="eye-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"></path><circle cx="12" cy="12" r="3"></circle></svg><svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18"></path><path d="M10.6 5.2A10.8 10.8 0 0 1 12 5c6.4 0 10 7 10 7s-3.6 7-10 7a10 10 0 0 1-4-.8"></path><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path></svg></button></div><small class="hint">Use at least 8 characters.</small></div>
-            <button class="button" id="registerButton" type="submit">Create admin account</button>
+            <button class="button" id="registerButton" type="submit">Create or enable admin account</button>
         </form>
         <p class="status" id="status" role="status" aria-live="polite"></p>
         <a class="back" href="admin-signin.html">← Back to admin sign-in</a>

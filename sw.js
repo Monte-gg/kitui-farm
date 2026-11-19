@@ -1,9 +1,7 @@
 'use strict';
 
-// Network-first PWA service worker for KITUI FARM.
-// Required so Android Chrome and Microsoft Edge show the native "Install App" prompt,
-// while always serving the freshest live HTML/API responses when online.
-const CACHE_NAME = 'kitui-farm-shell-v2';
+// Network-first PWA service worker for KITUI FARM + System Notification handler.
+const CACHE_NAME = 'kitui-farm-shell-v3';
 
 self.addEventListener('install', () => {
   self.skipWaiting();
@@ -33,6 +31,35 @@ self.addEventListener('message', (event) => {
       ).then(() => self.skipWaiting())
     );
   }
+  if (event.data.type === 'SHOW_NOTIFICATION' && self.registration && self.registration.showNotification) {
+    const title = String(event.data.title || 'KITUI FARM');
+    const options = {
+      body: String(event.data.body || ''),
+      icon: event.data.icon || 'assets/kitui-farm-emblem.png?v=2',
+      badge: event.data.icon || 'assets/kitui-farm-emblem.png?v=2',
+      tag: event.data.tag || 'kitui-farm-notification',
+      data: { url: event.data.url || './' }
+    };
+    event.waitUntil(self.registration.showNotification(title, options).catch(() => {}));
+  }
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) || './';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      for (const client of windowClients) {
+        if ('focus' in client) {
+          client.navigate(targetUrl).catch(() => {});
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(targetUrl);
+      }
+    })
+  );
 });
 
 self.addEventListener('fetch', (event) => {

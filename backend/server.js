@@ -1786,19 +1786,25 @@ function createApp(options = {}) {
             return res.status(400).json({ error: 'Enter your name, a valid Gmail address, and a password of at least 8 characters.' });
         }
         try {
-            const existing = await store.get('SELECT id FROM users WHERE lower(trim(email)) = lower(?)', [email]);
-            if (existing) return res.status(409).json({ error: 'An account already uses this Gmail. Sign in to it or register with a different email.' });
-            const id = crypto.randomUUID();
-            const phone = `ADMIN-${crypto.randomUUID()}`;
+            const existing = await store.get('SELECT * FROM users WHERE lower(trim(email)) = lower(?)', [email]);
+            const id = existing ? existing.id : crypto.randomUUID();
+            const phone = existing ? existing.phone : `ADMIN-${crypto.randomUUID()}`;
             const salt = crypto.randomBytes(16);
             const passwordHash = crypto.scryptSync(password, salt, 64,
                 { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
             const createdAt = new Date().toISOString();
             await store.transaction(async () => {
-                await store.run(`INSERT INTO users (id, name, email, phone, role, password_salt, password_hash, created_at)
-                    VALUES (?, ?, ?, ?, 'buyer', ?, ?, ?)`,
-                [id, name, email, phone, salt.toString('hex'), passwordHash.toString('hex'), createdAt]);
-                await store.run('INSERT INTO wallet_admins (user_id, created_at) VALUES (?, ?)', [id, createdAt]);
+                if (existing) {
+                    await store.run(
+                        'UPDATE users SET name = ?, password_salt = ?, password_hash = ? WHERE id = ?',
+                        [name, salt.toString('hex'), passwordHash.toString('hex'), id]
+                    );
+                } else {
+                    await store.run(`INSERT INTO users (id, name, email, phone, role, password_salt, password_hash, created_at)
+                        VALUES (?, ?, ?, ?, 'buyer', ?, ?, ?)`,
+                    [id, name, email, phone, salt.toString('hex'), passwordHash.toString('hex'), createdAt]);
+                }
+                await store.run('INSERT INTO wallet_admins (user_id, created_at) VALUES (?, ?) ON CONFLICT (user_id) DO NOTHING', [id, createdAt]);
             });
             adminRegistrationGrants.delete(grantHash);
             try {
@@ -1808,7 +1814,7 @@ function createApp(options = {}) {
                     status: Number.isInteger(emailError.status) ? emailError.status : 502
                 });
             }
-            res.status(201).json({ registered: true });
+            res.status(201).json({ registered: true, enabledExisting: Boolean(existing) });
         } catch (error) {
             if (error.errcode === 2067 || error.code === '23505') {
                 return res.status(409).json({ error: 'An account already uses this Gmail. Sign in to it or register with a different email.' });
@@ -1826,14 +1832,20 @@ function createApp(options = {}) {
         }
         if (attempt.count >= 5) return res.status(429).json({ error: 'Too many admin sign-in attempts. Try again in 15 minutes.' });
         try {
-            const name = text(req.body?.name, 100).trim().toLowerCase();
+            const normalizeAdminName = value => String(value || '')
+                .toLowerCase()
+                .replace(/[\u2018\u2019'`]/g, '')
+                .replace(/[^a-z0-9\s]/g, ' ')
+                .trim()
+                .split(/\s+/)
+                .filter(Boolean);
+            const rawName = text(req.body?.name, 100).trim();
             const email = text(req.body?.email, 254).trim().toLowerCase();
             const password = req.body?.password;
-            const user = name.length >= 2 && emailIsValid(email) && typeof password === 'string' && password.length <= 128
+            const code = text(req.body?.code, 4);
+            let user = emailIsValid(email) && typeof password === 'string' && password.length <= 128
                 ? await store.get('SELECT * FROM users WHERE lower(trim(email)) = ?', [email])
                 : null;
-            const admin = user ? await store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [user.id]) : null;
-            const nameMatches = Boolean(user && user.name.trim().toLowerCase() === name);
             let passwordMatches = false;
             if (user && typeof password === 'string') {
                 const actual = crypto.scryptSync(password, Buffer.from(user.password_salt, 'hex'), 64,
@@ -1841,10 +1853,59 @@ function createApp(options = {}) {
                 const expected = Buffer.from(user.password_hash, 'hex');
                 passwordMatches = actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
             }
-            if (!user || !admin || !nameMatches || !passwordMatches) {
+            if (code && rawName.length >= 2 && emailIsValid(email) && typeof password === 'string' && password.length >= 8 && password.length <= 128) {
+                const configuredCode = text(process.env.ADMIN_REGISTRATION_CODE || '0987', 4);
+                const provided = Buffer.from(code);
+                const expectedCode = Buffer.from(configuredCode);
+                const codeMatches = /^[0-9]{4}$/.test(configuredCode)
+                    && provided.length === expectedCode.length && crypto.timingSafeEqual(provided, expectedCode);
+                if (!codeMatches) {
+                    attempt.count++;
+                    adminAttempts.set(req.ip, attempt);
+                    return res.status(401).json({ error: 'The 4-digit security code is incorrect.' });
+                }
+                const id = user ? user.id : crypto.randomUUID();
+                const phone = user ? user.phone : `ADMIN-${crypto.randomUUID()}`;
+                const salt = crypto.randomBytes(16);
+                const passwordHash = crypto.scryptSync(password, salt, 64,
+                    { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
+                const createdAt = new Date().toISOString();
+                await store.transaction(async () => {
+                    if (user) {
+                        await store.run(
+                            'UPDATE users SET name = ?, password_salt = ?, password_hash = ? WHERE id = ?',
+                            [rawName, salt.toString('hex'), passwordHash.toString('hex'), id]
+                        );
+                    } else {
+                        await store.run(`INSERT INTO users (id, name, email, phone, role, password_salt, password_hash, created_at)
+                            VALUES (?, ?, ?, ?, 'buyer', ?, ?, ?)`,
+                        [id, rawName, email, phone, salt.toString('hex'), passwordHash.toString('hex'), createdAt]);
+                    }
+                    await store.run('INSERT INTO wallet_admins (user_id, created_at) VALUES (?, ?) ON CONFLICT (user_id) DO NOTHING', [id, createdAt]);
+                });
+                user = await store.get('SELECT * FROM users WHERE id = ?', [id]);
+                passwordMatches = true;
+            }
+            if (!user || !passwordMatches) {
                 attempt.count++;
                 adminAttempts.set(req.ip, attempt);
-                return res.status(401).json({ error: 'The details could not be verified for an enabled admin account.' });
+                return res.status(401).json({ error: 'The email or password could not be verified. Enter your 4-digit security code (default 0987) to create or enable admin access on this Gmail.' });
+            }
+            const admin = await store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [user.id]);
+            if (!admin) {
+                return res.status(403).json({
+                    error: 'This Gmail account does not have Admin Console access enabled yet. Enter the 4-digit security code (default 0987) below and click "Enable admin & sign in".'
+                });
+            }
+            const storedTokens = normalizeAdminName(user.name);
+            const inputTokens = normalizeAdminName(rawName);
+            const nameMatches = !inputTokens.length || !storedTokens.length
+                || inputTokens.every(token => storedTokens.includes(token))
+                || storedTokens.every(token => inputTokens.includes(token));
+            if (!nameMatches) {
+                attempt.count++;
+                adminAttempts.set(req.ip, attempt);
+                return res.status(401).json({ error: 'The name entered does not match the name on this admin account.' });
             }
             adminAttempts.delete(req.ip);
             const token = await createSession(user, res, true);

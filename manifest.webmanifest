@@ -1,5 +1,5 @@
 {
-  "id": "./",
+  "id": "./?v=2",
   "name": "KITUI FARM",
   "short_name": "KITUI FARM",
   "description": "Fresh farm produce direct from verified Kitui farmers, with M-Pesa wallet payments and order tracking.",
@@ -13,22 +13,22 @@
   "categories": ["shopping", "food", "business"],
   "icons": [
     {
-      "src": "assets/kitui-farm-emblem.png",
+      "src": "assets/kitui-farm-emblem.png?v=2",
       "sizes": "384x384",
       "type": "image/png",
-      "purpose": "any"
+      "purpose": "any maskable"
     },
     {
-      "src": "icons/icon-192x192.png",
+      "src": "icons/emblem-192x192.png?v=2",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any"
+      "purpose": "any maskable"
     },
     {
-      "src": "icons/icon-512x512.png",
+      "src": "icons/emblem-512x512.png?v=2",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any"
+      "purpose": "any maskable"
     }
   ]
 }
