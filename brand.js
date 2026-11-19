@@ -4,22 +4,25 @@
   const siteRoot = new URL('.', scriptEl ? scriptEl.src : window.location.href);
   const iconUrl = new URL('assets/kitui-farm-emblem.png', siteRoot).href;
   const manifestUrl = new URL('manifest.webmanifest', siteRoot).href;
-  const appleIconUrl = new URL('icons/icon-192x192.png', siteRoot).href;
   const swUrl = new URL('sw.js', siteRoot).href;
+  const APP_INSTALLED_KEY = 'kituiFarmAppInstalled';
 
-  // 1. Ensure PWA manifest & iOS home-screen meta tags exist on every page
+  // 1. Ensure PWA manifest & iOS home-screen meta tags exist on every page,
+  //    using the exact same emblem as the website icon.
   if (!document.querySelector('link[rel="manifest"]')) {
     const manifestLink = document.createElement('link');
     manifestLink.rel = 'manifest';
     manifestLink.href = manifestUrl;
     document.head.appendChild(manifestLink);
   }
-  if (!document.querySelector('link[rel="apple-touch-icon"]')) {
-    const appleIcon = document.createElement('link');
+  let appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+  if (!appleIcon) {
+    appleIcon = document.createElement('link');
     appleIcon.rel = 'apple-touch-icon';
-    appleIcon.href = appleIconUrl;
     document.head.appendChild(appleIcon);
   }
+  appleIcon.href = iconUrl;
+
   const ensureMeta = (name, content) => {
     if (!document.querySelector(`meta[name="${name}"]`)) {
       const m = document.createElement('meta');
@@ -33,7 +36,6 @@
   ensureMeta('apple-mobile-web-app-title', 'KITUI FARM');
   ensureMeta('apple-mobile-web-app-status-bar-style', 'default');
 
-  // Register the network-first PWA service worker so Android Chrome can prompt to install
   if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
     navigator.serviceWorker.register(swUrl, { scope: siteRoot.pathname }).catch(() => {});
   }
@@ -74,23 +76,41 @@
     }
     const favicon = document.querySelector('link[rel="icon"]');
     if (favicon) favicon.href = iconUrl + '?siteVersion=' + version;
+    if (appleIcon) appleIcon.href = iconUrl + '?siteVersion=' + version;
     document.querySelectorAll('.kitui-brand-icon, .kitui-login-emblem, .kitui-avatar-icon').forEach((image) => {
       image.src = iconUrl + '?siteVersion=' + version;
     });
   }).catch(() => {});
 
+  // Render the emblem logo + "KITUI FARM" platform name side-by-side in every header
   document.querySelectorAll('.brand').forEach((brand) => {
     const adminLabel = brand.querySelector('#adminLabel');
-    brand.replaceChildren(createIcon('kitui-brand-icon', false));
-    if (adminLabel) brand.appendChild(adminLabel);
+    const existingSmall = brand.querySelector('small');
+    const subtitleText = existingSmall ? existingSmall.textContent.trim() : '';
+    const isAdminBrand = /admin/i.test(brand.textContent) && !adminLabel;
+
+    const titleWrap = document.createElement('span');
+    titleWrap.className = 'kitui-brand-copy';
+
+    const titleStrong = document.createElement('strong');
+    titleStrong.className = 'kitui-brand-name';
+    titleStrong.textContent = isAdminBrand ? 'KITUI FARM · Admin' : 'KITUI FARM';
+    if (adminLabel) {
+      titleStrong.appendChild(document.createTextNode(' '));
+      titleStrong.appendChild(adminLabel);
+    }
+    titleWrap.appendChild(titleStrong);
+
+    if (subtitleText) {
+      const sub = document.createElement('small');
+      sub.className = 'kitui-brand-sub';
+      sub.textContent = subtitleText;
+      titleWrap.appendChild(sub);
+    }
+
+    brand.replaceChildren(createIcon('kitui-brand-icon', true), titleWrap);
     brand.classList.add('kitui-brand');
     brand.setAttribute('aria-label', 'KITUI FARM');
-  });
-
-  document.querySelectorAll('.brand-mark').forEach((mark) => {
-    mark.replaceChildren(createIcon('kitui-brand-icon', true));
-    mark.classList.add('kitui-brand-icon');
-    mark.removeAttribute('aria-hidden');
   });
 
   const defaultFarmerAvatar = document.getElementById('farmerAvatar');
@@ -100,20 +120,72 @@
 
   const loginHeading = Array.from(document.querySelectorAll('h1')).find((heading) => heading.textContent.trim().toUpperCase() === 'KITUI FARM');
   if (loginHeading) {
-    const icon = createIcon('kitui-login-emblem', false);
-    icon.setAttribute('role', 'img');
-    loginHeading.replaceWith(icon);
+    const loginBrand = document.createElement('div');
+    loginBrand.className = 'kitui-login-brand';
+    const icon = createIcon('kitui-login-emblem', true);
+    const title = document.createElement('h1');
+    title.className = 'kitui-login-title';
+    title.textContent = 'KITUI FARM';
+    loginBrand.append(icon, title);
+    loginHeading.replaceWith(loginBrand);
   }
 
-  // 4. PWA Install Prompt Handling + App Download Section + Mobile App Bottom Bar
+  // 4. PWA Install State + Auto-hide Download Section once installed
   let deferredInstallPrompt = null;
-  const isStandalone = () =>
-    window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+
+  function isAppInstalled() {
+    try {
+      if (window.matchMedia('(display-mode: standalone)').matches) return true;
+      if (window.matchMedia('(display-mode: fullscreen)').matches) return true;
+      if (window.matchMedia('(display-mode: minimal-ui)').matches) return true;
+      if (window.navigator.standalone === true) return true;
+      if (document.referrer && document.referrer.startsWith('android-app://')) return true;
+      if (localStorage.getItem(APP_INSTALLED_KEY) === '1') return true;
+    } catch (error) { /* ignore storage errors */ }
+    return false;
+  }
+
+  function markAppInstalled() {
+    try { localStorage.setItem(APP_INSTALLED_KEY, '1'); } catch (error) {}
+    document.documentElement.classList.remove('kf-can-install');
+    document.documentElement.classList.add('kf-is-installed');
+    const section = document.getElementById('kfAppDownloadSection');
+    if (section) section.remove();
+    const dialog = document.getElementById('kfAppInstallDialog');
+    if (dialog && dialog.open) dialog.close();
+  }
+
+  if (
+    window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true ||
+    (document.referrer && document.referrer.startsWith('android-app://'))
+  ) {
+    markAppInstalled();
+  }
+
+  if (navigator.getInstalledRelatedApps) {
+    navigator.getInstalledRelatedApps().then((apps) => {
+      if (Array.isArray(apps) && apps.length > 0) markAppInstalled();
+    }).catch(() => {});
+  }
+
+  if (window.matchMedia) {
+    const standaloneMedia = window.matchMedia('(display-mode: standalone)');
+    if (standaloneMedia.addEventListener) {
+      standaloneMedia.addEventListener('change', (event) => {
+        if (event.matches) markAppInstalled();
+      });
+    }
+  }
 
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault();
     deferredInstallPrompt = event;
+    // If the browser fires beforeinstallprompt, the app is not currently installed
+    try { localStorage.removeItem(APP_INSTALLED_KEY); } catch (error) {}
+    document.documentElement.classList.remove('kf-is-installed');
     document.documentElement.classList.add('kf-can-install');
+    injectAppDownloadSection();
     document.querySelectorAll('[data-kf-install-status]').forEach((node) => {
       node.textContent = 'Ready for 1-tap install on this device';
     });
@@ -121,10 +193,7 @@
 
   window.addEventListener('appinstalled', () => {
     deferredInstallPrompt = null;
-    document.documentElement.classList.remove('kf-can-install');
-    document.documentElement.classList.add('kf-is-installed');
-    const dialog = document.getElementById('kfAppInstallDialog');
-    if (dialog && dialog.open) dialog.close();
+    markAppInstalled();
   });
 
   function ensureInstallDialog() {
@@ -136,35 +205,39 @@
     dialog.setAttribute('aria-labelledby', 'kfInstallDialogTitle');
     dialog.innerHTML = `
       <div class="kf-install-dialog__head">
-        <div>
-          <span class="kf-app-badge">KITUI FARM MOBILE APP</span>
-          <h2 id="kfInstallDialogTitle">Install KITUI FARM on your phone</h2>
+        <div class="kf-install-dialog__title-row">
+          <img src="${iconUrl}" alt="" class="kf-install-dialog__icon">
+          <div>
+            <span class="kf-app-badge">KITUI FARM MOBILE APP</span>
+            <h2 id="kfInstallDialogTitle">Install KITUI FARM on your phone</h2>
+          </div>
         </div>
         <button type="button" class="button secondary kf-install-close" aria-label="Close install guide">Close</button>
       </div>
       <div class="kf-install-dialog__body">
-        <p class="kf-install-lead" id="kfInstallDialogLead">Add KITUI FARM to your home screen for full-screen browsing, instant access to M-Pesa wallet payments, and real-time order updates.</p>
+        <p class="kf-install-lead" id="kfInstallDialogLead">Add KITUI FARM to your home screen with our official emblem icon for full-screen browsing, M-Pesa wallet payments, and automatic update notifications.</p>
         <div class="kf-install-guides">
           <article class="kf-install-guide" data-guide="android">
             <h3><span aria-hidden="true">🤖</span> Android (Chrome / Edge / Samsung)</h3>
             <ol>
-              <li>Tap the <strong>Install for Android</strong> button below (or tap the browser menu <strong>⋮</strong> in the top-right corner).</li>
-              <li>Choose <strong>Install app</strong> or <strong>Add to Home screen</strong>.</li>
-              <li>Confirm <strong>Install</strong> — the KITUI FARM app icon will appear in your app drawer and home screen.</li>
+              <li>Tap <strong>Install App Now</strong> below (or tap your browser menu <strong>⋮</strong> in the top-right corner).</li>
+              <li>Select <strong>Install app</strong> or <strong>Add to Home screen</strong>.</li>
+              <li>Confirm <strong>Install</strong> — the KITUI FARM icon will appear on your phone and this download card will disappear automatically.</li>
             </ol>
           </article>
           <article class="kf-install-guide" data-guide="ios">
-            <h3><span aria-hidden="true">🍎</span> iPhone &amp; iPad (Safari / Chrome on iOS)</h3>
+            <h3><span aria-hidden="true">🍎</span> iPhone &amp; iPad (Safari on iOS)</h3>
             <ol>
               <li>Open KITUI FARM in <strong>Safari</strong> on your iPhone or iPad.</li>
               <li>Tap the <strong>Share</strong> button <span class="kf-ios-icon" aria-hidden="true">⍐</span> at the bottom of the screen.</li>
-              <li>Scroll down and tap <strong>Add to Home Screen</strong>, then tap <strong>Add</strong> in the top-right corner.</li>
+              <li>Tap <strong>Add to Home Screen</strong>, then tap <strong>Add</strong>. Once added, tap <em>"I've installed the app"</em> below to hide the download banner.</li>
             </ol>
           </article>
         </div>
         <div class="kf-install-dialog__actions">
           <button type="button" class="button primary" id="kfDialogNativeInstallBtn" hidden>Install App Now</button>
-          <button type="button" class="button secondary kf-install-close">Got it</button>
+          <button type="button" class="button secondary" id="kfDialogMarkInstalledBtn">I've installed the app</button>
+          <button type="button" class="button secondary kf-install-close">Close</button>
         </div>
       </div>
     `;
@@ -179,17 +252,31 @@
     nativeBtn.addEventListener('click', async () => {
       if (!deferredInstallPrompt) return;
       deferredInstallPrompt.prompt();
-      try { await deferredInstallPrompt.userChoice; } catch {}
+      try {
+        const choice = await deferredInstallPrompt.userChoice;
+        if (choice && choice.outcome === 'accepted') markAppInstalled();
+      } catch {}
       deferredInstallPrompt = null;
       nativeBtn.hidden = true;
+    });
+    const markInstalledBtn = dialog.querySelector('#kfDialogMarkInstalledBtn');
+    markInstalledBtn.addEventListener('click', () => {
+      markAppInstalled();
     });
     return dialog;
   }
 
   async function triggerAppInstall(platform) {
-    if (platform === 'android' && deferredInstallPrompt) {
+    if (deferredInstallPrompt && platform === 'android') {
       deferredInstallPrompt.prompt();
-      try { await deferredInstallPrompt.userChoice; } catch {}
+      try {
+        const choice = await deferredInstallPrompt.userChoice;
+        if (choice && choice.outcome === 'accepted') {
+          deferredInstallPrompt = null;
+          markAppInstalled();
+          return;
+        }
+      } catch {}
       deferredInstallPrompt = null;
       return;
     }
@@ -201,7 +288,14 @@
   }
 
   // Build the "Download the KITUI FARM Mobile App (Android & iOS)" section
+  // (Skipped automatically once the app is installed)
   function injectAppDownloadSection() {
+    if (isAppInstalled()) {
+      document.documentElement.classList.add('kf-is-installed');
+      const existing = document.getElementById('kfAppDownloadSection');
+      if (existing) existing.remove();
+      return;
+    }
     if (document.getElementById('kfAppDownloadSection')) return;
     const path = location.pathname.split('/').pop() || 'index.html';
     if (['admin-chat.html', 'wallet-admin.html', 'receipt.html'].includes(path)) return;
@@ -214,12 +308,18 @@
       <div class="kf-app-download__inner">
         <div class="kf-app-download__copy">
           <span class="kf-app-badge">MOBILE APP · ANDROID &amp; iOS</span>
-          <h2 id="kfAppDownloadTitle">Get the KITUI FARM App on your phone</h2>
+          <div class="kf-app-download__brand-head">
+            <img src="${iconUrl}" alt="KITUI FARM app icon" class="kf-app-download__app-icon kitui-brand-icon">
+            <div>
+              <h2 id="kfAppDownloadTitle">Get the KITUI FARM App on your phone</h2>
+              <p class="kf-app-download__sub">Official KITUI FARM icon · Automatic in-app updates</p>
+            </div>
+          </div>
           <p class="kf-app-download__lead">Install our lightweight mobile app for a fast, full-screen shopping and farm-management experience on Android and iPhone — no app store wait required.</p>
           <ul class="kf-app-features" aria-label="Mobile app highlights">
-            <li><span aria-hidden="true">✓</span> One-tap access from your phone home screen</li>
+            <li><span aria-hidden="true">✓</span> One-tap access with the KITUI FARM emblem on your home screen</li>
             <li><span aria-hidden="true">✓</span> Instant M-Pesa STK Push wallet deposits &amp; payouts</li>
-            <li><span aria-hidden="true">✓</span> Real-time farmer–buyer chat &amp; live delivery tracking</li>
+            <li><span aria-hidden="true">✓</span> In-app "Update Available" notifications with 1-tap download &amp; update</li>
           </ul>
           <div class="kf-store-buttons" role="group" aria-label="Download KITUI FARM app for Android or iOS">
             <button type="button" class="kf-store-btn kf-store-btn--android" data-kf-install="android">
@@ -273,7 +373,6 @@
 
     const main = document.querySelector('main');
     if (main && main.classList.contains('container')) {
-      // Auth pages (login, signup, forgot-password, admin-signin): place compact app card below the auth card
       document.body.classList.add('kf-auth-page');
       section.classList.add('kf-app-download--compact');
       main.insertAdjacentElement('afterend', section);
@@ -335,7 +434,6 @@
     document.body.classList.add('kf-has-tabbar');
   }
 
-  if (isStandalone()) document.documentElement.classList.add('kf-is-installed');
   injectAppDownloadSection();
   injectMobileAppTabBar();
 })();

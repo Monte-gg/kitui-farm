@@ -142,8 +142,8 @@
                 </div>
             </section>
             <section class="card" aria-labelledby="versionTitle">
-                <div class="card-heading"><h2 id="versionTitle">Website version</h2><p>Check which KITUI FARM release is available and whether this browser has refreshed to it.</p></div>
-                <div class="setting-row"><div class="setting-copy"><strong>Available version</strong><small id="versionAvailable">Checking the latest release…</small></div><span class="version-status" id="versionStatus" role="status" aria-live="polite">Checking</span></div>
+                <div class="card-heading"><h2 id="versionTitle">Website &amp; App version</h2><p>Check which KITUI FARM release is available and download updates when a new release is ready.</p></div>
+                <div class="setting-row"><div class="setting-copy"><strong>Available version</strong><small id="versionAvailable">Checking the latest release…</small></div><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="version-status" id="versionStatus" role="status" aria-live="polite">Checking</span><button class="button" id="downloadUpdateButton" type="button" hidden>Download &amp; Update App</button></div></div>
             </section>
             <section class="card">
                 <div class="card-heading"><h2>Actions</h2><p>Manage safety prompts for changes to your account’s data.</p></div>
@@ -200,6 +200,18 @@
                 available.textContent = current;
                 status.textContent = comparison > 0 ? 'Update available' : installed === current ? 'Up to date' : installed ? 'Current release loaded' : 'Latest release';
                 status.classList.toggle('update-available', comparison > 0);
+                const updateBtn = document.getElementById('downloadUpdateButton');
+                if (updateBtn) {
+                    updateBtn.hidden = comparison <= 0;
+                    updateBtn.onclick = () => {
+                        if (typeof window.KITUI_TRIGGER_APP_UPDATE === 'function') {
+                            window.KITUI_TRIGGER_APP_UPDATE();
+                        } else {
+                            localStorage.setItem('kituiFarmSiteVersion', current);
+                            location.reload();
+                        }
+                    };
+                }
             } catch (error) {
                 available.textContent = error.message || 'Version check unavailable.';
                 status.textContent = 'Unknown';

@@ -1,19 +1,31 @@
 #!/usr/bin/env node
 'use strict';
 
-// Generates valid PNG app icons with no external dependencies.
-// The previous hand-rolled encoder wrote a broken PNG signature and chunk
-// layout, so browsers could not decode the icons, which made the app
-// non-installable (no install prompt ever fired).
+// Copies the official KITUI FARM website emblem (assets/kitui-farm-emblem.png)
+// to the PWA icons directory so the installed mobile app uses the exact same
+// emblem as the website favicon and header logo.
 // Run from backend/: node bin/gen-icons.js
 
 const fs = require('node:fs');
 const path = require('node:path');
-const zlib = require('node:zlib');
 
 const ROOT = path.resolve(__dirname, '..', '..');
+const EMBLEM = path.join(ROOT, 'assets', 'kitui-farm-emblem.png');
 const ICONS = path.join(ROOT, 'icons');
 const SIZES = [192, 512];
+
+if (fs.existsSync(EMBLEM)) {
+  fs.mkdirSync(ICONS, { recursive: true });
+  for (const size of SIZES) {
+    const target = path.join(ICONS, `icon-${size}x${size}.png`);
+    if (!fs.existsSync(target)) {
+      fs.copyFileSync(EMBLEM, target);
+    }
+    console.log(`icon ${size}x${size} ready -> ${target}`);
+  }
+  console.log('icons verified from assets/kitui-farm-emblem.png');
+  process.exit(0);
+}
 const SS = 4; // supersampling factor for smooth edges
 
 const GREEN = [0x4a, 0x8c, 0x3f];

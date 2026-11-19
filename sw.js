@@ -3,7 +3,7 @@
 // Network-first PWA service worker for KITUI FARM.
 // Required so Android Chrome and Microsoft Edge show the native "Install App" prompt,
 // while always serving the freshest live HTML/API responses when online.
-const CACHE_NAME = 'kitui-farm-shell-v1';
+const CACHE_NAME = 'kitui-farm-shell-v2';
 
 self.addEventListener('install', () => {
   self.skipWaiting();
@@ -21,6 +21,20 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+self.addEventListener('message', (event) => {
+  if (!event.data || typeof event.data !== 'object') return;
+  if (event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
+  if (event.data.type === 'CLEAR_AND_UPDATE') {
+    event.waitUntil(
+      caches.keys().then((keys) =>
+        Promise.all(keys.filter((key) => key.startsWith('kitui-farm-')).map((key) => caches.delete(key)))
+      ).then(() => self.skipWaiting())
+    );
+  }
+});
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
@@ -29,7 +43,7 @@ self.addEventListener('fetch', (event) => {
   if (url.pathname.startsWith('/api/') || url.pathname.endsWith('/version.json')) return;
 
   event.respondWith(
-    fetch(request)
+    fetch(request, { cache: 'no-cache' })
       .then((response) => {
         if (response && response.ok && response.type === 'basic') {
           const copy = response.clone();

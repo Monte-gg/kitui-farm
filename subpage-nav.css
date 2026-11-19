@@ -12,12 +12,12 @@ header.kf-subpage-header {
 .kf-subpage-header .bar {
     display: flex;
     align-items: center;
-    gap: 10px;
-    min-height: 68px;
+    gap: 14px;
+    min-height: 74px;
 }
 
 .kf-subpage-header .kf-legacy-controls { display: none !important; }
-.kf-subpage-header .brand { flex: 0 1 auto; }
+.kf-subpage-header .brand { flex: 0 1 auto; margin-left: 2px; }
 
 .kf-back-button,
 .kf-menu-button {
