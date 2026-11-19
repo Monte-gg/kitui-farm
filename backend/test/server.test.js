@@ -71,6 +71,9 @@ test('serves the health endpoint and existing app pages', async () => {
     assert.equal((await fetch(`${baseUrl}/brand-theme.css`)).status, 200);
     assert.equal((await fetch(`${baseUrl}/brand.js`)).status, 200);
     assert.equal((await fetch(`${baseUrl}/mobile-layout.css`)).status, 200);
+    assert.equal((await fetch(`${baseUrl}/manifest.webmanifest`)).status, 200);
+    assert.equal((await fetch(`${baseUrl}/sw.js`)).status, 200);
+    assert.equal((await fetch(`${baseUrl}/icons/icon-192x192.png`)).status, 200);
     assert.equal((await fetch(`${baseUrl}/assets/kitui-farm-emblem.png`)).status, 200);
     const versionResponse = await fetch(`${baseUrl}/version.json`);
     assert.equal(versionResponse.status, 200);

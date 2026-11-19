@@ -19,8 +19,8 @@ const PAYMENT_METHODS = new Set([
     'KITUI FARM Wallet'
 ]);
 const STATIC_ASSETS = [
-    'api-base.js', 'brand-theme.css', 'brand.js', 'mobile-layout.css',
-    'site-only.js', 'subpage-nav.css', 'subpage-nav.js', 'theme-init.js', 'update-notification.js'
+    'api-base.js', 'brand-theme.css', 'brand.js', 'manifest.webmanifest', 'mobile-layout.css',
+    'site-only.js', 'subpage-nav.css', 'subpage-nav.js', 'sw.js', 'theme-init.js', 'update-notification.js'
 ];
 const PAGES = [
     'about-us.html', 'admin-register.html', 'admin-signin.html', 'buyer-dashboard.html', 'chat.html', 'customer-service.html', 'email-verify.html', 'farmer-dashboard.html', 'farmer-store.html',
@@ -4113,6 +4113,7 @@ function createApp(options = {}) {
         res.json({ version: '1.0.0' });
     });
     app.use('/assets', express.static(path.join(ROOT, 'assets'), { dotfiles: 'allow', fallthrough: false }));
+    app.use('/icons', express.static(path.join(ROOT, 'icons'), { dotfiles: 'allow', fallthrough: false }));
     app.get('/wallet.html', (req, res) => {
         res.setHeader('Cache-Control', 'no-store');
         res.sendFile('wallet.html', { root: ROOT, dotfiles: 'allow' });
