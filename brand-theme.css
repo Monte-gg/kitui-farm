@@ -48,6 +48,7 @@
 /* =========================================================
    MODERN APP SHELL, SPACIOUS CONTAINERS & TYPOGRAPHY
    ========================================================= */
+[hidden] { display: none !important; }
 html { scroll-behavior: smooth; }
 body {
   background-color: var(--bg) !important;
@@ -229,10 +230,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--green); }
 :root[data-theme="dark"] .thread-head,
 :root[data-theme="dark"] .profile-product,
 :root[data-theme="dark"] .menu-panel,
-:root[data-theme="dark"] .menu-panel button,
 :root[data-theme="dark"] .more-panel,
-:root[data-theme="dark"] .more-panel a,
-:root[data-theme="dark"] .more-panel button,
+:root[data-theme="dark"] .kf-feature-menu,
 :root[data-theme="dark"] .emoji-panel,
 :root[data-theme="dark"] .emoji-panel button,
 :root[data-theme="dark"] .profile-dialog-head,
@@ -246,6 +245,119 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--green); }
   background-color: var(--surface) !important;
   color: var(--ink) !important;
   border-color: var(--line) !important;
+}
+
+/* =========================================================
+   DROPDOWN MENU HIGHLIGHTER (3-dot menu on all pages)
+   ========================================================= */
+.more-panel,
+.menu-panel,
+.kf-feature-menu {
+  padding: 8px !important;
+  border-radius: 15px !important;
+  border: 1px solid var(--line) !important;
+  background-color: var(--surface) !important;
+  box-shadow: 0 16px 40px rgba(15, 30, 18, 0.24) !important;
+}
+.more-panel a,
+.more-panel button,
+.menu-panel a,
+.menu-panel button,
+.kf-feature-menu a,
+.kf-feature-menu button {
+  position: relative;
+  display: flex !important;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  margin: 2px 0;
+  padding: 10px 13px !important;
+  border: 0;
+  border-radius: 10px !important;
+  background-color: transparent !important;
+  color: var(--ink) !important;
+  font-size: 14px !important;
+  font-weight: 650 !important;
+  text-decoration: none !important;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.more-panel .menu-profile,
+.menu-panel .menu-profile {
+  margin-bottom: 6px !important;
+  padding-bottom: 12px !important;
+  border-bottom: 1px solid var(--line) !important;
+  border-radius: 10px 10px 6px 6px !important;
+}
+.more-panel a:hover,
+.more-panel a:focus-visible,
+.more-panel a:active,
+.more-panel a.is-current-page,
+.more-panel a[aria-current="page"],
+.more-panel button:not(.menu-logout):hover,
+.more-panel button:not(.menu-logout):focus-visible,
+.more-panel button:not(.menu-logout):active,
+.menu-panel a:hover,
+.menu-panel a:focus-visible,
+.menu-panel a:active,
+.menu-panel a.is-current-page,
+.menu-panel a[aria-current="page"],
+.menu-panel button:not(.menu-logout):hover,
+.menu-panel button:not(.menu-logout):focus-visible,
+.menu-panel button:not(.menu-logout):active,
+.kf-feature-menu a:hover,
+.kf-feature-menu a:focus-visible,
+.kf-feature-menu a:active,
+.kf-feature-menu a.is-current-page,
+.kf-feature-menu a[aria-current="page"],
+.kf-feature-menu button:hover,
+.kf-feature-menu button:focus-visible {
+  background-color: var(--green-light) !important;
+  color: var(--green-dark) !important;
+  box-shadow: inset 3.5px 0 0 var(--green) !important;
+}
+:root[data-theme="dark"] .more-panel a:hover,
+:root[data-theme="dark"] .more-panel a:focus-visible,
+:root[data-theme="dark"] .more-panel a:active,
+:root[data-theme="dark"] .more-panel a.is-current-page,
+:root[data-theme="dark"] .more-panel a[aria-current="page"],
+:root[data-theme="dark"] .more-panel button:not(.menu-logout):hover,
+:root[data-theme="dark"] .more-panel button:not(.menu-logout):focus-visible,
+:root[data-theme="dark"] .more-panel button:not(.menu-logout):active,
+:root[data-theme="dark"] .menu-panel a:hover,
+:root[data-theme="dark"] .menu-panel a:focus-visible,
+:root[data-theme="dark"] .menu-panel a:active,
+:root[data-theme="dark"] .menu-panel a.is-current-page,
+:root[data-theme="dark"] .menu-panel a[aria-current="page"],
+:root[data-theme="dark"] .menu-panel button:not(.menu-logout):hover,
+:root[data-theme="dark"] .menu-panel button:not(.menu-logout):focus-visible,
+:root[data-theme="dark"] .menu-panel button:not(.menu-logout):active,
+:root[data-theme="dark"] .kf-feature-menu a:hover,
+:root[data-theme="dark"] .kf-feature-menu a:focus-visible,
+:root[data-theme="dark"] .kf-feature-menu a:active,
+:root[data-theme="dark"] .kf-feature-menu a.is-current-page,
+:root[data-theme="dark"] .kf-feature-menu a[aria-current="page"] {
+  background-color: #2c4a35 !important;
+  color: #e8f7eb !important;
+  box-shadow: inset 3.5px 0 0 #63b67f !important;
+}
+.more-panel button.menu-logout,
+.menu-panel button.menu-logout {
+  color: #d93829 !important;
+}
+:root[data-theme="dark"] .more-panel button.menu-logout,
+:root[data-theme="dark"] .menu-panel button.menu-logout {
+  color: #ff8e84 !important;
+}
+.more-panel button.menu-logout:hover,
+.more-panel button.menu-logout:focus-visible,
+.more-panel button.menu-logout:active,
+.menu-panel button.menu-logout:hover,
+.menu-panel button.menu-logout:focus-visible,
+.menu-panel button.menu-logout:active {
+  background-color: rgba(217, 56, 41, 0.16) !important;
+  box-shadow: inset 3.5px 0 0 #e5484d !important;
 }
 :root[data-theme="dark"] .hero,
 :root[data-theme="dark"] .balance-card,
@@ -763,10 +875,35 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--green); }
 }
 
 @media (max-width: 560px) {
-  .kitui-brand-icon { width: 42px; height: 42px; flex-basis: 42px; }
-  .brand-mark.kitui-brand-icon { width: 40px; height: 40px; }
-  .kitui-brand-name { font-size: 15.5px !important; }
+  .kitui-brand-icon { width: 38px; height: 38px; flex-basis: 38px; }
+  .brand-mark.kitui-brand-icon { width: 38px; height: 38px; }
+  .kitui-brand-name { font-size: 15px !important; }
   .kitui-brand-sub { display: none; }
+  .identity {
+    flex-direction: column !important;
+    align-items: center !important;
+    text-align: center !important;
+    gap: 14px !important;
+    padding: 20px 16px !important;
+  }
+  .identity .avatar {
+    width: 76px !important;
+    height: 76px !important;
+    flex: 0 0 76px !important;
+    font-size: 28px !important;
+  }
+  .identity-details {
+    width: 100% !important;
+  }
+  .photo-actions {
+    justify-content: center !important;
+    width: 100% !important;
+    gap: 10px !important;
+    margin-top: 12px !important;
+  }
+  .photo-actions .button {
+    flex: 1 1 135px !important;
+  }
 }
 
 /* =========================================================
@@ -776,12 +913,17 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--green); }
   position: relative;
   flex: 0 0 auto;
 }
+.kf-notif-badge[hidden],
+.kf-notif-panel[hidden],
+.kf-notif-push-bar[hidden] {
+  display: none !important;
+}
 .kf-notif-button {
   position: relative;
   display: inline-grid;
   place-items: center;
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 12px;
@@ -790,9 +932,16 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--green); }
   cursor: pointer;
   transition: border-color 0.18s ease, background-color 0.18s ease;
 }
+@media (max-width: 560px) {
+  .kf-notif-button {
+    width: 40px;
+    height: 40px;
+    border-radius: 11px;
+  }
+}
 .kf-notif-button svg {
-  width: 21px;
-  height: 21px;
+  width: 20px;
+  height: 20px;
 }
 .kf-notif-button:hover,
 .kf-notif-button[aria-expanded="true"] {
@@ -831,6 +980,17 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--green); }
   border-radius: 16px;
   background: var(--surface);
   box-shadow: 0 18px 46px rgba(15, 30, 18, 0.24);
+}
+@media (max-width: 640px) {
+  .kf-notif-panel {
+    position: fixed !important;
+    top: calc(66px + env(safe-area-inset-top, 0px)) !important;
+    left: 12px !important;
+    right: 12px !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: min(440px, 72vh) !important;
+  }
 }
 .kf-notif-panel__head {
   display: flex;

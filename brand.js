@@ -2,26 +2,29 @@
   'use strict';
   const scriptEl = document.currentScript || document.querySelector('script[src*="brand.js"]');
   const siteRoot = new URL('.', scriptEl ? scriptEl.src : window.location.href);
-  const iconUrl = new URL('assets/kitui-farm-emblem.png?v=2', siteRoot).href;
-  const manifestUrl = new URL('manifest.webmanifest?v=2', siteRoot).href;
+  const iconUrl = new URL('assets/kitui-farm-emblem.png?v=3', siteRoot).href;
+  const appIconUrl = new URL('icons/kitui-app-icon-192.png?v=3', siteRoot).href;
+  const manifestUrl = new URL('manifest.webmanifest?v=3', siteRoot).href;
   const swUrl = new URL('sw.js', siteRoot).href;
   const APP_INSTALLED_KEY = 'kituiFarmAppInstalled';
 
   // 1. Ensure PWA manifest & iOS home-screen meta tags exist on every page,
   //    using the exact same emblem as the website icon.
-  if (!document.querySelector('link[rel="manifest"]')) {
-    const manifestLink = document.createElement('link');
+  let manifestLink = document.querySelector('link[rel="manifest"]');
+  if (!manifestLink) {
+    manifestLink = document.createElement('link');
     manifestLink.rel = 'manifest';
-    manifestLink.href = manifestUrl;
     document.head.appendChild(manifestLink);
   }
+  manifestLink.href = manifestUrl;
+
   let appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
   if (!appleIcon) {
     appleIcon = document.createElement('link');
     appleIcon.rel = 'apple-touch-icon';
     document.head.appendChild(appleIcon);
   }
-  appleIcon.href = iconUrl;
+  appleIcon.href = appIconUrl;
 
   const ensureMeta = (name, content) => {
     if (!document.querySelector(`meta[name="${name}"]`)) {
@@ -136,6 +139,9 @@
 
   function isAppInstalled() {
     try {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('source') === 'pwa') return true;
+      if (sessionStorage.getItem('kituiFarmAppMode') === '1') return true;
       if (window.matchMedia('(display-mode: standalone)').matches) return true;
       if (window.matchMedia('(display-mode: fullscreen)').matches) return true;
       if (window.matchMedia('(display-mode: minimal-ui)').matches) return true;
@@ -147,7 +153,10 @@
   }
 
   function markAppInstalled() {
-    try { localStorage.setItem(APP_INSTALLED_KEY, '1'); } catch (error) {}
+    try {
+      localStorage.setItem(APP_INSTALLED_KEY, '1');
+      sessionStorage.setItem('kituiFarmAppMode', '1');
+    } catch (error) {}
     document.documentElement.classList.remove('kf-can-install');
     document.documentElement.classList.add('kf-is-installed');
     const section = document.getElementById('kfAppDownloadSection');
@@ -157,7 +166,9 @@
   }
 
   if (
+    new URLSearchParams(window.location.search).get('source') === 'pwa' ||
     window.matchMedia('(display-mode: standalone)').matches ||
+    window.matchMedia('(display-mode: fullscreen)').matches ||
     window.navigator.standalone === true ||
     (document.referrer && document.referrer.startsWith('android-app://'))
   ) {
@@ -206,31 +217,31 @@
     dialog.innerHTML = `
       <div class="kf-install-dialog__head">
         <div class="kf-install-dialog__title-row">
-          <img src="${iconUrl}" alt="" class="kf-install-dialog__icon">
+          <img src="${appIconUrl}" alt="" class="kf-install-dialog__icon">
           <div>
             <span class="kf-app-badge">KITUI FARM MOBILE APP</span>
-            <h2 id="kfInstallDialogTitle">Install KITUI FARM on your phone</h2>
+            <h2 id="kfInstallDialogTitle">Install KITUI FARM App</h2>
           </div>
         </div>
         <button type="button" class="button secondary kf-install-close" aria-label="Close install guide">Close</button>
       </div>
       <div class="kf-install-dialog__body">
-        <p class="kf-install-lead" id="kfInstallDialogLead">Add KITUI FARM to your home screen with our official emblem icon for full-screen browsing, M-Pesa wallet payments, and real-time notifications.</p>
+        <p class="kf-install-lead" id="kfInstallDialogLead">Install the standalone KITUI FARM mobile app with our official emblem icon for full-screen browsing, M-Pesa wallet payments, and real-time notifications — without any browser bar.</p>
         <div class="kf-install-guides">
           <article class="kf-install-guide" data-guide="android">
-            <h3><span aria-hidden="true">🤖</span> Android (Chrome / Edge / Samsung)</h3>
+            <h3><span aria-hidden="true">🤖</span> Android Mobile App</h3>
             <ol>
-              <li>Tap <strong>Install App Now</strong> below (or tap your browser menu <strong>⋮</strong> in the top-right corner).</li>
-              <li>Select <strong>Install app</strong> or <strong>Add to Home screen</strong>.</li>
-              <li><em>Tip:</em> If you installed an earlier version with the old sprout icon, remove that old shortcut from your home screen and install again to get the new KITUI FARM emblem icon.</li>
+              <li>Tap <strong>Install App Now</strong> below (or tap your phone menu <strong>⋮</strong> in the top-right corner and choose <strong>Install app</strong>).</li>
+              <li>Confirm <strong>Install</strong> when your phone asks to install the <strong>KITUI FARM</strong> package.</li>
+              <li>Open <strong>KITUI FARM</strong> from your phone apps screen to launch the full-screen app.</li>
             </ol>
           </article>
           <article class="kf-install-guide" data-guide="ios">
-            <h3><span aria-hidden="true">🍎</span> iPhone &amp; iPad (Safari on iOS)</h3>
+            <h3><span aria-hidden="true">🍎</span> iPhone &amp; iPad (iOS)</h3>
             <ol>
-              <li>Open KITUI FARM in <strong>Safari</strong> on your iPhone or iPad.</li>
-              <li>Tap the <strong>Share</strong> button <span class="kf-ios-icon" aria-hidden="true">⍐</span> at the bottom of the screen.</li>
-              <li>Tap <strong>Add to Home Screen</strong>, then tap <strong>Add</strong>. Once added, tap <em>"I've installed the app"</em> below to hide the download banner.</li>
+              <li>Tap the <strong>Share</strong> button <span class="kf-ios-icon" aria-hidden="true">⍐</span> at the bottom of your screen.</li>
+              <li>Select <strong>Add to Home Screen</strong>, then tap <strong>Add</strong> in the top-right corner.</li>
+              <li>Open <strong>KITUI FARM</strong> from your Home Screen for the full-screen iOS app experience.</li>
             </ol>
           </article>
         </div>
@@ -561,9 +572,25 @@
     const setOpen = (open) => {
       panel.hidden = !open;
       button.setAttribute('aria-expanded', String(open));
-      if (open) updatePushBarVisibility();
+      if (open) {
+        updatePushBarVisibility();
+        document.querySelectorAll('.more-panel, .menu-panel, .kf-feature-menu').forEach((menuEl) => {
+          menuEl.hidden = true;
+        });
+        document.querySelectorAll('.more-toggle, .menu-toggle, .kf-menu-button').forEach((btnEl) => {
+          btnEl.setAttribute('aria-expanded', 'false');
+        });
+      }
     };
-    button.addEventListener('click', () => setOpen(panel.hidden));
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      setOpen(panel.hidden);
+    });
+    document.querySelectorAll('.more-toggle, .menu-toggle, .kf-menu-button').forEach((menuBtn) => {
+      menuBtn.addEventListener('click', () => {
+        if (!panel.hidden) setOpen(false);
+      });
+    });
     document.addEventListener('click', (event) => {
       if (!wrap.contains(event.target) && !panel.hidden) setOpen(false);
     });
@@ -721,7 +748,20 @@
     document.body.classList.add('kf-has-tabbar');
   }
 
+  function initDropdownHighlighter() {
+    const currentFile = window.location.pathname.split('/').pop() || 'index.html';
+    document.querySelectorAll('.more-panel a, .menu-panel a, .kf-feature-menu a').forEach((link) => {
+      const rawHref = link.getAttribute('href') || '';
+      if (!rawHref || rawHref.startsWith('#')) return;
+      const hrefFile = rawHref.split('?')[0].split('#')[0];
+      const isCurrent = hrefFile === currentFile;
+      link.classList.toggle('is-current-page', isCurrent);
+      if (isCurrent) link.setAttribute('aria-current', 'page');
+    });
+  }
+
   injectAppDownloadSection();
   injectMobileAppTabBar();
   initAppNotifications();
+  initDropdownHighlighter();
 })();

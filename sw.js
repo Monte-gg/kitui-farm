@@ -1,10 +1,34 @@
 'use strict';
 
 // Network-first PWA service worker for KITUI FARM + System Notification handler.
-const CACHE_NAME = 'kitui-farm-shell-v3';
+const CACHE_NAME = 'kitui-farm-shell-v4';
+const APP_SHELL_FILES = [
+  './',
+  './index.html',
+  './login.html',
+  './api-base.js',
+  './theme-init.js',
+  './brand-theme.css',
+  './brand.js',
+  './mobile-layout.css',
+  './manifest.webmanifest',
+  './icons/kitui-app-icon-192.png',
+  './icons/kitui-app-icon-512.png',
+  './assets/kitui-farm-emblem.png'
+];
 
-self.addEventListener('install', () => {
-  self.skipWaiting();
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.allSettled(
+        APP_SHELL_FILES.map((url) =>
+          fetch(url, { cache: 'reload' }).then((res) => {
+            if (res && res.ok) return cache.put(url, res);
+          })
+        )
+      )
+    ).then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
@@ -35,8 +59,8 @@ self.addEventListener('message', (event) => {
     const title = String(event.data.title || 'KITUI FARM');
     const options = {
       body: String(event.data.body || ''),
-      icon: event.data.icon || 'assets/kitui-farm-emblem.png?v=2',
-      badge: event.data.icon || 'assets/kitui-farm-emblem.png?v=2',
+      icon: event.data.icon || 'icons/kitui-app-icon-192.png?v=3',
+      badge: event.data.icon || 'icons/kitui-app-icon-192.png?v=3',
       tag: event.data.tag || 'kitui-farm-notification',
       data: { url: event.data.url || './' }
     };
@@ -78,6 +102,8 @@ self.addEventListener('fetch', (event) => {
         }
         return response;
       })
-      .catch(() => caches.match(request))
+      .catch(() =>
+        caches.match(request, { ignoreSearch: true }).then((cached) => cached || caches.match('./login.html'))
+      )
   );
 });

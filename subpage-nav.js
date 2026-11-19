@@ -75,6 +75,15 @@
     const profileLink = [...menu.querySelectorAll('a')].find(link => link.textContent.toLowerCase().includes('profile'));
     if (profileLink) profileLink.href = profileHref;
 
+    const currentFile = window.location.pathname.split('/').pop() || 'index.html';
+    for (const link of menu.querySelectorAll('a')) {
+        const hrefFile = (link.getAttribute('href') || '').split('?')[0].split('#')[0];
+        const isCurrent = hrefFile === currentFile;
+        link.classList.toggle('is-current-page', isCurrent);
+        if (isCurrent) link.setAttribute('aria-current', 'page');
+        else link.removeAttribute('aria-current');
+    }
+
     function closeMenu() {
         menu.hidden = true;
         toggle.setAttribute('aria-expanded', 'false');

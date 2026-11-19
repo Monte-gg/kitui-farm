@@ -3,28 +3,90 @@
 <head>
     <script src="api-base.js"></script>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <script src="theme-init.js?v=1"></script>
-
     <meta name="theme-color" content="#08723d">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="KITUI FARM">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <link rel="manifest" href="manifest.webmanifest?v=3">
+    <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
+    <link rel="apple-touch-icon" href="icons/kitui-app-icon-192.png?v=3">
     <title>KITUI FARM</title>
-    <meta http-equiv="refresh" content="0; url=login.html">
     <style>
-        body{margin:0;padding:20px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#342718;}
+        :root { --bg: #fbf8ed; --ink: #17472c; }
+        :root[data-theme="dark"] { --bg: #171e19; --ink: #d5ead6; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            min-height: 100svh;
+            display: grid;
+            place-items: center;
+            background: var(--bg);
+            color: var(--ink);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        .app-splash {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 14px;
+            text-align: center;
+        }
+        .app-splash img {
+            width: 96px;
+            height: 96px;
+            object-fit: contain;
+            border-radius: 50%;
+        }
+        .app-splash strong {
+            font-size: 20px;
+            font-weight: 850;
+            letter-spacing: 0.04em;
+        }
     </style>
     <script>
-        window.location.replace('login.html');
+        (function () {
+            try {
+                const params = new URLSearchParams(window.location.search);
+                const isStandalone = params.get('source') === 'pwa'
+                    || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+                    || (window.matchMedia && window.matchMedia('(display-mode: fullscreen)').matches)
+                    || window.navigator.standalone === true;
+                if (isStandalone) {
+                    localStorage.setItem('kituiFarmAppInstalled', '1');
+                    sessionStorage.setItem('kituiFarmAppMode', '1');
+                }
+                const rawSession = sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession');
+                const rawToken = sessionStorage.getItem('kituiFarmToken') || localStorage.getItem('kituiFarmToken');
+                if (rawSession && rawToken) {
+                    const session = JSON.parse(rawSession);
+                    if (session && session.userId && session.role) {
+                        sessionStorage.setItem('kituiFarmSession', rawSession);
+                        sessionStorage.setItem('kituiFarmToken', rawToken);
+                        const dest = session.role === 'admin'
+                            ? 'admin.html'
+                            : (session.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html');
+                        window.location.replace(dest);
+                        return;
+                    }
+                }
+            } catch (e) {}
+            const query = window.location.search || '';
+            window.location.replace('login.html' + query);
+        })();
     </script>
     <script src="site-only.js" defer></script>
     <script defer src="update-notification.js?v=4"></script>
-    <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
     <link rel="stylesheet" href="brand-theme.css?v=4" data-brand-theme>
     <script src="brand.js?v=4" defer></script>
     <link rel="stylesheet" href="mobile-layout.css?v=2">
 </head>
 <body>
-    <p>Continue to <a href="login.html">the Kitui Farm sign-in page</a>.</p>
-
-
+    <div class="app-splash" aria-label="Loading KITUI FARM">
+        <img src="assets/kitui-farm-emblem.png" alt="KITUI FARM">
+        <strong>KITUI FARM</strong>
+    </div>
 </body>
 </html>

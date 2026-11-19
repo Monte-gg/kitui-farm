@@ -13,9 +13,14 @@
         let profileLoginTarget = 'login.html';
         const profileSession = (() => {
             try {
-                // A profile must use the identity established in this tab. Falling
-                // back to localStorage can silently show another tab's account.
-                const session = JSON.parse(sessionStorage.getItem('kituiFarmSession') || 'null');
+                let rawSession = sessionStorage.getItem('kituiFarmSession');
+                if (!rawSession) {
+                    rawSession = localStorage.getItem('kituiFarmSession') || 'null';
+                    if (rawSession && rawSession !== 'null') {
+                        sessionStorage.setItem('kituiFarmSession', rawSession);
+                    }
+                }
+                const session = JSON.parse(rawSession || 'null');
                 if (!session || (requestedProfileId && requestedProfileId !== session.userId)) {
                     const next = `profile.html${requestedProfileId ? `?accountId=${encodeURIComponent(requestedProfileId)}` : ''}`;
                     profileLoginTarget = `login.html?next=${encodeURIComponent(next)}`;
@@ -23,7 +28,18 @@
                 }
                 const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
                 const user = Array.isArray(users) && session ? users.find(account => account.id === session.userId) : null;
-                return user && user.role === session.role ? user : null;
+                if (user && user.role === session.role) return user;
+                if (session.userId && session.role) {
+                    return {
+                        id: session.userId,
+                        name: session.name || '',
+                        email: session.email || '',
+                        phone: session.phone || '',
+                        role: session.role,
+                        location: session.location || ''
+                    };
+                }
+                return null;
             } catch {
                 return null;
             }
@@ -124,6 +140,11 @@
     <script defer src="update-notification.js?v=4"></script>
     <link rel="stylesheet" href="subpage-nav.css?v=3">
     <script defer src="subpage-nav.js?v=4"></script>
+        <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="KITUI FARM">
+    <link rel="manifest" href="manifest.webmanifest?v=3">
+    <link rel="apple-touch-icon" href="icons/kitui-app-icon-192.png?v=3">
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
     <link rel="stylesheet" href="brand-theme.css?v=4" data-brand-theme>
     <script src="brand.js?v=4" defer></script>
