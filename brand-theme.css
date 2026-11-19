@@ -61,16 +61,14 @@ body {
   text-rendering: optimizeLegibility;
 }
 :root[data-theme="dark"] body {
-  background-image:
-    radial-gradient(circle at 12% 8%, rgba(99, 182, 127, 0.08), transparent 42%),
-    radial-gradient(circle at 88% 14%, rgba(240, 163, 75, 0.06), transparent 40%);
+  background-image: none !important;
 }
 
 /* Widen subpages & topbars so pages like Profile, Settings, Wallet, About,
-   and Customer Service never look squeezed on desktop or tablet screens */
+   and Customer Service never look squeezed or compacted on desktop screens */
 @media (min-width: 761px) {
-  .topbar-inner, .bar, main:not(.container):not(.card) {
-    width: min(1160px, calc(100% - 48px)) !important;
+  .topbar-inner, .bar, .page, .layout, main:not(.container):not(.card) {
+    width: min(1380px, calc(100% - 48px)) !important;
   }
   .topbar-inner, .bar {
     min-height: 76px;
@@ -80,7 +78,7 @@ body {
     padding-top: 38px;
     padding-bottom: 68px;
   }
-  #profileForm, .card > form:not(.danger-form):not(#paymentForm):not(#createWalletForm):not(#reopenWalletForm):not(#depositForm):not(#withdrawalForm):not(#recipientForm):not(#transferForm) {
+  #profileForm {
     gap: 20px 24px;
     padding: 28px 30px;
   }
@@ -90,6 +88,11 @@ body {
   }
   .danger-zone {
     padding: 26px 30px;
+  }
+}
+@media (min-width: 1200px) {
+  .product-grid {
+    grid-template-columns: repeat(auto-fill, minmax(295px, 1fr)) !important;
   }
 }
 
@@ -213,8 +216,8 @@ input:focus, select:focus, textarea:focus {
 input[type="checkbox"], input[type="radio"] { accent-color: var(--green); }
 
 /* Keep common page surfaces in sync with the account theme */
-:root[data-theme="dark"] body,
-:root[data-theme="dark"] main { background-color: var(--bg) !important; color: var(--ink) !important; }
+:root[data-theme="dark"] body { background-color: var(--bg) !important; color: var(--ink) !important; }
+main:not(.container):not(.card) { background: transparent !important; }
 :root[data-theme="dark"] .topbar,
 :root[data-theme="dark"] header,
 :root[data-theme="dark"] .card,
@@ -248,11 +251,17 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--green); }
 }
 
 /* =========================================================
-   DROPDOWN MENU HIGHLIGHTER (3-dot menu on all pages)
+   DROPDOWN MENU HIGHLIGHTER & FULL VIEWPORT SCROLLABILITY
    ========================================================= */
 .more-panel,
 .menu-panel,
 .kf-feature-menu {
+  max-height: calc(100vh - 86px) !important;
+  max-height: calc(100svh - 86px) !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
   padding: 8px !important;
   border-radius: 15px !important;
   border: 1px solid var(--line) !important;
@@ -270,14 +279,14 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--green); }
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 44px;
-  margin: 2px 0;
-  padding: 10px 13px !important;
+  min-height: 39px;
+  margin: 1px 0;
+  padding: 8px 12px !important;
   border: 0;
   border-radius: 10px !important;
   background-color: transparent !important;
   color: var(--ink) !important;
-  font-size: 14px !important;
+  font-size: 13.5px !important;
   font-weight: 650 !important;
   text-decoration: none !important;
   cursor: pointer;
@@ -820,22 +829,22 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--green); }
 }
 
 /* =========================================================
-   MOBILE APP BOTTOM TAB BAR
+   MOBILE APP BOTTOM TAB BAR (App Layout only — html.kf-app-mode)
    ========================================================= */
-.kf-mobile-tabbar { display: none; }
+.kf-mobile-tabbar { display: none !important; }
 
 @media (max-width: 760px) {
   .kf-app-download__inner,
   .kf-install-guides {
     grid-template-columns: 1fr;
   }
-  .kf-mobile-tabbar {
+  html.kf-app-mode .kf-mobile-tabbar {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
     z-index: 990;
-    display: grid;
+    display: grid !important;
     grid-auto-flow: column;
     grid-auto-columns: 1fr;
     align-items: center;
@@ -868,8 +877,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--green); }
     color: var(--green) !important;
     background: color-mix(in srgb, var(--green-light) 65%, transparent);
   }
-  body.kf-has-tabbar main,
-  body.kf-has-tabbar .page {
+  html.kf-app-mode body.kf-has-tabbar main,
+  html.kf-app-mode body.kf-has-tabbar .page {
     padding-bottom: calc(88px + env(safe-area-inset-bottom, 0px)) !important;
   }
 }

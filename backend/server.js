@@ -3147,7 +3147,7 @@ function createApp(options = {}) {
     }
 
     app.post('/api/chat/presence', auth, async (req, res) => {
-        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
+        if (!['buyer', 'farmer'].includes(req.user.role)) {
             return res.status(403).json({ error: 'Online status is available to farmer and customer accounts.' });
         }
         await store.run(`INSERT INTO chat_presence (user_id, last_seen) VALUES (?, ?)
@@ -3156,7 +3156,7 @@ function createApp(options = {}) {
     });
 
     app.get('/api/chat/presence', auth, async (req, res) => {
-        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
+        if (!['buyer', 'farmer'].includes(req.user.role)) {
             return res.status(403).json({ error: 'Online status is available to farmer and customer accounts.' });
         }
         const cutoff = new Date(Date.now() - 90_000).toISOString();
@@ -3227,7 +3227,7 @@ function createApp(options = {}) {
 
     app.get('/api/chat/people', auth, async (req, res, next) => {
         try {
-            if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
+            if (!['buyer', 'farmer'].includes(req.user.role)) {
                 return res.status(403).json({ error: 'User directory is available to farmer and customer accounts.' });
             }
             const requestedRole = text(req.query.role, 20);
@@ -3243,7 +3243,6 @@ function createApp(options = {}) {
                     (SELECT COUNT(*) FROM listings WHERE listings.farmer_id = users.id AND listings.quantity > 0) AS product_count
                 FROM users
                 WHERE users.id <> ? ${roleClause}
-                    AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)
                 ORDER BY users.role ASC, lower(users.name) ASC LIMIT 500
             `, params);
             res.json({ people: rows.map(row => ({
@@ -3257,13 +3256,12 @@ function createApp(options = {}) {
     });
 
     app.get('/api/chat/people/:id', auth, async (req, res) => {
-        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
+        if (!['buyer', 'farmer'].includes(req.user.role)) {
             return res.status(403).json({ error: 'User profiles are available to farmer and customer accounts.' });
         }
         const person = await store.get(`
             SELECT users.id, users.name, users.role, users.location, users.profile_photo, users.created_at
             FROM users WHERE users.id = ?
-                AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)
         `, [req.params.id]);
         if (!person) return res.status(404).json({ error: 'This profile is not available.' });
         const listings = person.role === 'farmer'
@@ -3696,7 +3694,7 @@ function createApp(options = {}) {
         res.json({ orders: await Promise.all(rows.map(row => publicOrder(store, row))) });
     });
     app.get('/api/orders/purchases', auth, async (req, res) => {
-        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
+        if (!['buyer', 'farmer'].includes(req.user.role)) {
             return res.status(403).json({ error: 'Marketplace purchases are available to farmer and customer accounts.' });
         }
         const rows = await store.all('SELECT * FROM orders WHERE buyer_id = ? AND buyer_hidden = false ORDER BY created_at DESC', [req.user.id]);
@@ -3704,7 +3702,7 @@ function createApp(options = {}) {
     });
 
     app.get('/api/community/purchases', auth, async (req, res) => {
-        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
+        if (!['buyer', 'farmer'].includes(req.user.role)) {
             return res.status(403).json({ error: 'Community activity is available to farmer and customer accounts.' });
         }
         const rows = await store.all(`
@@ -3712,16 +3710,15 @@ function createApp(options = {}) {
                 order_items.location, orders.created_at
             FROM order_items
             JOIN orders ON orders.id = order_items.order_id
-            WHERE orders.buyer_id <> ? AND orders.status <> 'Cancelled'
-                AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = orders.buyer_id)
+            WHERE orders.status <> 'Cancelled'
             ORDER BY orders.created_at DESC LIMIT 30
-        `, [req.user.id]);
+        `);
         res.json({ purchases: rows.map(row => ({ productName: row.product_name, quantity: Number(row.quantity),
             farmerName: row.seller_name, location: row.location || '', createdAt: row.created_at })) });
     });
 
     app.post('/api/orders', auth, async (req, res, next) => {
-        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
+        if (!['buyer', 'farmer'].includes(req.user.role)) {
             return res.status(403).json({ error: 'A farmer or customer account is required to place a marketplace order.' });
         }
         const lines = req.body?.items;
@@ -3885,7 +3882,7 @@ function createApp(options = {}) {
     });
 
     app.post('/api/orders/:id/returns', auth, async (req, res, next) => {
-        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
+        if (!['buyer', 'farmer'].includes(req.user.role)) {
             return res.status(403).json({ error: 'A customer account is required to request a return or refund.' });
         }
         const reason = text(req.body?.reason, 1000);
@@ -4009,7 +4006,7 @@ function createApp(options = {}) {
 
     app.delete('/api/orders/:id', auth, async (req, res, next) => {
         try {
-            if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
+            if (!['buyer', 'farmer'].includes(req.user.role)) {
                 return res.status(403).json({ error: 'A farmer or customer account is required.' });
             }
             const order = await store.get('SELECT * FROM orders WHERE id = ? AND buyer_id = ?', [req.params.id, req.user.id]);

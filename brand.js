@@ -134,7 +134,7 @@
     loginHeading.replaceWith(loginBrand);
   }
 
-  // 4. PWA Install State + Auto-hide Download Section once installed
+  // 4. Separate Web Browser Mode vs Installed Standalone App Mode
   let deferredInstallPrompt = null;
 
   function isAppInstalled() {
@@ -144,41 +144,30 @@
       if (sessionStorage.getItem('kituiFarmAppMode') === '1') return true;
       if (window.matchMedia('(display-mode: standalone)').matches) return true;
       if (window.matchMedia('(display-mode: fullscreen)').matches) return true;
-      if (window.matchMedia('(display-mode: minimal-ui)').matches) return true;
       if (window.navigator.standalone === true) return true;
       if (document.referrer && document.referrer.startsWith('android-app://')) return true;
-      if (localStorage.getItem(APP_INSTALLED_KEY) === '1') return true;
     } catch (error) { /* ignore storage errors */ }
     return false;
   }
 
   function markAppInstalled() {
     try {
-      localStorage.setItem(APP_INSTALLED_KEY, '1');
       sessionStorage.setItem('kituiFarmAppMode', '1');
     } catch (error) {}
     document.documentElement.classList.remove('kf-can-install');
-    document.documentElement.classList.add('kf-is-installed');
+    document.documentElement.classList.add('kf-is-installed', 'kf-app-mode');
     const section = document.getElementById('kfAppDownloadSection');
     if (section) section.remove();
     const dialog = document.getElementById('kfAppInstallDialog');
     if (dialog && dialog.open) dialog.close();
+    injectMobileAppTabBar();
   }
 
-  if (
-    new URLSearchParams(window.location.search).get('source') === 'pwa' ||
-    window.matchMedia('(display-mode: standalone)').matches ||
-    window.matchMedia('(display-mode: fullscreen)').matches ||
-    window.navigator.standalone === true ||
-    (document.referrer && document.referrer.startsWith('android-app://'))
-  ) {
+  if (isAppInstalled()) {
     markAppInstalled();
-  }
-
-  if (navigator.getInstalledRelatedApps) {
-    navigator.getInstalledRelatedApps().then((apps) => {
-      if (Array.isArray(apps) && apps.length > 0) markAppInstalled();
-    }).catch(() => {});
+  } else {
+    try { localStorage.removeItem(APP_INSTALLED_KEY); } catch (error) {}
+    document.documentElement.classList.add('kf-web-mode');
   }
 
   if (window.matchMedia) {
@@ -400,7 +389,7 @@
     });
   }
 
-  // 5. Real-Time App Notifications Center (Bell in topbar + Push/System notifications)
+  // 5. Real-Time App Notifications Bell (Navigates to dedicated notifications.html area + Push alerts)
   function initAppNotifications() {
     if (!activeSession || !activeToken || !activeSession.userId) return;
     if (!['buyer', 'farmer'].includes(activeSession.role)) return;
@@ -414,7 +403,7 @@
 
     const SEEN_KEY = `kituiFarmNotifSeen_${activeSession.userId}`;
     const SNAP_KEY = `kituiFarmNotifSnap_${activeSession.userId}`;
-    const PUSH_PREF_KEY = `kituiFarmPushEnabled_${activeSession.userId}`;
+    const CACHE_KEY = `kituiFarmNotifItems_${activeSession.userId}`;
     let notifications = [];
 
     const readJson = (key, fallback) => {
@@ -428,30 +417,15 @@
     const wrap = document.createElement('div');
     wrap.id = 'kfNotifWrap';
     wrap.className = 'kf-notif-wrap';
+    const isNotifPage = path === 'notifications.html';
     wrap.innerHTML = `
-      <button type="button" class="kf-notif-button" id="kfNotifButton" aria-label="Open notifications" aria-haspopup="true" aria-expanded="false" aria-controls="kfNotifPanel">
+      <a href="notifications.html" class="kf-notif-button ${isNotifPage ? 'active' : ''}" id="kfNotifButton" aria-label="Open notifications page" ${isNotifPage ? 'aria-current="page"' : ''}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
           <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
         </svg>
         <span class="kf-notif-badge" id="kfNotifBadge" hidden>0</span>
-      </button>
-      <aside class="kf-notif-panel" id="kfNotifPanel" aria-label="Notifications" hidden>
-        <div class="kf-notif-panel__head">
-          <div>
-            <strong>Notifications</strong>
-            <small id="kfNotifSummary">Messages, orders &amp; wallet updates</small>
-          </div>
-          <button type="button" class="kf-notif-mark-read" id="kfNotifMarkRead">Mark all read</button>
-        </div>
-        <div class="kf-notif-push-bar" id="kfNotifPushBar" hidden>
-          <span>Get alerts on your phone screen</span>
-          <button type="button" class="button primary small" id="kfEnablePushBtn">Enable alerts</button>
-        </div>
-        <div class="kf-notif-list" id="kfNotifList" role="list">
-          <p class="kf-notif-empty">Checking for updates…</p>
-        </div>
-      </aside>
+      </a>
     `;
 
     // Place the notification bell right before the 3-dot menu or at the end of the header
@@ -464,35 +438,6 @@
 
     const button = wrap.querySelector('#kfNotifButton');
     const badge = wrap.querySelector('#kfNotifBadge');
-    const panel = wrap.querySelector('#kfNotifPanel');
-    const listNode = wrap.querySelector('#kfNotifList');
-    const markReadBtn = wrap.querySelector('#kfNotifMarkRead');
-    const pushBar = wrap.querySelector('#kfNotifPushBar');
-    const enablePushBtn = wrap.querySelector('#kfEnablePushBtn');
-
-    function updatePushBarVisibility() {
-      if (!('Notification' in window)) { pushBar.hidden = true; return; }
-      if (Notification.permission === 'granted') {
-        pushBar.hidden = true;
-      } else if (Notification.permission === 'default') {
-        pushBar.hidden = false;
-      } else {
-        pushBar.hidden = true;
-      }
-    }
-    updatePushBarVisibility();
-
-    enablePushBtn.addEventListener('click', async () => {
-      if (!('Notification' in window)) return;
-      try {
-        const perm = await Notification.requestPermission();
-        if (perm === 'granted') {
-          localStorage.setItem(PUSH_PREF_KEY, '1');
-          showSystemNotification('KITUI FARM notifications enabled', 'You will receive alerts for new messages, orders, and wallet activity.', location.href);
-        }
-      } catch {}
-      updatePushBarVisibility();
-    });
 
     function showSystemNotification(title, body, url, tag) {
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -503,27 +448,16 @@
             title,
             body,
             url,
-            icon: iconUrl,
+            icon: appIconUrl,
             tag: tag || 'kitui-farm-alert'
           });
           return;
         }
-        new Notification(title, { body, icon: iconUrl, tag: tag || 'kitui-farm-alert' });
+        new Notification(title, { body, icon: appIconUrl, tag: tag || 'kitui-farm-alert' });
       } catch {}
     }
 
-    function escapeHtml(value) {
-      return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-    }
-
-    function formatTime(iso) {
-      if (!iso) return '';
-      const d = new Date(iso);
-      if (Number.isNaN(d.getTime())) return '';
-      return d.toLocaleString('en-KE', { dateStyle: 'medium', timeStyle: 'short' });
-    }
-
-    function renderNotificationList() {
+    function updateBadgeCount() {
       const seenMap = readJson(SEEN_KEY, {});
       const unread = notifications.filter((item) => !seenMap[item.key]);
       badge.hidden = unread.length === 0;
@@ -532,74 +466,7 @@
         'aria-label',
         unread.length ? `Open notifications (${unread.length} unread)` : 'Open notifications'
       );
-
-      if (!notifications.length) {
-        listNode.innerHTML = '<p class="kf-notif-empty">No notifications yet. Messages, order updates, and wallet activity will appear here.</p>';
-        return;
-      }
-
-      listNode.innerHTML = notifications.slice(0, 20).map((item) => {
-        const isUnread = !seenMap[item.key];
-        return `<a href="${escapeHtml(item.href)}" class="kf-notif-item ${isUnread ? 'unread' : ''}" data-notif-key="${escapeHtml(item.key)}" role="listitem">
-          <span class="kf-notif-item__icon" aria-hidden="true">${item.icon}</span>
-          <span class="kf-notif-item__body">
-            <strong>${escapeHtml(item.title)}</strong>
-            <span>${escapeHtml(item.body)}</span>
-            <time>${escapeHtml(formatTime(item.time))}</time>
-          </span>
-          ${isUnread ? '<span class="kf-notif-dot" aria-label="Unread"></span>' : ''}
-        </a>`;
-      }).join('');
     }
-
-    function markAllRead() {
-      const seenMap = readJson(SEEN_KEY, {});
-      notifications.forEach((item) => { seenMap[item.key] = true; });
-      writeJson(SEEN_KEY, seenMap);
-      renderNotificationList();
-    }
-
-    markReadBtn.addEventListener('click', markAllRead);
-    listNode.addEventListener('click', (event) => {
-      const link = event.target.closest('[data-notif-key]');
-      if (!link) return;
-      const seenMap = readJson(SEEN_KEY, {});
-      seenMap[link.dataset.notifKey] = true;
-      writeJson(SEEN_KEY, seenMap);
-      renderNotificationList();
-    });
-
-    const setOpen = (open) => {
-      panel.hidden = !open;
-      button.setAttribute('aria-expanded', String(open));
-      if (open) {
-        updatePushBarVisibility();
-        document.querySelectorAll('.more-panel, .menu-panel, .kf-feature-menu').forEach((menuEl) => {
-          menuEl.hidden = true;
-        });
-        document.querySelectorAll('.more-toggle, .menu-toggle, .kf-menu-button').forEach((btnEl) => {
-          btnEl.setAttribute('aria-expanded', 'false');
-        });
-      }
-    };
-    button.addEventListener('click', (event) => {
-      event.stopPropagation();
-      setOpen(panel.hidden);
-    });
-    document.querySelectorAll('.more-toggle, .menu-toggle, .kf-menu-button').forEach((menuBtn) => {
-      menuBtn.addEventListener('click', () => {
-        if (!panel.hidden) setOpen(false);
-      });
-    });
-    document.addEventListener('click', (event) => {
-      if (!wrap.contains(event.target) && !panel.hidden) setOpen(false);
-    });
-    document.addEventListener('keydown', (event) => {
-      if (event.key === 'Escape' && !panel.hidden) {
-        setOpen(false);
-        button.focus();
-      }
-    });
 
     async function pollNotifications(isFirstRun) {
       if (document.visibilityState === 'hidden' && !isFirstRun) return;
@@ -617,12 +484,13 @@
         const nextSnapKeys = { ...(prevSnap.keys || {}) };
         const freshAlerts = [];
 
-        // 1. Unread chat messages
         for (const conv of chatRes.conversations || []) {
           if (Number(conv.unreadCount) > 0) {
             const key = `chat:${conv.id}:${conv.updatedAt}:${conv.unreadCount}`;
             const item = {
               key,
+              category: 'chat',
+              categoryLabel: `Chat · ${conv.unreadCount} unread`,
               icon: '💬',
               title: `${conv.unreadCount} unread message${conv.unreadCount === 1 ? '' : 's'} from ${conv.peerName}`,
               body: conv.lastMessage || `Regarding ${conv.listingName}`,
@@ -635,7 +503,6 @@
           }
         }
 
-        // 2. Orders & delivery status updates
         for (const order of (ordersRes.orders || []).slice(0, 12)) {
           const latestUpdate = Array.isArray(order.deliveryUpdates) && order.deliveryUpdates.length
             ? order.deliveryUpdates[order.deliveryUpdates.length - 1]
@@ -652,6 +519,8 @@
             : `${productNames} · KES ${Number(order.total || 0).toLocaleString('en-KE')}`;
           const item = {
             key,
+            category: 'order',
+            categoryLabel: `Order · ${status}`,
             icon: status === 'Delivered' || status === 'Completed' ? '✅' : '📦',
             title,
             body,
@@ -663,12 +532,13 @@
           nextSnapKeys[key] = true;
         }
 
-        // 3. Recent wallet transactions
         for (const tx of (walletRes.transactions || []).slice(0, 8)) {
           const key = `wallet:${tx.id}:${tx.status}`;
           const sign = tx.direction === 'credit' ? '+' : '−';
           const item = {
             key,
+            category: 'wallet',
+            categoryLabel: `Wallet · ${tx.status || 'completed'}`,
             icon: tx.direction === 'credit' ? '💰' : '💳',
             title: `Wallet ${tx.type}: ${sign}KES ${Number(tx.amount || 0).toLocaleString('en-KE')}`,
             body: tx.description || 'KITUI FARM Wallet activity',
@@ -682,8 +552,9 @@
 
         items.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
         notifications = items;
+        writeJson(CACHE_KEY, items);
         writeJson(SNAP_KEY, { initialized: true, keys: nextSnapKeys });
-        renderNotificationList();
+        updateBadgeCount();
 
         if (freshAlerts.length > 0) {
           const top = freshAlerts[0];
@@ -694,18 +565,24 @@
       }
     }
 
+    const cachedItems = readJson(CACHE_KEY, []);
+    if (Array.isArray(cachedItems) && cachedItems.length) {
+      notifications = cachedItems;
+      updateBadgeCount();
+    }
     pollNotifications(true);
     window.setInterval(() => pollNotifications(false), 20_000);
     window.addEventListener('focus', () => pollNotifications(false));
   }
 
-  // Inject a mobile bottom app navigation bar for signed-in buyer/farmer pages
+  // Inject a mobile bottom app navigation bar ONLY when running inside the installed app (App Layout)
   function injectMobileAppTabBar() {
+    if (!isAppInstalled()) return;
     if (document.getElementById('kfMobileTabBar')) return;
     const path = location.pathname.split('/').pop() || 'index.html';
     const appPages = [
       'buyer-dashboard.html', 'farmer-dashboard.html', 'farmer-store.html',
-      'chat.html', 'wallet.html', 'receipts.html', 'profile.html', 'settings.html'
+      'chat.html', 'wallet.html', 'receipts.html', 'profile.html', 'settings.html', 'notifications.html'
     ];
     if (!appPages.includes(path)) return;
     if (location.search.includes('admin=1')) return;

@@ -56,6 +56,11 @@ header.kf-subpage-header {
     right: 0;
     z-index: 1001;
     width: min(285px, calc(100vw - 24px));
+    max-height: calc(100vh - 86px);
+    max-height: calc(100svh - 86px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     padding: 8px;
     border: 1px solid var(--line, #e5dcc6);
     border-radius: 15px;

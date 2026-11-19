@@ -287,6 +287,7 @@
                         <a href="farmer-dashboard.html" id="farmerHomeLink" role="menuitem" hidden>Back to farmer dashboard</a>
                         <a href="#wishlist" id="wishlistMenuLink" role="menuitem">Wishlist <span id="wishlistMenuCount">(0)</span></a>
                         <a href="receipts.html" role="menuitem">My receipts</a>
+                        <a href="notifications.html" role="menuitem">Notifications</a>
                         <a href="chat.html" role="menuitem">Messages</a>
                         <a href="wallet.html" role="menuitem">Wallet</a>
                         <a href="settings.html" role="menuitem">Settings</a>
@@ -905,30 +906,56 @@
             }
         });
 
+        function fallbackCommunityPurchasesFromOrders() {
+            const saved = readArray('kituiFarmCommunityPurchases');
+            if (saved.length) return saved;
+            const localOrders = readArray('kituiFarmOrders').filter(o => o && o.status !== 'Cancelled');
+            const derived = [];
+            for (const order of localOrders.slice(-15).reverse()) {
+                for (const item of (order.items || [])) {
+                    derived.push({
+                        productName: item.name,
+                        quantity: item.quantity,
+                        farmerName: item.sellerName || 'a local farmer',
+                        location: item.location || '',
+                        createdAt: order.createdAt
+                    });
+                }
+            }
+            return derived;
+        }
+
         try {
             initializeListings();
             render();
+            renderCommunityPurchases(fallbackCommunityPurchasesFromOrders());
         } catch (error) {
             marketNotice.textContent = error.message || 'Could not load the marketplace.';
             marketNotice.hidden = false;
         }
         (async () => {
-            try {
-                const [listingResult, orderResult, wishlistResult, communityResult] = await Promise.all([
-                    apiRequest('/api/listings'),
-                    apiRequest('/api/orders/purchases'),
-                    buyer.role === 'buyer' ? apiRequest('/api/wishlist') : Promise.resolve({ listingIds:[] }),
-                    apiRequest('/api/community/purchases')
-                ]);
-                writeArray('kituiFarmListings', listingResult.listings);
-                writeArray('kituiFarmOrders', orderResult.orders);
-                wishlistIds = new Set((wishlistResult.listingIds || []).map(String));
-                renderCommunityPurchases(communityResult.purchases || []);
-                render();
-            } catch (error) {
-                marketNotice.textContent = error.message || 'Could not load marketplace data from the server.';
-                marketNotice.hidden = false;
+            const [listingSettled, orderSettled, wishlistSettled, communitySettled] = await Promise.allSettled([
+                apiRequest('/api/listings'),
+                apiRequest('/api/orders/purchases'),
+                buyer.role === 'buyer' ? apiRequest('/api/wishlist') : Promise.resolve({ listingIds:[] }),
+                apiRequest('/api/community/purchases')
+            ]);
+            if (listingSettled.status === 'fulfilled' && Array.isArray(listingSettled.value?.listings)) {
+                writeArray('kituiFarmListings', listingSettled.value.listings);
             }
+            if (orderSettled.status === 'fulfilled' && Array.isArray(orderSettled.value?.orders)) {
+                writeArray('kituiFarmOrders', orderSettled.value.orders);
+            }
+            if (wishlistSettled.status === 'fulfilled') {
+                wishlistIds = new Set((wishlistSettled.value?.listingIds || []).map(String));
+            }
+            if (communitySettled.status === 'fulfilled' && Array.isArray(communitySettled.value?.purchases)) {
+                writeArray('kituiFarmCommunityPurchases', communitySettled.value.purchases);
+                renderCommunityPurchases(communitySettled.value.purchases);
+            } else {
+                renderCommunityPurchases(fallbackCommunityPurchasesFromOrders());
+            }
+            render();
         })();
         async function refreshBuyerOrders() {
             if (document.visibilityState !== 'visible') return;

@@ -56,6 +56,7 @@
 
     const links = [
         [dashboardLabel, dashboardUrl],
+        ...(isAdmin ? [] : [['Notifications', 'notifications.html']]),
         ['Profile & Account', 'profile.html'],
         ['Wallet & Payments', 'wallet.html'],
         ['Settings', 'settings.html'],
