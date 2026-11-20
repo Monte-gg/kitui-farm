@@ -203,7 +203,7 @@
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
     <link rel="stylesheet" href="brand-theme.css?v=6" data-brand-theme>
     <script src="brand.js?v=6" defer></script>
-    <link rel="stylesheet" href="mobile-layout.css?v=3">
+    <link rel="stylesheet" href="mobile-layout.css?v=4">
 </head>
 <body>
     <header class="topbar">
@@ -366,7 +366,7 @@
         };
         moreToggle.addEventListener('click', () => setMoreOpen(morePanel.hidden));
         moreMenu.addEventListener('focusout', event => {
-            if (!moreMenu.contains(event.relatedTarget)) setMoreOpen(false);
+            if (event.relatedTarget && !moreMenu.contains(event.relatedTarget)) setMoreOpen(false);
         });
         moreMenu.addEventListener('keydown', event => {
             if (event.key === 'Escape' && !morePanel.hidden) {

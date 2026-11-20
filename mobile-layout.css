@@ -1,4 +1,4 @@
-/* Shared mobile app layout for iOS and Android devices. */
+/* Shared mobile-browser layout for iOS Safari and Android Chrome. */
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 img, video, canvas, svg { max-width: 100%; }
 
@@ -7,8 +7,7 @@ img, video, canvas, svg { max-width: 100%; }
   html, body {
     width: 100%;
     min-width: 320px;
-    overflow-x: hidden;
-    overscroll-behavior-y: none;
+    overflow-x: clip;
     -webkit-tap-highlight-color: transparent;
   }
   body { min-height: 100vh; min-height: 100svh; }
@@ -41,6 +40,55 @@ img, video, canvas, svg { max-width: 100%; }
   }
   .nav, .top-actions { max-width: 100%; }
   .nav > *, .top-actions > * { max-width: 100%; }
+
+  /* Full-width search bar on its own row + clean icon controls on dashboards */
+  .header-actions {
+    width: 100% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-end !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+  }
+  .search-box.header-search {
+    order: 10 !important;
+    flex: 1 1 100% !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+
+  /* Keep Cart & Dropdown Menus centered inside the phone screen (never clipped off left edge) */
+  .cart-panel,
+  .more-panel,
+  .menu-panel,
+  .kf-feature-menu {
+    position: fixed !important;
+    top: calc(74px + env(safe-area-inset-top, 0px)) !important;
+    left: 12px !important;
+    right: 12px !important;
+    width: auto !important;
+    max-width: none !important;
+    max-height: calc(100svh - 94px) !important;
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    z-index: 1060 !important;
+  }
+
+  /* Horizontal swipeable category filters for effortless mobile browsing */
+  .filters {
+    flex-wrap: nowrap !important;
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 4px;
+    gap: 8px !important;
+  }
+  .filters::-webkit-scrollbar { display: none; }
+  .filter-button {
+    flex: 0 0 auto !important;
+    white-space: nowrap !important;
+  }
 
   h1 { font-size: clamp(1.55rem, 6.2vw, 2.2rem); line-height: 1.15; overflow-wrap: anywhere; }
   h2 { font-size: clamp(1.15rem, 4.8vw, 1.5rem); }
@@ -102,7 +150,7 @@ img, video, canvas, svg { max-width: 100%; }
   dialog { width: calc(100vw - 24px) !important; max-width: 560px; max-height: calc(100svh - 24px); overflow: auto; }
   .card, .panel, .contact, .welcome-panel { max-width: 100%; }
   .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  main, .page { padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+  main, .page { padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)); }
 }
 
 @media (max-width: 480px) {
