@@ -162,6 +162,28 @@
                 : 'Your account was permanently deleted, but the confirmation email could not be sent. Contact Customer Service at 0114 583 373 if you need help.';
         }
 
+        // Default to keeping users signed in automatically (especially in the Android app)
+        rememberCheckbox.checked = true;
+
+        // Auto-login: if a saved session & token already exist, open the dashboard directly
+        if (loginNotice.get('accountDeleted') !== '1' && loginNotice.get('loggedOut') !== '1') {
+            try {
+                const savedSessionRaw = sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession');
+                const savedToken = sessionStorage.getItem('kituiFarmToken') || localStorage.getItem('kituiFarmToken');
+                if (savedSessionRaw && savedToken) {
+                    const savedSession = JSON.parse(savedSessionRaw);
+                    if (savedSession && savedSession.userId && savedSession.role) {
+                        sessionStorage.setItem('kituiFarmSession', savedSessionRaw);
+                        sessionStorage.setItem('kituiFarmToken', savedToken);
+                        const autoDest = savedSession.role === 'admin'
+                            ? 'admin.html'
+                            : (savedSession.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html');
+                        window.location.replace(autoDest);
+                    }
+                }
+            } catch (e) {}
+        }
+
         if (rememberedLogin) {
             rememberCheckbox.checked = true;
             identifierInput.value = rememberedLogin;
@@ -223,7 +245,7 @@
                     body: JSON.stringify({
                         identifier: isEmail ? value.toLowerCase() : '+254' + phoneDigits,
                         password: passwordInput.value,
-                        remember: rememberCheckbox.checked
+                        remember: rememberCheckbox.checked || /KituiFarmAndroidApp/i.test(navigator.userAgent || "")
                     })
                 });
                 if (!(response.headers.get('content-type') || '').includes('application/json')) {
@@ -238,7 +260,7 @@
                 if (result.token) {
                     try {
                         sessionStorage.setItem('kituiFarmToken', result.token);
-                        if (rememberCheckbox.checked) localStorage.setItem('kituiFarmToken', result.token);
+                        if (rememberCheckbox.checked || /KituiFarmAndroidApp/i.test(navigator.userAgent || "")) localStorage.setItem('kituiFarmToken', result.token);
                     } catch (error) { /* ignore */ }
                 }
                 const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
@@ -254,7 +276,7 @@
                     location: user.location || ''
                 });
                 sessionStorage.setItem('kituiFarmSession', session);
-                if (rememberCheckbox.checked) {
+                if (rememberCheckbox.checked || /KituiFarmAndroidApp/i.test(navigator.userAgent || "")) {
                     localStorage.setItem('kituiFarmSession', session);
                     localStorage.setItem('kituiFarmRememberedLogin', value);
                 } else {

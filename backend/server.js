@@ -12,7 +12,7 @@ const COOKIE = 'kitui_farm_session';
 // Static front ends (for example GitHub Pages) are allowed to call this API.
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://monte-gg.github.io')
     .split(',').map(origin => origin.trim()).filter(Boolean);
-const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+const SESSION_MS = 180 * 24 * 60 * 60 * 1000;
 const DEFAULT_SETTINGS = { theme: 'system', density: 'comfortable', confirmDeletes: true };
 const CATEGORIES = new Set(['Fruits', 'Vegetables', 'Grains & Pulses', 'Roots & Tubers']);
 const PAYMENT_METHODS = new Set([
