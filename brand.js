@@ -374,8 +374,8 @@
   }
 
   // 5. Direct Native Android APK "Get the app" card (no Chrome PWA prompt, hidden inside native app or once dismissed)
-  const APK_DOWNLOAD_URL = 'https://github.com/Monte-gg/kitui-farm/releases/download/v1.0.3/kitui-farm-android-v1.0.3.apk';
-  const APK_FILENAME = 'kitui-farm-android-v1.0.3.apk';
+  const APK_DOWNLOAD_URL = 'https://github.com/Monte-gg/kitui-farm/releases/download/v1.0.4/kitui-farm-android-v1.0.4.apk';
+  const APK_FILENAME = 'kitui-farm-android-v1.0.4.apk';
   const APK_HIDDEN_KEY = 'kituiFarmApkHidden';
   const isNativeAndroidApp = /KituiFarmAndroidApp/i.test(navigator.userAgent || '')
     || Boolean(window.KituiAndroid);
@@ -518,6 +518,25 @@
     }).join('');
     document.body.appendChild(nav);
     document.body.classList.add('kf-has-native-tabbar');
+
+    // Instant tactile touch reaction (0ms) on section switch
+    nav.querySelectorAll('.kf-native-tabbar__item').forEach((link) => {
+      link.addEventListener('pointerdown', () => {
+        nav.querySelectorAll('.kf-native-tabbar__item').forEach((i) => i.classList.remove('active'));
+        link.classList.add('active');
+      }, { passive: true });
+    });
+
+    // Prefetch all other app sections so switching is instantaneous
+    const prefetchTargets = [homeHref, 'chat.html', 'wallet.html', 'notifications.html', profileHref, 'settings.html'];
+    prefetchTargets.forEach((targetUrl) => {
+      if (!targetUrl || targetUrl.includes(path)) return;
+      const pl = document.createElement('link');
+      pl.rel = 'prefetch';
+      pl.as = 'document';
+      pl.href = targetUrl;
+      document.head.appendChild(pl);
+    });
   }
 
   // 7. Highlight active page + instant touch-press highlighter inside all dropdown menus

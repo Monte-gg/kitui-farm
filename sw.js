@@ -1,18 +1,32 @@
 'use strict';
 
-// Network-first PWA service worker for KITUI FARM + System Notification handler.
-const CACHE_NAME = 'kitui-farm-shell-v9';
+// Stale-While-Revalidate service worker for KITUI FARM (v10) + System Notification handler.
+// Delivers instantaneous (0ms) section switching between dashboards, wallet, chat, alerts, and settings.
+const CACHE_NAME = 'kitui-farm-shell-v10';
 const APP_SHELL_FILES = [
   './',
   './index.html',
   './login.html',
+  './buyer-dashboard.html',
+  './farmer-dashboard.html',
+  './farmer-store.html',
+  './chat.html',
+  './wallet.html',
+  './receipts.html',
+  './notifications.html',
+  './profile.html',
+  './settings.html',
+  './about-us.html',
+  './customer-service.html',
   './api-base.js',
   './theme-init.js',
   './brand-theme.css',
   './brand.js',
   './mobile-layout.css',
+  './android-app-layout.css',
+  './subpage-nav.css',
+  './subpage-nav.js',
   './manifest.webmanifest',
-  './app-install.js',
   './icons/kitui-app-icon-192.png',
   './icons/kitui-app-icon-512.png',
   './assets/kitui-farm-emblem.png'
@@ -94,17 +108,20 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/api/') || url.pathname.endsWith('/version.json')) return;
 
+  // Stale-While-Revalidate: Return cached app shell immediately for instant section switching!
   event.respondWith(
-    fetch(request, { cache: 'no-cache' })
-      .then((response) => {
-        if (response && response.ok && response.type === 'basic') {
-          const copy = response.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
-        }
-        return response;
-      })
-      .catch(() =>
-        caches.match(request, { ignoreSearch: true }).then((cached) => cached || caches.match('./login.html'))
-      )
+    caches.match(request, { ignoreSearch: true }).then((cached) => {
+      const fetchPromise = fetch(request)
+        .then((networkResponse) => {
+          if (networkResponse && networkResponse.ok && networkResponse.type === 'basic') {
+            const copy = networkResponse.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(request, copy)).catch(() => {});
+          }
+          return networkResponse;
+        })
+        .catch(() => cached);
+
+      return cached || fetchPromise;
+    })
   );
 });

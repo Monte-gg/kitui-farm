@@ -43,6 +43,8 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
+import android.widget.Toast;
+import android.graphics.Color;
 
 import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResultLauncher;
@@ -50,6 +52,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
@@ -61,7 +64,7 @@ import java.util.List;
 public class MainActivity extends AppCompatActivity {
 
     private static final String START_URL = "https://monte-gg.github.io/kitui-farm/";
-    private static final String APP_VERSION = "1.0.3";
+    private static final String APP_VERSION = "1.0.4";
     private static final String APP_UA_SUFFIX = " KituiFarmAndroidApp/" + APP_VERSION;
     private static final String CHANNEL_ID = "kitui_farm_alerts";
     private static final String PREFS_NAME = "kitui_farm_prefs";
@@ -123,6 +126,8 @@ public class MainActivity extends AppCompatActivity {
 
     private final ActivityResultLauncher<String[]> appPermissionsLauncher =
             registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), grants -> {
+                boolean locGranted = Boolean.TRUE.equals(grants.get(Manifest.permission.ACCESS_FINE_LOCATION))
+                        || Boolean.TRUE.equals(grants.get(Manifest.permission.ACCESS_COARSE_LOCATION));
                 boolean notifGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
                         || Boolean.TRUE.equals(grants.get(Manifest.permission.POST_NOTIFICATIONS));
                 if (notifGranted) {
@@ -131,6 +136,15 @@ public class MainActivity extends AppCompatActivity {
                             "You will receive app notifications for messages, orders, wallet activity, and updates.",
                             START_URL + "notifications.html"
                     );
+                }
+                if (pendingGeoCallback != null && pendingGeoOrigin != null) {
+                    pendingGeoCallback.invoke(pendingGeoOrigin, locGranted, false);
+                    pendingGeoCallback = null;
+                    pendingGeoOrigin = null;
+                }
+                if (pendingNativeLocationRequest && locGranted) {
+                    pendingNativeLocationRequest = false;
+                    fetchNativeLocationAndDeliver();
                 }
                 notifyPermissionsChanged();
             });
@@ -158,22 +172,87 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @JavascriptInterface
+        public void enableAllPermissions() {
+            runOnUiThread(() -> {
+                boolean hasLoc = hasLocationPermission();
+                boolean hasNotif = hasNotificationPermission();
+                if (hasLoc && hasNotif) {
+                    Toast.makeText(MainActivity.this, "Location and Notifications are already enabled ✓", Toast.LENGTH_SHORT).show();
+                    notifyPermissionsChanged();
+                    return;
+                }
+                List<String> missing = getMissingPermissions();
+                if (!missing.isEmpty()) {
+                    boolean canShowRationale = false;
+                    for (String perm : missing) {
+                        if (ActivityCompat.shouldShowRequestPermissionRationale(MainActivity.this, perm)) {
+                            canShowRationale = true;
+                            break;
+                        }
+                    }
+                    SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                    boolean prompted = prefs.getBoolean(KEY_PERMS_PROMPTED, false);
+                    if (prompted && !canShowRationale) {
+                        Toast.makeText(MainActivity.this, "Opening App Settings: please turn on Location & Notifications", Toast.LENGTH_LONG).show();
+                        openAppSettings();
+                        return;
+                    }
+                    prefs.edit().putBoolean(KEY_PERMS_PROMPTED, true).apply();
+                    appPermissionsLauncher.launch(missing.toArray(new String[0]));
+                } else {
+                    notifyPermissionsChanged();
+                }
+            });
+        }
+
+        @JavascriptInterface
         public void requestAppPermissions() {
-            runOnUiThread(() -> launchMissingPermissions());
+            enableAllPermissions();
         }
 
         @JavascriptInterface
         public void requestLocationPermission() {
-            runOnUiThread(() -> locationPermissionLauncher.launch(new String[]{
-                    Manifest.permission.ACCESS_FINE_LOCATION,
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-            }));
+            runOnUiThread(() -> {
+                if (hasLocationPermission()) {
+                    Toast.makeText(MainActivity.this, "Location access is already enabled ✓", Toast.LENGTH_SHORT).show();
+                    notifyPermissionsChanged();
+                    return;
+                }
+                boolean canShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION)
+                        || ActivityCompat.shouldShowRequestPermissionRationale(MainActivity.this, Manifest.permission.ACCESS_COARSE_LOCATION);
+                SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                boolean prompted = prefs.getBoolean("kitui_loc_prompted", false);
+                if (prompted && !canShowRationale) {
+                    Toast.makeText(MainActivity.this, "Opening Settings: enable Location in Permissions", Toast.LENGTH_LONG).show();
+                    openAppSettings();
+                    return;
+                }
+                prefs.edit().putBoolean("kitui_loc_prompted", true).apply();
+                locationPermissionLauncher.launch(new String[]{
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                });
+            });
         }
 
         @JavascriptInterface
         public void requestNotificationPermission() {
             runOnUiThread(() -> {
+                if (hasNotificationPermission()) {
+                    Toast.makeText(MainActivity.this, "Notifications are already enabled ✓", Toast.LENGTH_SHORT).show();
+                    notifyPermissionsChanged();
+                    return;
+                }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    boolean canShowRationale = ActivityCompat.shouldShowRequestPermissionRationale(MainActivity.this, Manifest.permission.POST_NOTIFICATIONS);
+                    SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+                    boolean prompted = prefs.getBoolean("kitui_notif_prompted", false);
+                    if (prompted && !canShowRationale) {
+                        Toast.makeText(MainActivity.this, "Opening Settings: enable Notifications in Permissions", Toast.LENGTH_LONG).show();
+                        openAppSettings();
+                        return;
+                    }
+                    prefs.edit().putBoolean("kitui_notif_prompted", true).apply();
                     appPermissionsLauncher.launch(new String[]{ Manifest.permission.POST_NOTIFICATIONS });
                 } else {
                     postNativeNotification(
@@ -504,6 +583,9 @@ public class MainActivity extends AppCompatActivity {
 
     @SuppressLint("SetJavaScriptEnabled")
     private void configureWebView() {
+        webView.setBackgroundColor(Color.parseColor("#171E19"));
+        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
+
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
