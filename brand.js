@@ -5,6 +5,15 @@
   const iconUrl = new URL('assets/kitui-farm-emblem.png?v=3', siteRoot).href;
   const appIconUrl = new URL('icons/kitui-app-icon-192.png?v=3', siteRoot).href;
 
+  // Make the existing PWA installable from every page, including the public sign-in screen.
+  if (!document.querySelector('script[data-kitui-app-install]')) {
+    const installScript = document.createElement('script');
+    installScript.src = new URL('app-install.js?v=1', siteRoot).href;
+    installScript.defer = true;
+    installScript.dataset.kituiAppInstall = 'true';
+    document.head.appendChild(installScript);
+  }
+
   const createIcon = (className, decorative) => {
     const image = document.createElement('img');
     image.className = className;
