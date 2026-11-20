@@ -278,7 +278,72 @@
     window.addEventListener('focus', () => pollNotifications(false));
   }
 
-  // 5. Highlight the active page inside all dropdown menus
+  // 5. Direct Native Android APK "Get the app" card (no Chrome PWA prompt, hidden inside native app)
+  const APK_DOWNLOAD_URL = 'https://github.com/Monte-gg/kitui-farm/releases/download/v1.0.0/kitui-farm-android-v1.0.0.apk';
+  const APK_FILENAME = 'kitui-farm-android-v1.0.0.apk';
+  const isNativeAndroidApp = /KituiFarmAndroidApp/i.test(navigator.userAgent || '');
+
+  // Prevent browser PWA install prompt from ever triggering
+  window.addEventListener('beforeinstallprompt', (event) => {
+    event.preventDefault();
+  });
+
+  // Unregister any old PWA service worker so Chrome does not offer PWA installation
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistrations().then((regs) => {
+      regs.forEach((reg) => reg.unregister().catch(() => {}));
+    }).catch(() => {});
+  }
+
+  function injectAndroidApkCard() {
+    if (isNativeAndroidApp) {
+      document.documentElement.classList.add('kf-native-android-app');
+      return;
+    }
+    if (document.getElementById('kfAndroidApkCard')) return;
+    const path = location.pathname.split('/').pop() || 'index.html';
+    if ([
+      'admin-chat.html', 'wallet-admin.html', 'receipt.html',
+      'admin-signin.html', 'admin-register.html', 'admin.html', 'admin-profile.html'
+    ].includes(path)) return;
+
+    const main = document.querySelector('main');
+    if (!main) return;
+    const isAuthCardPage = main.classList.contains('container') || main.classList.contains('card');
+
+    const card = document.createElement('section');
+    card.id = 'kfAndroidApkCard';
+    card.className = isAuthCardPage ? 'kf-apk-card kf-apk-card--auth' : 'kf-apk-card';
+    card.setAttribute('aria-labelledby', 'kfApkCardTitle');
+    card.innerHTML = `
+      <div class="kf-apk-card__left">
+        <img src="${appIconUrl}" alt="KITUI FARM app icon" class="kf-apk-card__icon">
+        <div class="kf-apk-card__copy">
+          <span class="kf-apk-card__badge">ANDROID APP · v1.0.0</span>
+          <h2 id="kfApkCardTitle">Get the app</h2>
+          <p>Download the KITUI FARM Android app. After the download finishes, open the APK and allow installation if Android asks.</p>
+        </div>
+      </div>
+      <div class="kf-apk-card__actions">
+        <a class="kf-apk-download-btn" href="${APK_DOWNLOAD_URL}" download="${APK_FILENAME}">
+          <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+            <path d="M17.523 15.341a.96.96 0 0 1-.959-.96.96.96 0 0 1 1.918 0 .96.96 0 0 1-.959.96m-11.046 0a.96.96 0 0 1-.959-.96.96.96 0 0 1 1.918 0 .96.96 0 0 1-.959.96m11.4-6.02 1.997-3.459a.416.416 0 0 0-.152-.567.416.416 0 0 0-.568.152L17.13 8.951a12.19 12.19 0 0 0-10.26 0L4.846 5.447a.416.416 0 0 0-.568-.152.416.416 0 0 0-.152.567l1.997 3.46C2.688 11.186.343 14.658 0 18.761h24c-.344-4.103-2.688-7.575-6.123-9.44"/>
+          </svg>
+          <span>Download Android app</span>
+        </a>
+        <small class="kf-apk-card__meta">${APK_FILENAME} · Signed release APK</small>
+      </div>
+    `;
+
+    if (isAuthCardPage) {
+      document.body.classList.add('kf-auth-stack');
+      main.insertAdjacentElement('beforebegin', card);
+    } else {
+      main.insertAdjacentElement('afterbegin', card);
+    }
+  }
+
+  // 6. Highlight the active page inside all dropdown menus
   function initDropdownHighlighter() {
     const currentFile = window.location.pathname.split('/').pop() || 'index.html';
     document.querySelectorAll('.more-panel a, .menu-panel a, .kf-feature-menu a').forEach((link) => {
@@ -292,5 +357,6 @@
   }
 
   initNotificationsBell();
+  injectAndroidApkCard();
   initDropdownHighlighter();
 })();
