@@ -92,6 +92,7 @@
   };
 
   (function checkSiteVersion() {
+    if (isApp) return;
     try {
       const lastCheck = Number(sessionStorage.getItem('kfVerAt') || 0);
       const cached = JSON.parse(sessionStorage.getItem('kfVerData') || 'null');
@@ -153,9 +154,9 @@
   }
 
   // Web-only dismissible "Get the KITUI FARM Android App" card (never alters brand-theme.css)
-  const APK_DOWNLOAD_URL = 'https://github.com/Monte-gg/kitui-farm/releases/download/v1.0.6/kitui-farm-android-v1.0.6.apk';
-  const APK_FILENAME = 'kitui-farm-android-v1.0.6.apk';
-  const APK_DISMISSED_KEY = 'kituiFarmApkDismissed_106';
+  const APK_DOWNLOAD_URL = 'https://github.com/Monte-gg/kitui-farm/releases/download/v1.0.7/kitui-farm-android-v1.0.7.apk';
+  const APK_FILENAME = 'kitui-farm-android-v1.0.7.apk';
+  const APK_DISMISSED_KEY = 'kituiFarmApkDismissed_107';
 
   function injectGetAppCard() {
     if (isApp) return;
@@ -177,13 +178,23 @@
       const style = document.createElement('style');
       style.id = 'kfGetAppStyle';
       style.textContent = `
+        body.kf-auth-stack {
+          display: flex !important;
+          flex-direction: column !important;
+          align-items: center !important;
+          justify-content: flex-start !important;
+          gap: 16px !important;
+        }
+        body.kf-auth-stack > main { width: 100%; }
         .kf-get-app-card {
+          box-sizing: border-box;
+          width: 100%; max-width: 100%; overflow: hidden;
           display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 14px;
           margin: 0 auto 18px; padding: 14px 18px; border: 1px solid var(--line, #e5dcc6);
           border-radius: 16px; background: var(--surface, #fffdf7); color: var(--ink, #342718);
           box-shadow: 0 4px 18px rgba(20, 45, 24, 0.08);
         }
-        .kf-get-app-card--auth { width: min(480px, 100%); margin-bottom: 16px; }
+        .kf-get-app-card--auth { width: 100%; max-width: 500px; margin: 0 auto !important; }
         .kf-get-app-card__left { display: flex; align-items: center; gap: 12px; flex: 1 1 240px; min-width: 0; }
         .kf-get-app-card__icon { width: 48px; height: 48px; border-radius: 12px; object-fit: cover; flex: 0 0 48px; }
         .kf-get-app-card__copy { min-width: 0; }
@@ -193,26 +204,33 @@
           font-size: 11px; font-weight: 800; letter-spacing: 0.04em;
         }
         .kf-get-app-card__copy h2 { margin: 4px 0 2px; font-size: 16px; color: var(--green-dark, #17472c); }
-        .kf-get-app-card__copy p { margin: 0; font-size: 13px; line-height: 1.4; color: var(--muted, #766b53); }
+        .kf-get-app-card__copy p { margin: 0; font-size: 13px; line-height: 1.4; color: var(--muted, #766b53); overflow-wrap: anywhere; word-break: break-word; }
         .kf-get-app-card__actions { display: flex; flex-direction: column; align-items: stretch; gap: 6px; flex: 0 1 auto; }
         .kf-get-app-card__btn {
+          box-sizing: border-box;
           display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-          min-height: 42px; padding: 9px 16px; border-radius: 10px;
-          background: var(--green, #08723d); color: #fff !important;
+          width: 100%; min-height: 44px; padding: 10px 16px; border-radius: 10px;
+          background: #08723d !important; color: #ffffff !important;
           font-size: 14px; font-weight: 700; text-decoration: none !important; white-space: nowrap;
         }
-        .kf-get-app-card__btn:hover { background: var(--green-dark, #17472c); }
+        .kf-get-app-card__btn:hover { background: #17472c !important; }
         .kf-get-app-card__btn svg { width: 18px; height: 18px; flex: 0 0 18px; }
         .kf-get-app-card__hide {
           border: 0; background: transparent; color: var(--muted, #766b53);
-          font: inherit; font-size: 12px; font-weight: 600; text-decoration: underline; cursor: pointer; padding: 2px 4px;
+          font: inherit; font-size: 12px; font-weight: 600; text-decoration: underline; cursor: pointer; padding: 4px;
         }
-        @media (max-width: 540px) { .kf-get-app-card__actions { width: 100%; } }
+        @media (max-width: 540px) {
+          .kf-get-app-card { flex-direction: column; align-items: stretch; padding: 14px; }
+          .kf-get-app-card__left { flex: 0 0 auto; }
+          .kf-get-app-card__actions { width: 100%; }
+        }
       `;
       document.head.appendChild(style);
     }
 
-    const isAuthCardPage = main.classList.contains('container') || main.classList.contains('card');
+    const isAuthCardPage = main.classList.contains('container')
+      || main.classList.contains('card')
+      || ['login.html', 'signup.html', 'forgot-password.html', 'email-verify.html'].includes(path);
     const card = document.createElement('section');
     card.id = 'kfGetAppCard';
     card.className = isAuthCardPage ? 'kf-get-app-card kf-get-app-card--auth' : 'kf-get-app-card';
@@ -221,7 +239,7 @@
       <div class="kf-get-app-card__left">
         <img src="${appIconUrl}" alt="KITUI FARM Android app icon" class="kf-get-app-card__icon">
         <div class="kf-get-app-card__copy">
-          <span class="kf-get-app-card__badge">ANDROID APP · v1.0.6</span>
+          <span class="kf-get-app-card__badge">ANDROID APP · v1.0.7</span>
           <h2 id="kfGetAppTitle">Get the KITUI FARM app</h2>
           <p>Download the KITUI FARM Android APK (${APK_FILENAME}) for a dedicated mobile app experience.</p>
         </div>
@@ -239,10 +257,12 @@
 
     card.querySelector('#kfDismissGetAppBtn').addEventListener('click', () => {
       try { localStorage.setItem(APK_DISMISSED_KEY, '1'); } catch (_) {}
+      document.body.classList.remove('kf-auth-stack');
       card.remove();
     });
 
     if (isAuthCardPage) {
+      document.body.classList.add('kf-auth-stack');
       main.insertAdjacentElement('beforebegin', card);
     } else {
       main.insertAdjacentElement('afterbegin', card);

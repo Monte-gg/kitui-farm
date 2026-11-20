@@ -93,6 +93,21 @@
     try { localStorage.setItem(key, JSON.stringify(val)); } catch (_) {}
   };
 
+  function showNavProgress() {
+    let bar = document.getElementById('kfNavProgress');
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id = 'kfNavProgress';
+      bar.className = 'kf-nav-progress';
+      bar.setAttribute('aria-hidden', 'true');
+      document.body.appendChild(bar);
+    }
+    bar.classList.add('is-loading');
+  }
+  window.addEventListener('pageshow', () => {
+    document.getElementById('kfNavProgress')?.classList.remove('is-loading');
+  });
+
   function performAppLogout() {
     fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
     try {
@@ -164,6 +179,8 @@
           if (isDashboardPage && path === homeHref) {
             e.preventDefault();
             setOrdersView(false);
+          } else {
+            showNavProgress();
           }
         });
         const cartMenu = actionHost.querySelector('#cartMenu');
@@ -187,6 +204,9 @@
           </svg>
           <span class="kf-app-badge" id="kfAppBellBadge" hidden>0</span>
         `;
+        bellBtn.addEventListener('click', () => {
+          if (path !== 'notifications.html') showNavProgress();
+        });
         if (anchorBefore) actionHost.insertBefore(bellBtn, anchorBefore);
         else actionHost.appendChild(bellBtn);
       }
@@ -217,7 +237,7 @@
     }
   }
 
-  // 6. Quick-Access Strip & Focused Orders Header on Dashboards
+  // 6. Focused Orders Header on Dashboards
   if (isDashboardPage && mainEl) {
     // Focused Orders Header Strip
     if (!document.querySelector('.kf-orders-topbar')) {
@@ -235,68 +255,6 @@
       else mainEl.appendChild(ordersBar);
 
       ordersBar.querySelector('#kfOrdersBackBtn').addEventListener('click', () => setOrdersView(false));
-    }
-
-    // Fast-Access Horizontal Quick Strip
-    if (!document.querySelector('.kf-quick-strip')) {
-      const strip = document.createElement('nav');
-      strip.className = 'kf-quick-strip';
-      strip.setAttribute('aria-label', 'Quick shortcuts');
-
-      if (path === 'buyer-dashboard.html') {
-        const canSwitchFarmer = role === 'farmer';
-        const chips = [
-          ...(canSwitchFarmer ? [{ href: 'farmer-dashboard.html', label: 'Farmer Mode', primary: true, icon: '<path d="M12 2v20M5 9l7-7 7 7"/>' }] : []),
-          { href: '#wishlist', label: 'Wishlist', icon: '<path d="M12 21s-7-4.5-9-9a5 5 0 0 1 9-3 5 5 0 0 1 9 3c-2 4.5-9 9-9 9Z"/>' },
-          { href: 'receipts.html', label: 'Receipts', icon: '<path d="M6 2h12v20l-3-2-3 2-3-2-3 2V2Z"/><path d="M9 7h6M9 11h6"/>' },
-          { href: profileHref, label: 'Profile', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 20c1.8-3.5 5-5.5 8-5.5s6.2 2 8 5.5"/>' },
-          { href: 'settings.html', label: 'Settings', icon: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c0 .7.4 1.3 1 1.5.2.1.4.1.6.1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>' },
-          { href: 'customer-service.html', label: 'Support', icon: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2A19.8 19.8 0 0 1 3 5.18 2 2 0 0 1 5 3h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L9 10.91a16 16 0 0 0 4.09 4.09l1.27-1.25a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92Z"/>' }
-        ];
-        strip.innerHTML = chips.map((c) => `
-          <a href="${c.href}" class="kf-quick-chip ${c.primary ? 'is-primary' : ''}">
-            <svg viewBox="0 0 24 24" aria-hidden="true">${c.icon}</svg>
-            <span>${c.label}</span>
-          </a>
-        `).join('');
-      } else {
-        const myStoreHref = document.getElementById('viewMyStoreButton')?.getAttribute('href')
-          || (session?.userId ? `farmer-store.html?farmerId=${encodeURIComponent(session.userId)}` : 'farmer-store.html');
-        strip.innerHTML = `
-          <button type="button" class="kf-quick-chip is-primary" id="kfQuickAddBtn">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-            <span>Add Produce</span>
-          </button>
-          <a href="${myStoreHref}" class="kf-quick-chip">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9l1-5h16l1 5M4 9v11h16V9M9 20v-6h6v6"/></svg>
-            <span>My Store</span>
-          </a>
-          <a href="buyer-dashboard.html" class="kf-quick-chip">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="20" r="1"/><circle cx="17" cy="20" r="1"/><path d="M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.8a2 2 0 0 0 2-1.6L21 8H7"/></svg>
-            <span>Buy Produce</span>
-          </a>
-          <a href="${profileHref}" class="kf-quick-chip">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.8-3.5 5-5.5 8-5.5s6.2 2 8 5.5"/></svg>
-            <span>Profile</span>
-          </a>
-          <a href="settings.html" class="kf-quick-chip">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c0 .7.4 1.3 1 1.5.2.1.4.1.6.1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>
-            <span>Settings</span>
-          </a>
-        `;
-      }
-
-      const searchSlot = mainEl.querySelector('.kf-app-search-slot');
-      if (searchSlot) searchSlot.insertAdjacentElement('afterend', strip);
-      else mainEl.insertAdjacentElement('afterbegin', strip);
-
-      const quickAdd = document.getElementById('kfQuickAddBtn');
-      if (quickAdd) {
-        quickAdd.addEventListener('click', () => {
-          document.getElementById('quickAddProduceButton')?.click();
-          document.getElementById('listingPanel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        });
-      }
     }
   }
 
@@ -363,17 +321,15 @@
         nav.querySelectorAll('.kf-bottom-tab').forEach((t) => t.classList.remove('is-active'));
         tab.classList.add('is-active');
       }, { passive: true });
-    });
-
-    const ordersTab = nav.querySelector('[data-tab="orders"]');
-    if (ordersTab) {
-      ordersTab.addEventListener('click', (e) => {
-        if (isDashboardPage && path === homeHref) {
+      tab.addEventListener('click', (e) => {
+        if (tab.dataset.tab === 'orders' && isDashboardPage && path === homeHref) {
           e.preventDefault();
           setOrdersView(true);
+          return;
         }
+        showNavProgress();
       });
-    }
+    });
 
     syncOrdersViewClass();
     window.addEventListener('hashchange', syncOrdersViewClass);
@@ -519,15 +475,37 @@
   window.addEventListener('hashchange', markCurrentMenuLinks);
   window.addEventListener('popstate', markCurrentMenuLinks);
 
-  // Orders link inside menu when already on dashboard
-  document.querySelectorAll('.more-panel a[href$="#orders"], .kf-feature-menu a[href$="#orders"]').forEach((link) => {
-    link.addEventListener('click', (e) => {
-      if (isDashboardPage && path === homeHref) {
-        e.preventDefault();
-        closeAllHeaderSheets();
-        setOrdersView(true);
-      }
-    });
+  // Reliable delegated navigation for all dropdown sheet links (⋮ menu)
+  document.addEventListener('click', (e) => {
+    const menuPanel = e.target.closest('.more-panel, .kf-feature-menu');
+    if (!menuPanel) return;
+    const link = e.target.closest('a[href]');
+    if (!link) return;
+
+    const rawHref = link.getAttribute('href') || '';
+    link.classList.add('is-pressed');
+
+    if (rawHref.endsWith('#orders') && isDashboardPage && path === homeHref) {
+      e.preventDefault();
+      e.stopPropagation();
+      closeAllHeaderSheets();
+      setOrdersView(true);
+      return;
+    }
+    if (rawHref === '#wishlist' && path === 'buyer-dashboard.html') {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isOrdersView) setOrdersView(false);
+      closeAllHeaderSheets();
+      document.getElementById('wishlist')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      return;
+    }
+
+    e.preventDefault();
+    e.stopPropagation();
+    showNavProgress();
+    closeAllHeaderSheets();
+    window.location.assign(link.href);
   });
 
   // Fast delegated press highlighter across all dropdown menus (including dynamic chat menus)
@@ -679,7 +657,7 @@
       if (document.visibilityState === 'hidden') return;
       try {
         const lastPoll = Number(sessionStorage.getItem('kfNotifPollAt') || 0);
-        if (!force && Date.now() - lastPoll < 28_000) return;
+        if (!force && Date.now() - lastPoll < 45_000) return;
         sessionStorage.setItem('kfNotifPollAt', String(Date.now()));
       } catch (_) {}
 
@@ -765,13 +743,13 @@
       } catch (_) {}
     }
 
-    window.setTimeout(() => pollAppNotifications(false), 600);
-    window.setInterval(() => pollAppNotifications(true), 35_000);
+    window.setTimeout(() => pollAppNotifications(false), 2500);
+    window.setInterval(() => pollAppNotifications(true), 45_000);
     window.addEventListener('focus', () => pollAppNotifications(false));
   }
 
-  // 11. APK Update Check (throttled to 5 min)
-  (function checkApkUpdate() {
+  // 11. APK Update Check (deferred & throttled to 5 min)
+  window.setTimeout(function checkApkUpdate() {
     const compareSemver = (aStr, bStr) => {
       const a = String(aStr || '').split('.').map((n) => Number(n) || 0);
       const b = String(bStr || '').split('.').map((n) => Number(n) || 0);
@@ -786,7 +764,7 @@
       const uaMatch = /KituiFarmAndroidApp\/(\d+(?:\.\d+)*)/i.exec(navigator.userAgent || '');
       const installed = (window.KituiAndroid && typeof window.KituiAndroid.getAppVersion === 'function')
         ? String(window.KituiAndroid.getAppVersion())
-        : (uaMatch ? uaMatch[1] : '1.0.6');
+        : (uaMatch ? uaMatch[1] : '1.0.7');
       if (compareSemver(data.appVersion, installed) <= 0) return;
 
       const notifiedKey = `kituiApkNotif_${data.appVersion}`;
@@ -844,7 +822,7 @@
         handleApkData(data);
       })
       .catch(() => {});
-  })();
+  }, 3000);
   }
 
   if (window.__kfDomReady || document.readyState === 'complete') {

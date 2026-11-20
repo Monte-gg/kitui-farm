@@ -31,7 +31,7 @@ html.kf-app header.top,
 html.kf-app header.kf-subpage-header {
   position: sticky !important;
   top: 0 !important;
-  z-index: 1001 !important;
+  z-index: 1010 !important;
   width: 100% !important;
   min-height: calc(56px + env(safe-area-inset-top, 0px)) !important;
   padding: env(safe-area-inset-top, 0px) 0 0 !important;
@@ -311,58 +311,36 @@ html.kf-app .kf-app-search-slot .search-box .button {
   flex: 0 0 auto !important;
 }
 
-html.kf-app .kf-quick-strip {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  gap: 8px;
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-  margin: 0 -2px 14px;
-  padding: 2px;
+/* Slim top progress indicator while switching sections */
+html.kf-app .kf-nav-progress {
+  position: fixed;
+  top: calc(56px + env(safe-area-inset-top, 0px));
+  left: 0;
+  right: 0;
+  height: 2.5px;
+  z-index: 1030;
+  pointer-events: none;
+  opacity: 0;
+  overflow: hidden;
+  background: transparent;
 }
-html.kf-app .kf-quick-strip::-webkit-scrollbar {
-  display: none;
+html.kf-app .kf-nav-progress.is-loading {
+  opacity: 1;
 }
-html.kf-app .kf-quick-chip {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 38px;
-  padding: 7px 12px;
-  border: 1px solid var(--line, #e5dcc6);
-  border-radius: 999px;
-  background: var(--surface, #fffdf7);
-  color: var(--ink, #342718) !important;
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  text-decoration: none !important;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: transform 0.1s ease, background-color 0.12s ease, border-color 0.12s ease;
+html.kf-app .kf-nav-progress::after {
+  content: "";
+  display: block;
+  width: 45%;
+  height: 100%;
+  background: var(--green, #08723d);
+  transform: translateX(-100%);
 }
-html.kf-app .kf-quick-chip svg {
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: var(--green, #08723d);
-  stroke-width: 2.1;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  flex: 0 0 15px;
+html.kf-app .kf-nav-progress.is-loading::after {
+  animation: kfNavSlide 0.85s ease-in-out infinite;
 }
-html.kf-app .kf-quick-chip:active {
-  transform: scale(0.96);
-  background: var(--green-light, #e5f0d8);
-  border-color: var(--green, #08723d);
-}
-html.kf-app .kf-quick-chip.is-primary {
-  background: var(--green-light, #e5f0d8);
-  border-color: color-mix(in srgb, var(--green, #08723d) 35%, var(--line, #e5dcc6));
-  color: var(--green-dark, #17472c) !important;
+@keyframes kfNavSlide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(320%); }
 }
 
 /* 5. Clean Content Flow, Good Spacing & Strict Anti-Overflow */
@@ -579,8 +557,7 @@ html.kf-app .kf-orders-topbar {
   display: none;
 }
 html.kf-app.kf-app-orders-view main > section:not(#orders):not(.kf-orders-topbar),
-html.kf-app.kf-app-orders-view .kf-app-search-slot,
-html.kf-app.kf-app-orders-view .kf-quick-strip {
+html.kf-app.kf-app-orders-view .kf-app-search-slot {
   display: none !important;
 }
 html.kf-app.kf-app-orders-view .kf-orders-topbar {
@@ -612,7 +589,7 @@ html.kf-app .kf-bottom-bar {
   right: 0 !important;
   bottom: 0 !important;
   width: 100% !important;
-  z-index: 1000 !important;
+  z-index: 990 !important;
   display: grid !important;
   grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   gap: 8px !important;
@@ -691,7 +668,7 @@ html.kf-app .kf-bottom-tab__badge[hidden] {
 html.kf-app .kf-sheet-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 1090;
+  z-index: 1005 !important;
   background: rgba(10, 18, 12, 0.48);
 }
 html.kf-app .kf-sheet-backdrop[hidden] {
@@ -721,7 +698,7 @@ html.kf-app .topbar .cart-panel {
   border-radius: 22px 22px 0 0 !important;
   background: var(--surface, #fffdf7) !important;
   box-shadow: 0 -14px 40px rgba(0, 0, 0, 0.24) !important;
-  z-index: 1100 !important;
+  z-index: 1020 !important;
   animation: kfAppSheetUp 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 html.kf-app header .more-panel::before,

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kitui-farm-apk-v1.0.6';
+const CACHE_NAME = 'kitui-farm-apk-v1.0.7';
 
 const SHELL_ASSETS = [
   './',
@@ -15,14 +15,23 @@ const SHELL_ASSETS = [
   './assets/kitui-farm-app-icon.png',
   './buyer-dashboard.html',
   './farmer-dashboard.html',
+  './farmer-store.html',
   './wallet.html',
+  './payment.html',
   './chat.html',
   './notifications.html',
   './profile.html',
   './settings.html',
   './receipts.html',
+  './about-us.html',
+  './customer-service.html',
   './login.html'
 ];
+
+function normalizedKey(urlStr) {
+  const u = new URL(urlStr, self.location.href);
+  return new Request(u.origin + u.pathname);
+}
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -31,7 +40,7 @@ self.addEventListener('install', (event) => {
       Promise.allSettled(
         SHELL_ASSETS.map((url) =>
           fetch(url, { cache: 'reload' }).then((res) => {
-            if (res && res.ok) return cache.put(url, res);
+            if (res && res.ok) return cache.put(normalizedKey(url), res);
           }).catch(() => {})
         )
       )
@@ -59,16 +68,15 @@ self.addEventListener('fetch', (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.includes('/api/') || url.pathname.endsWith('/version.json')) return;
 
-  const isNav = request.mode === 'navigate';
-  const matchOpts = isNav ? { ignoreSearch: true } : undefined;
+  const cacheKey = new Request(url.origin + url.pathname);
 
   event.respondWith(
     caches.open(CACHE_NAME).then((cache) =>
-      cache.match(request, matchOpts).then((cached) => {
+      cache.match(cacheKey).then((cached) => {
         const networkPromise = fetch(request)
           .then((res) => {
             if (res && res.ok && res.type === 'basic') {
-              cache.put(request, res.clone()).catch(() => {});
+              cache.put(cacheKey, res.clone()).catch(() => {});
             }
             return res;
           })

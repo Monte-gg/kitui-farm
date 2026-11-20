@@ -68,7 +68,7 @@ public class MainActivity extends AppCompatActivity {
 
     private static final String START_URL = "https://monte-gg.github.io/kitui-farm/";
     private static final String API_HEALTH_URL = "https://kitui-farm.onrender.com/api/health";
-    private static final String APP_VERSION = "1.0.6";
+    private static final String APP_VERSION = "1.0.7";
     private static final String APP_UA_SUFFIX = " KituiFarmAndroidApp/" + APP_VERSION;
     private static final String CHANNEL_ID = "kitui_farm_alerts";
     private static final String PREFS_NAME = "kitui_farm_prefs";
@@ -496,7 +496,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void warmApiConnection() {
         long now = System.currentTimeMillis();
-        if (now - lastApiWarmMs < 20000L) return;
+        if (now - lastApiWarmMs < 45000L) return;
         lastApiWarmMs = now;
         new Thread(() -> {
             java.net.HttpURLConnection conn = null;
@@ -671,6 +671,9 @@ public class MainActivity extends AppCompatActivity {
         }
 
         webView.addJavascriptInterface(new NativeBridge(), "KituiAndroid");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            webView.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
+        }
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
@@ -888,7 +891,12 @@ public class MainActivity extends AppCompatActivity {
         if (webView != null) {
             webView.onPause();
         }
-        CookieManager.getInstance().flush();
+        new Thread(() -> {
+            try {
+                CookieManager.getInstance().flush();
+            } catch (Exception ignored) {
+            }
+        }).start();
     }
 
     @Override

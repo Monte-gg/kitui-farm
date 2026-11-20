@@ -79,7 +79,7 @@
             prepaint.id = 'kfAppPrepaint';
             prepaint.textContent = [
                 'html.kf-app .topbar .header-search, html.kf-app .kf-get-app-card { display: none !important; }',
-                'html.kf-app.kf-app-orders-view main > section:not(#orders), html.kf-app.kf-app-orders-view .kf-app-search-slot, html.kf-app.kf-app-orders-view .kf-quick-strip { display: none !important; }'
+                'html.kf-app.kf-app-orders-view main > section:not(#orders), html.kf-app.kf-app-orders-view .kf-app-search-slot { display: none !important; }'
             ].join('\n');
             head.appendChild(prepaint);
         }
@@ -87,14 +87,14 @@
         if (head && !document.querySelector('link[data-kf-app-css]')) {
             const cssLink = document.createElement('link');
             cssLink.rel = 'stylesheet';
-            cssLink.href = new URL('app-layout.css?v=6', siteRoot).href;
+            cssLink.href = new URL('app-layout.css?v=7', siteRoot).href;
             cssLink.dataset.kfAppCss = '1';
             head.appendChild(cssLink);
         }
 
         if (head && !document.querySelector('script[data-kf-app-shell]')) {
             const shellScript = document.createElement('script');
-            shellScript.src = new URL('app-shell.js?v=6', siteRoot).href;
+            shellScript.src = new URL('app-shell.js?v=7', siteRoot).href;
             shellScript.defer = true;
             shellScript.async = false;
             shellScript.dataset.kfAppShell = '1';
