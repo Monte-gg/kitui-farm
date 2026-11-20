@@ -12,13 +12,19 @@ html.kf-native-android-app body {
   -webkit-tap-highlight-color: transparent;
 }
 
-/* 1. Ultra-slim 52px single-row Native App Bar */
+/* 1. Uniform 54px single-row Native App Bar across ALL pages (dashboards & subpages identical) */
 html.kf-native-android-app .topbar,
-html.kf-native-android-app header {
+html.kf-native-android-app header,
+html.kf-native-android-app header.kf-subpage-header {
   position: sticky !important;
   top: 0 !important;
   z-index: 1000 !important;
+  height: 54px !important;
+  min-height: 54px !important;
+  max-height: 54px !important;
   padding: 0 !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
   background-color: var(--surface) !important;
   border-bottom: 1px solid var(--line) !important;
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08) !important;
@@ -27,11 +33,14 @@ html.kf-native-android-app header {
 }
 
 html.kf-native-android-app .topbar-inner,
-html.kf-native-android-app .bar {
+html.kf-native-android-app .bar,
+html.kf-native-android-app .kf-subpage-header .topbar-inner,
+html.kf-native-android-app .kf-subpage-header .bar {
   width: 100% !important;
   max-width: 100% !important;
-  min-height: 52px !important;
-  height: 52px !important;
+  min-height: 53px !important;
+  height: 53px !important;
+  max-height: 53px !important;
   padding: 0 12px !important;
   margin: 0 !important;
   display: flex !important;

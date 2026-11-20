@@ -41,18 +41,30 @@ img, video, canvas, svg { max-width: 100%; }
   .nav, .top-actions { max-width: 100%; }
   .nav > *, .top-actions > * { max-width: 100%; }
 
-  /* Full-width search bar on its own row + clean icon controls on dashboards */
+  /* Keep header identical in height on dashboards and all subpages */
+  .topbar-inner, .bar {
+    width: calc(100% - 24px) !important;
+    min-height: 60px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    flex-wrap: nowrap !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
+  }
   .header-actions {
-    width: 100% !important;
+    width: auto !important;
+    flex: 0 0 auto !important;
     display: flex !important;
     align-items: center !important;
     justify-content: flex-end !important;
-    flex-wrap: wrap !important;
+    flex-wrap: nowrap !important;
     gap: 8px !important;
   }
-  .search-box.header-search {
-    order: 10 !important;
-    flex: 1 1 100% !important;
+  .kf-app-search-slot {
+    margin: 0 0 14px !important;
+  }
+  .kf-app-search-slot .search-box {
     width: 100% !important;
     max-width: 100% !important;
   }

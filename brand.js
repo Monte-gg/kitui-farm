@@ -294,12 +294,15 @@
     if (!document.querySelector('link[data-android-app-layout]')) {
       const appCss = document.createElement('link');
       appCss.rel = 'stylesheet';
-      appCss.href = new URL('android-app-layout.css?v=1', siteRoot).href;
+      appCss.href = new URL('android-app-layout.css?v=2', siteRoot).href;
       appCss.dataset.androidAppLayout = 'true';
       document.head.appendChild(appCss);
     }
-    // Move the dashboard search bar from the sticky header into the top of <main>
-    // so the top App Bar stays a clean, slim 52px single row
+  }
+
+  // Keep the header identical in height on dashboards & subpages on mobile/app
+  // by placing the dashboard search box cleanly at the top of <main>
+  if (isNativeAndroidApp || window.innerWidth <= 760) {
     const headerSearch = document.querySelector('.topbar .search-box.header-search');
     const mainEl = document.querySelector('main');
     if (headerSearch && mainEl && !document.querySelector('.kf-app-search-slot')) {

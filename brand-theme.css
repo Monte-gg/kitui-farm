@@ -72,8 +72,10 @@ body {
     width: min(1380px, calc(100% - 48px)) !important;
   }
   .topbar-inner, .bar {
-    min-height: 76px;
-    gap: 18px;
+    min-height: 70px !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    gap: 16px;
   }
   main:not(.container):not(.card):not(.admin-layout) {
     padding-top: 38px;
