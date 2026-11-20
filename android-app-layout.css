@@ -1,0 +1,303 @@
+/* =========================================================================
+   KITUI FARM — Dedicated Native Android App Layout (html.kf-native-android-app)
+   Loaded ONLY inside the installed KITUI FARM Android APK.
+   Designed for a slim 52px app bar, zero squeezing, and 60fps smooth scrolling.
+   ========================================================================= */
+
+html.kf-native-android-app,
+html.kf-native-android-app body {
+  background-image: none !important;
+  overflow-x: clip !important;
+  -webkit-overflow-scrolling: touch;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* 1. Ultra-slim 52px single-row Native App Bar */
+html.kf-native-android-app .topbar,
+html.kf-native-android-app header {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 1000 !important;
+  padding: 0 !important;
+  background-color: var(--surface) !important;
+  border-bottom: 1px solid var(--line) !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.kf-native-android-app .topbar-inner,
+html.kf-native-android-app .bar {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-height: 52px !important;
+  height: 52px !important;
+  padding: 0 12px !important;
+  margin: 0 !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+}
+
+/* Compact Brand Logo + Name in App Bar */
+html.kf-native-android-app .brand.kitui-brand {
+  min-height: 36px !important;
+  gap: 8px !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  margin-right: auto !important;
+}
+html.kf-native-android-app .kitui-brand-icon,
+html.kf-native-android-app .brand-mark.kitui-brand-icon {
+  width: 30px !important;
+  height: 30px !important;
+  flex: 0 0 30px !important;
+}
+html.kf-native-android-app .kitui-brand-name {
+  font-size: 15px !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.02em !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+html.kf-native-android-app .kitui-brand-sub {
+  display: none !important;
+}
+
+/* Compact 36px Action Icons in App Bar */
+html.kf-native-android-app .header-actions {
+  width: auto !important;
+  flex: 0 0 auto !important;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+html.kf-native-android-app .kf-back-button,
+html.kf-native-android-app .kf-menu-button,
+html.kf-native-android-app .more-toggle,
+html.kf-native-android-app .cart-button {
+  width: 38px !important;
+  height: 38px !important;
+  min-width: 38px !important;
+  min-height: 38px !important;
+  padding: 0 !important;
+  border-radius: 10px !important;
+  font-size: 18px !important;
+}
+html.kf-native-android-app .kf-back-button span {
+  display: none !important;
+}
+/* Hide duplicate topbar Home & Bell icons inside the app because Home & Alerts are in the Bottom Tab Bar */
+html.kf-native-android-app .kf-home-button,
+html.kf-native-android-app #kfNotifWrap {
+  display: none !important;
+}
+
+/* 2. Search Bar moved smoothly into page content (scrolls naturally, doesn't bloat header) */
+html.kf-native-android-app .kf-app-search-slot {
+  margin: 0 0 14px !important;
+}
+html.kf-native-android-app .kf-app-search-slot .search-box {
+  width: 100% !important;
+  max-width: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 4px 5px 4px 12px !important;
+  border-radius: 14px !important;
+  background: var(--surface) !important;
+  border: 1px solid var(--line) !important;
+  box-shadow: none !important;
+}
+html.kf-native-android-app .kf-app-search-slot .search-box input {
+  min-height: 38px !important;
+  padding: 6px 4px !important;
+  font-size: 15px !important;
+}
+html.kf-native-android-app .kf-app-search-slot .search-box .button {
+  min-height: 36px !important;
+  padding: 7px 14px !important;
+  border-radius: 10px !important;
+  font-size: 13.5px !important;
+}
+
+/* 3. Spacious, Zero-Squeeze App Page Container & Typography */
+html.kf-native-android-app main:not(.container):not(.card),
+html.kf-native-android-app .page {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 14px 14px calc(84px + env(safe-area-inset-bottom, 0px)) !important;
+}
+html.kf-native-android-app main.container,
+html.kf-native-android-app main.card {
+  width: calc(100% - 24px) !important;
+  max-width: 440px !important;
+  margin: 18px auto !important;
+  padding: 22px 18px !important;
+}
+
+html.kf-native-android-app h1 {
+  font-size: 22px !important;
+  line-height: 1.2 !important;
+  margin-bottom: 6px !important;
+}
+html.kf-native-android-app h2 {
+  font-size: 17px !important;
+  line-height: 1.25 !important;
+}
+html.kf-native-android-app .intro,
+html.kf-native-android-app .subheading {
+  font-size: 13.5px !important;
+  line-height: 1.45 !important;
+  margin-bottom: 14px !important;
+}
+
+/* Compact Hero Banner inside App */
+html.kf-native-android-app .page > .hero,
+html.kf-native-android-app .page > .welcome {
+  padding: 16px !important;
+  margin-bottom: 14px !important;
+  border-radius: 16px !important;
+  box-shadow: none !important;
+}
+
+/* 4. Smooth, Lightweight Cards & Grids (no heavy shadows or janky hover transforms) */
+html.kf-native-android-app .card,
+html.kf-native-android-app .panel,
+html.kf-native-android-app .metric,
+html.kf-native-android-app .product-card,
+html.kf-native-android-app .receipt-card,
+html.kf-native-android-app .contact,
+html.kf-native-android-app .welcome-panel {
+  border-radius: 16px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+  transition: none !important;
+  transform: none !important;
+}
+html.kf-native-android-app .product-card:hover,
+html.kf-native-android-app .module-card:hover,
+html.kf-native-android-app .receipt-card:hover {
+  transform: none !important;
+}
+
+/* Clean 1-Column Product Feed with Generous Breathing Room */
+html.kf-native-android-app .product-grid {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 14px !important;
+}
+html.kf-native-android-app .product-image {
+  height: 180px !important;
+}
+html.kf-native-android-app .product-content {
+  padding: 14px 15px 16px !important;
+}
+html.kf-native-android-app .product-actions {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr !important;
+  gap: 8px !important;
+}
+html.kf-native-android-app .product-actions .button {
+  min-height: 42px !important;
+  font-size: 13px !important;
+}
+
+/* Smooth Horizontal Swipeable Category Chips */
+html.kf-native-android-app .filters {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  gap: 8px !important;
+  margin-bottom: 14px !important;
+  padding-bottom: 2px !important;
+  scrollbar-width: none;
+}
+html.kf-native-android-app .filters::-webkit-scrollbar { display: none; }
+html.kf-native-android-app .filter-button {
+  flex: 0 0 auto !important;
+  min-height: 36px !important;
+  padding: 7px 14px !important;
+  font-size: 13px !important;
+  white-space: nowrap !important;
+}
+
+/* Clean Metrics Grid (2x2 on Farmer/Admin instead of squashed or overly tall) */
+html.kf-native-android-app .metrics,
+html.kf-native-android-app .stats {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 10px !important;
+  margin-bottom: 16px !important;
+}
+html.kf-native-android-app .metric,
+html.kf-native-android-app .stat {
+  padding: 13px 14px !important;
+}
+html.kf-native-android-app .metric-value,
+html.kf-native-android-app .stat strong {
+  font-size: 20px !important;
+}
+
+/* Wallet & Forms — zero double-padding, clean full-width layout */
+html.kf-native-android-app .grid {
+  grid-template-columns: 1fr !important;
+  gap: 12px !important;
+}
+html.kf-native-android-app .balance {
+  font-size: 32px !important;
+}
+html.kf-native-android-app .topbar .cart-panel,
+html.kf-native-android-app .topbar .more-panel,
+html.kf-native-android-app .topbar .kf-feature-menu,
+html.kf-native-android-app header .cart-panel,
+html.kf-native-android-app header .more-panel,
+html.kf-native-android-app header .kf-feature-menu {
+  position: fixed !important;
+  top: 58px !important;
+  left: 10px !important;
+  right: 10px !important;
+  width: auto !important;
+  max-width: none !important;
+  max-height: calc(100svh - 134px) !important;
+  overflow-y: auto !important;
+  z-index: 1080 !important;
+  border-radius: 16px !important;
+}
+
+/* 5. Clean Native Bottom Tab Bar with Unread Badge on Alerts */
+html.kf-native-android-app .kf-native-tabbar {
+  height: calc(60px + env(safe-area-inset-bottom, 0px)) !important;
+  padding: 5px 6px calc(5px + env(safe-area-inset-bottom, 0px)) !important;
+  background: var(--surface) !important;
+  border-top: 1px solid var(--line) !important;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.1) !important;
+}
+html.kf-native-android-app .kf-native-tabbar__item {
+  position: relative;
+  min-height: 48px !important;
+  gap: 2px !important;
+  font-size: 10.5px !important;
+}
+html.kf-native-android-app .kf-native-tabbar__badge {
+  position: absolute;
+  top: 3px;
+  right: calc(50% - 20px);
+  display: grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent-orange, #d77b20);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+html.kf-native-android-app .kf-native-tabbar__badge[hidden] {
+  display: none !important;
+}

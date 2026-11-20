@@ -160,8 +160,14 @@
     function updateBadgeCount() {
       const seenMap = readJson(SEEN_KEY, {});
       const unread = notifications.filter((item) => !seenMap[item.key]);
+      const badgeText = unread.length > 99 ? '99+' : String(unread.length);
       badge.hidden = unread.length === 0;
-      badge.textContent = unread.length > 99 ? '99+' : String(unread.length);
+      badge.textContent = badgeText;
+      const tabBadge = document.getElementById('kfTabNotifBadge');
+      if (tabBadge) {
+        tabBadge.hidden = unread.length === 0;
+        tabBadge.textContent = badgeText;
+      }
       button.setAttribute(
         'aria-label',
         unread.length ? `Open notifications (${unread.length} unread)` : 'Open notifications'
@@ -282,6 +288,28 @@
   const isNativeAndroidApp = /KituiFarmAndroidApp/i.test(navigator.userAgent || '')
     || Boolean(window.KituiAndroid);
 
+  // Load dedicated slim & smooth Android App Layout ONLY inside the installed Android APK
+  if (isNativeAndroidApp) {
+    document.documentElement.classList.add('kf-native-android-app');
+    if (!document.querySelector('link[data-android-app-layout]')) {
+      const appCss = document.createElement('link');
+      appCss.rel = 'stylesheet';
+      appCss.href = new URL('android-app-layout.css?v=1', siteRoot).href;
+      appCss.dataset.androidAppLayout = 'true';
+      document.head.appendChild(appCss);
+    }
+    // Move the dashboard search bar from the sticky header into the top of <main>
+    // so the top App Bar stays a clean, slim 52px single row
+    const headerSearch = document.querySelector('.topbar .search-box.header-search');
+    const mainEl = document.querySelector('main');
+    if (headerSearch && mainEl && !document.querySelector('.kf-app-search-slot')) {
+      const slot = document.createElement('div');
+      slot.className = 'kf-app-search-slot';
+      slot.appendChild(headerSearch);
+      mainEl.insertAdjacentElement('afterbegin', slot);
+    }
+  }
+
   // Prevent browser PWA install prompt from ever triggering
   window.addEventListener('beforeinstallprompt', (event) => {
     event.preventDefault();
@@ -386,8 +414,10 @@
     nav.setAttribute('aria-label', 'App navigation');
     nav.innerHTML = items.map((item) => {
       const active = item.match.includes(path);
+      const isAlerts = item.href === 'notifications.html';
       return `<a href="${item.href}" class="kf-native-tabbar__item ${active ? 'active' : ''}" ${active ? 'aria-current="page"' : ''}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${item.icon}</svg>
+        ${isAlerts ? '<span class="kf-native-tabbar__badge" id="kfTabNotifBadge" hidden>0</span>' : ''}
         <span>${item.label}</span>
       </a>`;
     }).join('');
