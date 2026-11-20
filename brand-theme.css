@@ -484,18 +484,109 @@ main:not(.container):not(.card) { background: transparent !important; }
 }
 
 /* =========================================================
-   MOBILE APP DOWNLOAD SECTION (Android & iOS)
-   Auto-hidden once the app is installed (.kf-is-installed)
+   MOBILE APP DOWNLOAD TOP BAR & SECTION (Android & iOS)
+   Auto-hidden once running inside the installed app (.kf-is-installed)
    ========================================================= */
+.kf-is-installed #kfAppTopBanner,
+.kf-is-installed .kf-app-top-banner,
 .kf-is-installed #kfAppDownloadSection,
 .kf-is-installed .kf-app-download {
   display: none !important;
 }
-@media (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui) {
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  #kfAppTopBanner,
+  .kf-app-top-banner,
   #kfAppDownloadSection,
   .kf-app-download {
     display: none !important;
   }
+}
+
+.kf-app-top-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  margin: 0 auto 20px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--green) 38%, var(--line));
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--green-light) 0%, var(--surface) 78%);
+  box-shadow: var(--shadow-card);
+}
+.kf-app-top-banner--auth {
+  max-width: 500px;
+  margin-bottom: 0;
+}
+.kf-app-top-banner__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.kf-app-top-banner__icon {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 11px;
+  object-fit: contain;
+  background: #fff;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.14);
+}
+.kf-app-top-banner__copy {
+  min-width: 0;
+}
+.kf-app-top-banner__copy strong {
+  display: block;
+  color: var(--green-dark);
+  font-size: 14.5px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+.kf-app-top-banner__copy small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+.kf-app-top-banner__btn {
+  flex: 0 0 auto;
+  min-height: 40px;
+  padding: 9px 15px;
+  border: 0;
+  border-radius: 11px;
+  background: var(--green);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(8, 114, 61, 0.25);
+  transition: transform 0.15s ease, background-color 0.15s ease;
+}
+:root[data-theme="dark"] .kf-app-top-banner__btn {
+  color: #0e1a12;
+}
+.kf-app-top-banner__btn:hover {
+  transform: translateY(-1px);
+  background: var(--green-dark);
+  color: #fff;
+}
+@media (max-width: 480px) {
+  .kf-app-top-banner {
+    padding: 11px 13px;
+    gap: 10px;
+  }
+  .kf-app-top-banner__icon {
+    width: 38px;
+    height: 38px;
+    flex-basis: 38px;
+  }
+  .kf-app-top-banner__copy strong { font-size: 13.5px; }
+  .kf-app-top-banner__copy small { font-size: 11.5px; }
+  .kf-app-top-banner__btn { padding: 8px 12px; font-size: 12.5px; }
 }
 
 .kf-auth-page {

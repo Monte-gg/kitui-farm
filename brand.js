@@ -156,6 +156,8 @@
     } catch (error) {}
     document.documentElement.classList.remove('kf-can-install');
     document.documentElement.classList.add('kf-is-installed', 'kf-app-mode');
+    const topBanner = document.getElementById('kfAppTopBanner');
+    if (topBanner) topBanner.remove();
     const section = document.getElementById('kfAppDownloadSection');
     if (section) section.remove();
     const dialog = document.getElementById('kfAppInstallDialog');
@@ -287,21 +289,55 @@
     if (!dialog.open) dialog.showModal();
   }
 
-  // Build the "Download the KITUI FARM Mobile App (Android & iOS)" section
-  // (Only on public/auth & dashboard pages; skipped on restricted admin sign-in/register pages or once installed)
+  // Build the "Download the KITUI FARM Mobile App (Android & iOS)" top bar + full section
+  // (Shown in Web Browser mode; auto-hidden once running inside the installed App)
   function injectAppDownloadSection() {
     if (isAppInstalled()) {
-      document.documentElement.classList.add('kf-is-installed');
+      document.documentElement.classList.add('kf-is-installed', 'kf-app-mode');
+      const existingTop = document.getElementById('kfAppTopBanner');
+      if (existingTop) existingTop.remove();
       const existing = document.getElementById('kfAppDownloadSection');
       if (existing) existing.remove();
       return;
     }
-    if (document.getElementById('kfAppDownloadSection')) return;
     const path = location.pathname.split('/').pop() || 'index.html';
     if ([
       'admin-chat.html', 'wallet-admin.html', 'receipt.html',
       'admin-signin.html', 'admin-register.html', 'admin.html', 'admin-profile.html'
     ].includes(path)) return;
+
+    const main = document.querySelector('main');
+    const isAuthCardPage = main && (main.classList.contains('container') || main.classList.contains('card'));
+
+    // 1. Immediately-visible top "Download App" smart bar so mobile users never have to scroll to find it
+    if (!document.getElementById('kfAppTopBanner')) {
+      const isIOS = /iPad|iPhone|iPod/i.test(navigator.userAgent || '');
+      const topBanner = document.createElement('aside');
+      topBanner.id = 'kfAppTopBanner';
+      topBanner.className = isAuthCardPage ? 'kf-app-top-banner kf-app-top-banner--auth' : 'kf-app-top-banner';
+      topBanner.setAttribute('aria-label', 'Download KITUI FARM Mobile App');
+      topBanner.innerHTML = `
+        <div class="kf-app-top-banner__left">
+          <img src="${appIconUrl}" alt="" class="kf-app-top-banner__icon">
+          <div class="kf-app-top-banner__copy">
+            <strong>KITUI FARM Mobile App</strong>
+            <small>Android &amp; iOS · Fast full-screen app</small>
+          </div>
+        </div>
+        <button type="button" class="kf-app-top-banner__btn" data-kf-install="${isIOS ? 'ios' : 'android'}">Download App</button>
+      `;
+      if (isAuthCardPage) {
+        document.body.classList.add('kf-auth-page');
+        main.insertAdjacentElement('beforebegin', topBanner);
+      } else if (main) {
+        main.insertAdjacentElement('afterbegin', topBanner);
+      }
+      topBanner.querySelector('[data-kf-install]').addEventListener('click', (e) => {
+        triggerAppInstall(e.currentTarget.dataset.kfInstall);
+      });
+    }
+
+    if (document.getElementById('kfAppDownloadSection')) return;
 
     const section = document.createElement('section');
     section.id = 'kfAppDownloadSection';
@@ -374,8 +410,6 @@
       </div>
     `;
 
-    const main = document.querySelector('main');
-    const isAuthCardPage = main && (main.classList.contains('container') || main.classList.contains('card'));
     if (isAuthCardPage) {
       document.body.classList.add('kf-auth-page');
       section.classList.add('kf-app-download--compact');
