@@ -861,3 +861,30 @@ body.kf-auth-stack {
     text-align: center;
   }
 }
+
+.kf-apk-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.kf-apk-dismiss-btn {
+  border: 0;
+  padding: 2px 4px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.kf-apk-dismiss-btn:hover {
+  color: var(--green-dark);
+}
+@media (max-width: 600px) {
+  .kf-apk-card__footer {
+    justify-content: space-between;
+  }
+}

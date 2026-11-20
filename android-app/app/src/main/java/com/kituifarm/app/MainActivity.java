@@ -1,9 +1,11 @@
 package com.kituifarm.app;
 
+import android.Manifest;
 import android.annotation.SuppressLint;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.net.ConnectivityManager;
 import android.net.Network;
@@ -11,8 +13,13 @@ import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.net.http.SslError;
 import android.os.Bundle;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentAdapter;
+import android.print.PrintManager;
 import android.view.View;
 import android.webkit.CookieManager;
+import android.webkit.GeolocationPermissions;
+import android.webkit.JavascriptInterface;
 import android.webkit.SslErrorHandler;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
@@ -28,11 +35,12 @@ import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final String START_URL = "https://monte-gg.github.io/kitui-farm/";
-    private static final String APP_UA_SUFFIX = " KituiFarmAndroidApp/1.0.0";
+    private static final String APP_UA_SUFFIX = " KituiFarmAndroidApp/1.0.1";
 
     private WebView webView;
     private View loadingView;
@@ -41,6 +49,8 @@ public class MainActivity extends AppCompatActivity {
     private boolean initialLoadDone = false;
     private String lastFailedUrl = START_URL;
     private ValueCallback<Uri[]> fileUploadCallback;
+    private String pendingGeoOrigin;
+    private GeolocationPermissions.Callback pendingGeoCallback;
 
     private final ActivityResultLauncher<Intent> fileChooserLauncher =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
@@ -61,6 +71,30 @@ public class MainActivity extends AppCompatActivity {
                 fileUploadCallback.onReceiveValue(results);
                 fileUploadCallback = null;
             });
+
+    private final ActivityResultLauncher<String[]> locationPermissionLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), grants -> {
+                boolean granted = Boolean.TRUE.equals(grants.get(Manifest.permission.ACCESS_FINE_LOCATION))
+                        || Boolean.TRUE.equals(grants.get(Manifest.permission.ACCESS_COARSE_LOCATION));
+                if (pendingGeoCallback != null && pendingGeoOrigin != null) {
+                    pendingGeoCallback.invoke(pendingGeoOrigin, granted, false);
+                }
+                pendingGeoCallback = null;
+                pendingGeoOrigin = null;
+            });
+
+    private class NativeBridge {
+        @JavascriptInterface
+        public void printPage() {
+            runOnUiThread(() -> {
+                if (webView == null) return;
+                PrintManager printManager = (PrintManager) getSystemService(Context.PRINT_SERVICE);
+                if (printManager == null) return;
+                PrintDocumentAdapter adapter = webView.createPrintDocumentAdapter("KITUI_FARM_Receipt");
+                printManager.print("KITUI FARM Receipt", adapter, new PrintAttributes.Builder().build());
+            });
+        }
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -93,6 +127,7 @@ public class MainActivity extends AppCompatActivity {
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
         settings.setDatabaseEnabled(true);
+        settings.setGeolocationEnabled(true);
         settings.setCacheMode(WebSettings.LOAD_DEFAULT);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         settings.setBuiltInZoomControls(false);
@@ -102,13 +137,16 @@ public class MainActivity extends AppCompatActivity {
         settings.setUseWideViewPort(true);
         settings.setAllowFileAccess(false);
         settings.setAllowContentAccess(true);
-        settings.setJavaScriptCanOpenWindowsAutomatically(false);
+        settings.setJavaScriptCanOpenWindowsAutomatically(true);
+        settings.setSupportMultipleWindows(false);
         settings.setMediaPlaybackRequiresUserGesture(false);
 
         String defaultUa = settings.getUserAgentString();
         if (defaultUa != null && !defaultUa.contains("KituiFarmAndroidApp")) {
             settings.setUserAgentString(defaultUa + APP_UA_SUFFIX);
         }
+
+        webView.addJavascriptInterface(new NativeBridge(), "KituiAndroid");
 
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
@@ -134,13 +172,11 @@ public class MainActivity extends AppCompatActivity {
                     return true;
                 }
                 if ("http".equals(scheme)) {
-                    // Never allow cleartext HTTP navigation; upgrade to HTTPS inside the app
                     Uri secureUri = uri.buildUpon().scheme("https").build();
                     view.loadUrl(secureUri.toString());
                     return true;
                 }
                 if ("https".equals(scheme)) {
-                    // Keep all HTTPS navigation inside the native WebView (never open Chrome)
                     return false;
                 }
                 return true;
@@ -163,6 +199,15 @@ public class MainActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 CookieManager.getInstance().flush();
+                // Wire window.print() to Android's native PrintManager and hide any download-app card
+                view.evaluateJavascript(
+                        "(function(){try{" +
+                        "if(window.KituiAndroid&&window.KituiAndroid.printPage){window.print=function(){window.KituiAndroid.printPage();};}" +
+                        "var c=document.getElementById('kfAndroidApkCard');if(c)c.remove();" +
+                        "document.documentElement.classList.add('kf-native-android-app');" +
+                        "}catch(e){}})();",
+                        null
+                );
                 if (!hasPageError) {
                     initialLoadDone = true;
                     loadingView.setVisibility(View.GONE);
@@ -182,13 +227,28 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
-                // Keep HTTPS strictly secure: cancel insecure SSL and show in-app error
                 handler.cancel();
                 showInAppError(lastFailedUrl);
             }
         });
 
         webView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                boolean hasFine = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+                boolean hasCoarse = ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+                if (hasFine || hasCoarse) {
+                    callback.invoke(origin, true, false);
+                    return;
+                }
+                pendingGeoOrigin = origin;
+                pendingGeoCallback = callback;
+                locationPermissionLauncher.launch(new String[]{
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                });
+            }
+
             @Override
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
                 if (fileUploadCallback != null) {
@@ -269,7 +329,6 @@ public class MainActivity extends AppCompatActivity {
         try {
             startActivity(intent);
         } catch (ActivityNotFoundException ignored) {
-            // Safely ignore if the device has no dialer or email client installed
         }
     }
 

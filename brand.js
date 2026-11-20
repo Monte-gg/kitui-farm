@@ -5,15 +5,6 @@
   const iconUrl = new URL('assets/kitui-farm-emblem.png?v=3', siteRoot).href;
   const appIconUrl = new URL('icons/kitui-app-icon-192.png?v=3', siteRoot).href;
 
-  // Make the existing PWA installable from every page, including the public sign-in screen.
-  if (!document.querySelector('script[data-kitui-app-install]')) {
-    const installScript = document.createElement('script');
-    installScript.src = new URL('app-install.js?v=1', siteRoot).href;
-    installScript.defer = true;
-    installScript.dataset.kituiAppInstall = 'true';
-    document.head.appendChild(installScript);
-  }
-
   const createIcon = (className, decorative) => {
     const image = document.createElement('img');
     image.className = className;
@@ -278,9 +269,10 @@
     window.addEventListener('focus', () => pollNotifications(false));
   }
 
-  // 5. Direct Native Android APK "Get the app" card (no Chrome PWA prompt, hidden inside native app)
-  const APK_DOWNLOAD_URL = 'https://github.com/Monte-gg/kitui-farm/releases/download/v1.0.0/kitui-farm-android-v1.0.0.apk';
-  const APK_FILENAME = 'kitui-farm-android-v1.0.0.apk';
+  // 5. Direct Native Android APK "Get the app" card (no Chrome PWA prompt, hidden inside native app or once dismissed)
+  const APK_DOWNLOAD_URL = 'https://github.com/Monte-gg/kitui-farm/releases/download/v1.0.1/kitui-farm-android-v1.0.1.apk';
+  const APK_FILENAME = 'kitui-farm-android-v1.0.1.apk';
+  const APK_HIDDEN_KEY = 'kituiFarmApkHidden';
   const isNativeAndroidApp = /KituiFarmAndroidApp/i.test(navigator.userAgent || '');
 
   // Prevent browser PWA install prompt from ever triggering
@@ -300,6 +292,9 @@
       document.documentElement.classList.add('kf-native-android-app');
       return;
     }
+    try {
+      if (localStorage.getItem(APK_HIDDEN_KEY) === '1') return;
+    } catch (e) {}
     if (document.getElementById('kfAndroidApkCard')) return;
     const path = location.pathname.split('/').pop() || 'index.html';
     if ([
@@ -319,7 +314,7 @@
       <div class="kf-apk-card__left">
         <img src="${appIconUrl}" alt="KITUI FARM app icon" class="kf-apk-card__icon">
         <div class="kf-apk-card__copy">
-          <span class="kf-apk-card__badge">ANDROID APP · v1.0.0</span>
+          <span class="kf-apk-card__badge">ANDROID APP · v1.0.1</span>
           <h2 id="kfApkCardTitle">Get the app</h2>
           <p>Download the KITUI FARM Android app. After the download finishes, open the APK and allow installation if Android asks.</p>
         </div>
@@ -331,9 +326,17 @@
           </svg>
           <span>Download Android app</span>
         </a>
-        <small class="kf-apk-card__meta">${APK_FILENAME} · Signed release APK</small>
+        <div class="kf-apk-card__footer">
+          <small class="kf-apk-card__meta">${APK_FILENAME}</small>
+          <button type="button" class="kf-apk-dismiss-btn" id="kfDismissApkBtn">Already downloaded? Hide</button>
+        </div>
       </div>
     `;
+
+    card.querySelector('#kfDismissApkBtn').addEventListener('click', () => {
+      try { localStorage.setItem(APK_HIDDEN_KEY, '1'); } catch (e) {}
+      card.remove();
+    });
 
     if (isAuthCardPage) {
       document.body.classList.add('kf-auth-stack');
