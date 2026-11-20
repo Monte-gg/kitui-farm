@@ -145,9 +145,15 @@
     const badge = wrap.querySelector('#kfNotifBadge');
 
     function showSystemNotification(title, body, url, tag) {
-      if (!('Notification' in window) || Notification.permission !== 'granted') return;
       try {
-        new Notification(title, { body, icon: appIconUrl, tag: tag || 'kitui-farm-alert' });
+        if (window.KituiAndroid && typeof window.KituiAndroid.showNotification === 'function') {
+          const absUrl = new URL(url || 'notifications.html', siteRoot).href;
+          window.KituiAndroid.showNotification(title, body, absUrl);
+          return;
+        }
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification(title, { body, icon: appIconUrl, tag: tag || 'kitui-farm-alert' });
+        }
       } catch {}
     }
 
@@ -270,10 +276,11 @@
   }
 
   // 5. Direct Native Android APK "Get the app" card (no Chrome PWA prompt, hidden inside native app or once dismissed)
-  const APK_DOWNLOAD_URL = 'https://github.com/Monte-gg/kitui-farm/releases/download/v1.0.1/kitui-farm-android-v1.0.1.apk';
-  const APK_FILENAME = 'kitui-farm-android-v1.0.1.apk';
+  const APK_DOWNLOAD_URL = 'https://github.com/Monte-gg/kitui-farm/releases/download/v1.0.2/kitui-farm-android-v1.0.2.apk';
+  const APK_FILENAME = 'kitui-farm-android-v1.0.2.apk';
   const APK_HIDDEN_KEY = 'kituiFarmApkHidden';
-  const isNativeAndroidApp = /KituiFarmAndroidApp/i.test(navigator.userAgent || '');
+  const isNativeAndroidApp = /KituiFarmAndroidApp/i.test(navigator.userAgent || '')
+    || Boolean(window.KituiAndroid);
 
   // Prevent browser PWA install prompt from ever triggering
   window.addEventListener('beforeinstallprompt', (event) => {
@@ -314,7 +321,7 @@
       <div class="kf-apk-card__left">
         <img src="${appIconUrl}" alt="KITUI FARM app icon" class="kf-apk-card__icon">
         <div class="kf-apk-card__copy">
-          <span class="kf-apk-card__badge">ANDROID APP · v1.0.1</span>
+          <span class="kf-apk-card__badge">ANDROID APP · v1.0.2</span>
           <h2 id="kfApkCardTitle">Get the app</h2>
           <p>Download the KITUI FARM Android app. After the download finishes, open the APK and allow installation if Android asks.</p>
         </div>
@@ -346,20 +353,71 @@
     }
   }
 
-  // 6. Highlight the active page inside all dropdown menus
+  // 6. Native Android App Bottom Bar (Home tab + quick navigation, ONLY inside native Android APK)
+  function injectNativeAppTabBar() {
+    if (!isNativeAndroidApp) return;
+    if (document.getElementById('kfNativeTabBar')) return;
+    const path = location.pathname.split('/').pop() || 'index.html';
+    const appPages = [
+      'buyer-dashboard.html', 'farmer-dashboard.html', 'farmer-store.html',
+      'chat.html', 'wallet.html', 'receipts.html', 'profile.html', 'settings.html',
+      'notifications.html', 'about-us.html', 'customer-service.html'
+    ];
+    if (!appPages.includes(path)) return;
+    if (location.search.includes('admin=1')) return;
+
+    const role = activeSession?.role === 'farmer' ? 'farmer' : 'buyer';
+    const homeHref = role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
+    const profileHref = activeSession?.userId
+      ? `profile.html?accountId=${encodeURIComponent(activeSession.userId)}`
+      : 'profile.html';
+
+    const items = [
+      { href: homeHref, match: ['buyer-dashboard.html', 'farmer-dashboard.html', 'farmer-store.html'], label: 'Home', icon: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5Z"/>' },
+      { href: 'chat.html', match: ['chat.html'], label: 'Messages', icon: '<path d="M21 12a8 8 0 0 1-8 8H7l-4 3v-6.5A8 8 0 1 1 21 12Z"/>' },
+      { href: 'wallet.html', match: ['wallet.html'], label: 'Wallet', icon: '<rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M16 12.5h5v3h-5a1.5 1.5 0 0 1 0-3Z"/>' },
+      { href: 'notifications.html', match: ['notifications.html'], label: 'Alerts', icon: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>' },
+      { href: profileHref, match: ['profile.html', 'settings.html'], label: 'Account', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 20c1.8-3.5 5-5.5 8-5.5s6.2 2 8 5.5"/>' }
+    ];
+
+    const nav = document.createElement('nav');
+    nav.id = 'kfNativeTabBar';
+    nav.className = 'kf-native-tabbar';
+    nav.setAttribute('aria-label', 'App navigation');
+    nav.innerHTML = items.map((item) => {
+      const active = item.match.includes(path);
+      return `<a href="${item.href}" class="kf-native-tabbar__item ${active ? 'active' : ''}" ${active ? 'aria-current="page"' : ''}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${item.icon}</svg>
+        <span>${item.label}</span>
+      </a>`;
+    }).join('');
+    document.body.appendChild(nav);
+    document.body.classList.add('kf-has-native-tabbar');
+  }
+
+  // 7. Highlight active page + instant touch-press highlighter inside all dropdown menus
   function initDropdownHighlighter() {
     const currentFile = window.location.pathname.split('/').pop() || 'index.html';
-    document.querySelectorAll('.more-panel a, .menu-panel a, .kf-feature-menu a').forEach((link) => {
-      const rawHref = link.getAttribute('href') || '';
-      if (!rawHref || rawHref.startsWith('#')) return;
-      const hrefFile = rawHref.split('?')[0].split('#')[0];
-      const isCurrent = hrefFile === currentFile;
-      link.classList.toggle('is-current-page', isCurrent);
-      if (isCurrent) link.setAttribute('aria-current', 'page');
+    document.querySelectorAll('.more-panel a, .more-panel button, .menu-panel a, .menu-panel button, .kf-feature-menu a').forEach((item) => {
+      if (item.tagName === 'A') {
+        const rawHref = item.getAttribute('href') || '';
+        if (rawHref && !rawHref.startsWith('#')) {
+          const hrefFile = rawHref.split('?')[0].split('#')[0];
+          const isCurrent = hrefFile === currentFile;
+          item.classList.toggle('is-current-page', isCurrent);
+          if (isCurrent) item.setAttribute('aria-current', 'page');
+        }
+      }
+      item.addEventListener('pointerdown', () => item.classList.add('is-pressed'));
+      const clearPress = () => item.classList.remove('is-pressed');
+      item.addEventListener('pointerup', clearPress);
+      item.addEventListener('pointercancel', clearPress);
+      item.addEventListener('pointerleave', clearPress);
     });
   }
 
   initNotificationsBell();
   injectAndroidApkCard();
+  injectNativeAppTabBar();
   initDropdownHighlighter();
 })();

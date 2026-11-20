@@ -25,9 +25,10 @@
 
     header.classList.add('kf-subpage-header');
     const back = container.querySelector('.kf-back-button') || document.createElement('button');
+    const homeBtn = container.querySelector('.kf-home-button') || document.createElement('a');
     const menuWrap = container.querySelector('.kf-menu-wrap') || document.createElement('div');
     for (const child of [...container.children]) {
-        if (![brand, back, menuWrap].includes(child)) child.classList.add('kf-legacy-controls');
+        if (![brand, back, homeBtn, menuWrap].includes(child)) child.classList.add('kf-legacy-controls');
     }
 
     back.className = 'kf-back-button';
@@ -38,6 +39,12 @@
         if (window.history.length > 1) window.history.back();
         else window.location.assign(dashboardUrl);
     });
+
+    homeBtn.className = 'kf-home-button';
+    homeBtn.href = dashboardUrl;
+    homeBtn.setAttribute('aria-label', 'Return to dashboard');
+    homeBtn.title = dashboardLabel;
+    homeBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5Z"></path></svg><span>Home</span>';
 
     menuWrap.className = 'kf-menu-wrap';
     const toggle = menuWrap.querySelector('.kf-menu-button') || document.createElement('button');
@@ -111,5 +118,6 @@
 
     menuWrap.append(toggle, menu);
     container.insertBefore(back, brand);
+    container.insertBefore(homeBtn, brand);
     if (menuWrap.parentElement !== container) container.append(menuWrap);
 })();

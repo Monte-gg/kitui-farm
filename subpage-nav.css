@@ -20,6 +20,7 @@ header.kf-subpage-header {
 .kf-subpage-header .brand { flex: 0 1 auto; margin-left: 2px; margin-right: auto; }
 
 .kf-back-button,
+.kf-home-button,
 .kf-menu-button {
     display: inline-flex;
     align-items: center;
@@ -30,21 +31,24 @@ header.kf-subpage-header {
     border: 1px solid var(--line, #e5dcc6);
     border-radius: 12px;
     background: var(--surface, #fffdf7);
-    color: var(--deep, #17472c);
+    color: var(--deep, #17472c) !important;
     font: inherit;
     font-weight: 700;
-    text-decoration: none;
+    text-decoration: none !important;
     cursor: pointer;
     transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 
-.kf-back-button { gap: 7px; flex: 0 0 auto; }
-.kf-back-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.kf-back-button,
+.kf-home-button { gap: 7px; flex: 0 0 auto; }
+.kf-back-button svg,
+.kf-home-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .kf-menu-wrap { position: relative; flex: 0 0 auto; margin-left: 0; }
 .kf-menu-button { width: 42px; height: 42px; padding: 0; font-size: 24px; line-height: 1; }
 .kf-back-button:hover,
+.kf-home-button:hover,
 .kf-menu-button:hover,
-.kf-menu-button[aria-expanded="true"] { border-color: var(--green, #08723d); background: var(--green-light, #e5f0d8); color: var(--deep, #17472c); }
+.kf-menu-button[aria-expanded="true"] { border-color: var(--green, #08723d); background: var(--green-light, #e5f0d8); color: var(--deep, #17472c) !important; }
 .kf-back-button:focus-visible,
 .kf-menu-button:focus-visible,
 .kf-feature-menu a:focus-visible { outline: 2px solid #4a8c3f; outline-offset: 2px; }
@@ -92,8 +96,9 @@ header.kf-subpage-header {
 
 @media (max-width: 560px) {
     .kf-subpage-header .topbar-inner,
-    .kf-subpage-header .bar { min-height: 60px; gap: 8px; }
-    .kf-back-button {
+    .kf-subpage-header .bar { min-height: 60px; gap: 6px; }
+    .kf-back-button,
+    .kf-home-button {
         width: 38px;
         height: 38px;
         min-width: 38px;
@@ -101,7 +106,8 @@ header.kf-subpage-header {
         padding: 0;
         border-radius: 11px;
     }
-    .kf-back-button span { display: none; }
+    .kf-back-button span,
+    .kf-home-button span { display: none; }
     .kf-menu-button {
         width: 40px;
         height: 40px;

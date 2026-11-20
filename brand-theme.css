@@ -888,3 +888,69 @@ body.kf-auth-stack {
     justify-content: space-between;
   }
 }
+
+
+/* Instant touch-press highlighter in phone app dropdown menus */
+.more-panel a.is-pressed,
+.more-panel button:not(.menu-logout).is-pressed,
+.menu-panel a.is-pressed,
+.menu-panel button:not(.menu-logout).is-pressed,
+.kf-feature-menu a.is-pressed {
+  background-color: var(--green-light) !important;
+  color: var(--green-dark) !important;
+  box-shadow: inset 4px 0 0 var(--green) !important;
+}
+:root[data-theme="dark"] .more-panel a.is-pressed,
+:root[data-theme="dark"] .more-panel button:not(.menu-logout).is-pressed,
+:root[data-theme="dark"] .menu-panel a.is-pressed,
+:root[data-theme="dark"] .menu-panel button:not(.menu-logout).is-pressed,
+:root[data-theme="dark"] .kf-feature-menu a.is-pressed {
+  background-color: #2c4a35 !important;
+  color: #e8f7eb !important;
+  box-shadow: inset 4px 0 0 #63b67f !important;
+}
+
+/* Native Android App Bottom Tab Bar (Home, Messages, Wallet, Alerts, Account) */
+.kf-native-tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 995;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  align-items: center;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+  background: var(--surface);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -6px 22px rgba(15, 30, 18, 0.14);
+}
+.kf-native-tabbar__item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 50px;
+  padding: 4px 2px;
+  border-radius: 11px;
+  color: var(--muted) !important;
+  font-size: 11px;
+  font-weight: 750;
+  text-decoration: none !important;
+  transition: background-color 0.14s ease, color 0.14s ease;
+}
+.kf-native-tabbar__item svg {
+  width: 21px;
+  height: 21px;
+}
+.kf-native-tabbar__item.active,
+.kf-native-tabbar__item:active {
+  color: var(--green) !important;
+  background: color-mix(in srgb, var(--green-light) 75%, transparent);
+}
+body.kf-has-native-tabbar main,
+body.kf-has-native-tabbar .page {
+  padding-bottom: calc(86px + env(safe-area-inset-bottom, 0px)) !important;
+}

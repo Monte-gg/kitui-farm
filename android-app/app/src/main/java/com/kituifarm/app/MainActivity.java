@@ -2,16 +2,24 @@ package com.kituifarm.app;
 
 import android.Manifest;
 import android.annotation.SuppressLint;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.ActivityNotFoundException;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.net.ConnectivityManager;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.Uri;
 import android.net.http.SslError;
+import android.os.Build;
 import android.os.Bundle;
 import android.print.PrintAttributes;
 import android.print.PrintDocumentAdapter;
@@ -34,15 +42,27 @@ import androidx.activity.OnBackPressedCallback;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+
+import java.util.ArrayList;
+import java.util.List;
 
 public class MainActivity extends AppCompatActivity {
 
     private static final String START_URL = "https://monte-gg.github.io/kitui-farm/";
-    private static final String APP_UA_SUFFIX = " KituiFarmAndroidApp/1.0.1";
+    private static final String APP_UA_SUFFIX = " KituiFarmAndroidApp/1.0.2";
+    private static final String CHANNEL_ID = "kitui_farm_alerts";
+    private static final String PREFS_NAME = "kitui_farm_prefs";
+    private static final String KEY_PERMS_PROMPTED = "perms_prompted_v1";
+    private static final String EXTRA_TARGET_URL = "target_url";
 
     private WebView webView;
+    private SwipeRefreshLayout swipeRefresh;
     private View loadingView;
     private View errorView;
     private boolean hasPageError = false;
@@ -83,6 +103,19 @@ public class MainActivity extends AppCompatActivity {
                 pendingGeoOrigin = null;
             });
 
+    private final ActivityResultLauncher<String[]> appPermissionsLauncher =
+            registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), grants -> {
+                boolean notifGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+                        || Boolean.TRUE.equals(grants.get(Manifest.permission.POST_NOTIFICATIONS));
+                if (notifGranted) {
+                    postNativeNotification(
+                            "KITUI FARM alerts enabled",
+                            "You will receive app notifications for messages, orders, and wallet activity.",
+                            START_URL + "notifications.html"
+                    );
+                }
+            });
+
     private class NativeBridge {
         @JavascriptInterface
         public void printPage() {
@@ -94,6 +127,33 @@ public class MainActivity extends AppCompatActivity {
                 printManager.print("KITUI FARM Receipt", adapter, new PrintAttributes.Builder().build());
             });
         }
+
+        @JavascriptInterface
+        public void showNotification(String title, String body, String targetUrl) {
+            runOnUiThread(() -> postNativeNotification(title, body, targetUrl));
+        }
+
+        @JavascriptInterface
+        public void requestAppPermissions() {
+            runOnUiThread(() -> launchMissingPermissions());
+        }
+
+        @JavascriptInterface
+        public boolean hasNotificationPermission() {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return true;
+            return ContextCompat.checkSelfPermission(MainActivity.this, Manifest.permission.POST_NOTIFICATIONS)
+                    == PackageManager.PERMISSION_GRANTED;
+        }
+
+        @JavascriptInterface
+        public void copyText(String text) {
+            runOnUiThread(() -> {
+                ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                if (cm != null && text != null) {
+                    cm.setPrimaryClip(ClipData.newPlainText("KITUI FARM", text));
+                }
+            });
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -103,22 +163,154 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         webView = findViewById(R.id.webView);
+        swipeRefresh = findViewById(R.id.swipeRefresh);
         loadingView = findViewById(R.id.loadingView);
         errorView = findViewById(R.id.errorView);
         Button tryAgainButton = findViewById(R.id.tryAgainButton);
 
+        createNotificationChannel();
+        configureSwipeRefresh();
         configureWebView();
         configureBackNavigation();
 
         tryAgainButton.setOnClickListener(v -> retryLoad());
 
-        if (savedInstanceState != null) {
+        String deepLink = getIntent() != null ? getIntent().getStringExtra(EXTRA_TARGET_URL) : null;
+        if (savedInstanceState != null && (deepLink == null || deepLink.isEmpty())) {
             webView.restoreState(savedInstanceState);
             initialLoadDone = true;
             loadingView.setVisibility(View.GONE);
         } else {
-            loadStartOrError();
+            String initialUrl = (deepLink != null && deepLink.startsWith("https://")) ? deepLink : START_URL;
+            loadUrlOrError(initialUrl);
         }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (intent != null) {
+            String target = intent.getStringExtra(EXTRA_TARGET_URL);
+            if (target != null && target.startsWith("https://") && webView != null) {
+                loadUrlOrError(target);
+            }
+        }
+    }
+
+    private void createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            NotificationChannel channel = new NotificationChannel(
+                    CHANNEL_ID,
+                    "KITUI FARM Alerts",
+                    NotificationManager.IMPORTANCE_HIGH
+            );
+            channel.setDescription("Messages, order updates, and M-Pesa wallet notifications from KITUI FARM.");
+            NotificationManager manager = getSystemService(NotificationManager.class);
+            if (manager != null) {
+                manager.createNotificationChannel(channel);
+            }
+        }
+    }
+
+    private void postNativeNotification(String title, String body, String targetUrl) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
+        String safeTitle = (title != null && !title.trim().isEmpty()) ? title.trim() : "KITUI FARM";
+        String safeBody = body != null ? body.trim() : "";
+        String safeUrl = (targetUrl != null && targetUrl.startsWith("https://")) ? targetUrl : START_URL + "notifications.html";
+
+        Intent openIntent = new Intent(this, MainActivity.class);
+        openIntent.putExtra(EXTRA_TARGET_URL, safeUrl);
+        openIntent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+
+        int notifId = (safeTitle + safeBody).hashCode();
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+                this,
+                notifId,
+                openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        Bitmap largeIcon = BitmapFactory.decodeResource(getResources(), R.drawable.kitui_logo);
+        NotificationCompat.Builder builder = new NotificationCompat.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.kitui_logo)
+                .setLargeIcon(largeIcon)
+                .setContentTitle(safeTitle)
+                .setContentText(safeBody)
+                .setStyle(new NotificationCompat.BigTextStyle().bigText(safeBody))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent);
+
+        try {
+            NotificationManagerCompat.from(this).notify(notifId, builder.build());
+        } catch (SecurityException ignored) {
+        }
+    }
+
+    private List<String> getMissingPermissions() {
+        List<String> needed = new ArrayList<>();
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.ACCESS_FINE_LOCATION);
+            needed.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            needed.add(Manifest.permission.POST_NOTIFICATIONS);
+        }
+        return needed;
+    }
+
+    private void launchMissingPermissions() {
+        List<String> missing = getMissingPermissions();
+        if (!missing.isEmpty()) {
+            appPermissionsLauncher.launch(missing.toArray(new String[0]));
+        } else {
+            postNativeNotification(
+                    "KITUI FARM permissions active",
+                    "Location and app notifications are enabled on your phone.",
+                    START_URL + "notifications.html"
+            );
+        }
+    }
+
+    private void maybeShowPermissionsPrompt() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        if (prefs.getBoolean(KEY_PERMS_PROMPTED, false)) return;
+        List<String> missing = getMissingPermissions();
+        if (missing.isEmpty()) {
+            prefs.edit().putBoolean(KEY_PERMS_PROMPTED, true).apply();
+            return;
+        }
+        prefs.edit().putBoolean(KEY_PERMS_PROMPTED, true).apply();
+
+        new AlertDialog.Builder(this)
+                .setTitle("Enable KITUI FARM permissions")
+                .setMessage("Allow Location so 'Use current location' works on your profile and listings, and allow Notifications so you receive alerts for messages, orders, and M-Pesa wallet activity.")
+                .setPositiveButton("Enable permissions", (dialog, which) -> launchMissingPermissions())
+                .setNegativeButton("Not now", null)
+                .show();
+    }
+
+    private void configureSwipeRefresh() {
+        swipeRefresh.setColorSchemeResources(R.color.brand_green, R.color.brand_accent);
+        swipeRefresh.setOnRefreshListener(() -> {
+            if (webView != null) {
+                webView.reload();
+            } else {
+                swipeRefresh.setRefreshing(false);
+            }
+        });
+        // Only enable pull-to-refresh when the WebView is scrolled all the way to the top
+        swipeRefresh.setOnChildScrollUpCallback((parent, child) -> webView != null && webView.getScrollY() > 0);
     }
 
     @SuppressLint("SetJavaScriptEnabled")
@@ -198,8 +390,8 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
+                swipeRefresh.setRefreshing(false);
                 CookieManager.getInstance().flush();
-                // Wire window.print() to Android's native PrintManager and hide any download-app card
                 view.evaluateJavascript(
                         "(function(){try{" +
                         "if(window.KituiAndroid&&window.KituiAndroid.printPage){window.print=function(){window.KituiAndroid.printPage();};}" +
@@ -209,10 +401,14 @@ public class MainActivity extends AppCompatActivity {
                         null
                 );
                 if (!hasPageError) {
+                    boolean wasFirstLoad = !initialLoadDone;
                     initialLoadDone = true;
                     loadingView.setVisibility(View.GONE);
                     errorView.setVisibility(View.GONE);
                     webView.setVisibility(View.VISIBLE);
+                    if (wasFirstLoad) {
+                        maybeShowPermissionsPrompt();
+                    }
                 }
             }
 
@@ -220,6 +416,7 @@ public class MainActivity extends AppCompatActivity {
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 super.onReceivedError(view, request, error);
                 if (request != null && request.isForMainFrame()) {
+                    swipeRefresh.setRefreshing(false);
                     String failingUrl = request.getUrl() != null ? request.getUrl().toString() : START_URL;
                     showInAppError(failingUrl);
                 }
@@ -228,6 +425,7 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
                 handler.cancel();
+                swipeRefresh.setRefreshing(false);
                 showInAppError(lastFailedUrl);
             }
         });
@@ -291,27 +489,27 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void loadStartOrError() {
+    private void loadUrlOrError(String url) {
         if (!isNetworkAvailable()) {
-            showInAppError(START_URL);
+            showInAppError(url);
             return;
         }
         hasPageError = false;
         errorView.setVisibility(View.GONE);
         loadingView.setVisibility(View.VISIBLE);
-        webView.loadUrl(START_URL);
+        webView.loadUrl(url);
     }
 
     private void retryLoad() {
+        String target = (lastFailedUrl != null && lastFailedUrl.startsWith("https://")) ? lastFailedUrl : START_URL;
         if (!isNetworkAvailable()) {
-            showInAppError(lastFailedUrl);
+            showInAppError(target);
             return;
         }
         hasPageError = false;
         errorView.setVisibility(View.GONE);
         loadingView.setVisibility(View.VISIBLE);
         webView.setVisibility(View.VISIBLE);
-        String target = (lastFailedUrl != null && lastFailedUrl.startsWith("https://")) ? lastFailedUrl : START_URL;
         webView.loadUrl(target);
     }
 
