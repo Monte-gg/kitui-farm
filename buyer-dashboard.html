@@ -3,7 +3,7 @@
 <head>
     <script src="api-base.js"></script>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="theme-init.js?v=1"></script>
 
     <meta name="theme-color" content="#08723d">
@@ -238,15 +238,11 @@
         }
 </style>
     <script src="site-only.js" defer></script>
-    <script defer src="update-notification.js?v=5"></script>
-        <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="KITUI FARM">
-    <link rel="apple-touch-icon" href="icons/kitui-app-icon-192.png?v=3">
+    <script defer src="update-notification.js?v=4"></script>
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
-    <link rel="stylesheet" href="brand-theme.css?v=11" data-brand-theme>
-    <script src="brand.js?v=12" defer></script>
-    <link rel="stylesheet" href="mobile-layout.css?v=7">
+    <link rel="stylesheet" href="brand-theme.css?v=5" data-brand-theme>
+    <script src="brand.js?v=4" defer></script>
+    <link rel="stylesheet" href="mobile-layout.css?v=2">
 </head>
 <body>
     <header class="topbar">
@@ -286,7 +282,6 @@
                         <a href="farmer-dashboard.html" id="farmerHomeLink" role="menuitem" hidden>Back to farmer dashboard</a>
                         <a href="#wishlist" id="wishlistMenuLink" role="menuitem">Wishlist <span id="wishlistMenuCount">(0)</span></a>
                         <a href="receipts.html" role="menuitem">My receipts</a>
-                        <a href="notifications.html" role="menuitem">Notifications</a>
                         <a href="chat.html" role="menuitem">Messages</a>
                         <a href="wallet.html" role="menuitem">Wallet</a>
                         <a href="settings.html" role="menuitem">Settings</a>
@@ -781,7 +776,7 @@
             setCartOpen(false);
         });
         cartMenu.addEventListener('focusout', event => {
-            if (event.relatedTarget && !cartMenu.contains(event.relatedTarget)) setCartOpen(false);
+            if (!cartMenu.contains(event.relatedTarget)) setCartOpen(false);
         });
         cartToggle.addEventListener('click', () => setCartOpen(cartPanel.hidden));
         cartMenu.addEventListener('keydown', event => {
@@ -803,7 +798,7 @@
         };
         moreToggle.addEventListener('click', () => setMoreOpen(morePanel.hidden));
         moreMenu.addEventListener('focusout', event => {
-            if (event.relatedTarget && !moreMenu.contains(event.relatedTarget)) setMoreOpen(false);
+            if (!moreMenu.contains(event.relatedTarget)) setMoreOpen(false);
         });
         moreMenu.addEventListener('keydown', event => {
             if (event.key === 'Escape' && !morePanel.hidden) {
@@ -905,56 +900,30 @@
             }
         });
 
-        function fallbackCommunityPurchasesFromOrders() {
-            const saved = readArray('kituiFarmCommunityPurchases');
-            if (saved.length) return saved;
-            const localOrders = readArray('kituiFarmOrders').filter(o => o && o.status !== 'Cancelled');
-            const derived = [];
-            for (const order of localOrders.slice(-15).reverse()) {
-                for (const item of (order.items || [])) {
-                    derived.push({
-                        productName: item.name,
-                        quantity: item.quantity,
-                        farmerName: item.sellerName || 'a local farmer',
-                        location: item.location || '',
-                        createdAt: order.createdAt
-                    });
-                }
-            }
-            return derived;
-        }
-
         try {
             initializeListings();
             render();
-            renderCommunityPurchases(fallbackCommunityPurchasesFromOrders());
         } catch (error) {
             marketNotice.textContent = error.message || 'Could not load the marketplace.';
             marketNotice.hidden = false;
         }
         (async () => {
-            const [listingSettled, orderSettled, wishlistSettled, communitySettled] = await Promise.allSettled([
-                apiRequest('/api/listings'),
-                apiRequest('/api/orders/purchases'),
-                buyer.role === 'buyer' ? apiRequest('/api/wishlist') : Promise.resolve({ listingIds:[] }),
-                apiRequest('/api/community/purchases')
-            ]);
-            if (listingSettled.status === 'fulfilled' && Array.isArray(listingSettled.value?.listings)) {
-                writeArray('kituiFarmListings', listingSettled.value.listings);
+            try {
+                const [listingResult, orderResult, wishlistResult, communityResult] = await Promise.all([
+                    apiRequest('/api/listings'),
+                    apiRequest('/api/orders/purchases'),
+                    buyer.role === 'buyer' ? apiRequest('/api/wishlist') : Promise.resolve({ listingIds:[] }),
+                    apiRequest('/api/community/purchases')
+                ]);
+                writeArray('kituiFarmListings', listingResult.listings);
+                writeArray('kituiFarmOrders', orderResult.orders);
+                wishlistIds = new Set((wishlistResult.listingIds || []).map(String));
+                renderCommunityPurchases(communityResult.purchases || []);
+                render();
+            } catch (error) {
+                marketNotice.textContent = error.message || 'Could not load marketplace data from the server.';
+                marketNotice.hidden = false;
             }
-            if (orderSettled.status === 'fulfilled' && Array.isArray(orderSettled.value?.orders)) {
-                writeArray('kituiFarmOrders', orderSettled.value.orders);
-            }
-            if (wishlistSettled.status === 'fulfilled') {
-                wishlistIds = new Set((wishlistSettled.value?.listingIds || []).map(String));
-            }
-            if (communitySettled.status === 'fulfilled' && Array.isArray(communitySettled.value?.purchases)) {
-                writeArray('kituiFarmCommunityPurchases', communitySettled.value.purchases);
-                renderCommunityPurchases(communitySettled.value.purchases);
-            } else {
-                renderCommunityPurchases(fallbackCommunityPurchasesFromOrders());
-            }
-            render();
         })();
         async function refreshBuyerOrders() {
             if (document.visibilityState !== 'visible') return;

@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <string name="app_name">KITUI FARM</string>
-    <string name="loading_subtitle">Fresh from local Kitui farms</string>
-    <string name="error_title">Connection unavailable</string>
-    <string name="error_message">KITUI FARM could not load right now. Check your internet connection and try again.</string>
-    <string name="try_again">Try again</string>
-</resources>

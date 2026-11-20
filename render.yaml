@@ -10,14 +10,12 @@ services:
       paths:
         - backend/**
         - assets/**
-        - icons/**
         - "*.html"
         - "**/*.html"
         - "*.css"
         - "**/*.css"
         - "*.js"
         - "**/*.js"
-        - "*.webmanifest"
         - version.json
         - render.yaml
     buildCommand: npm install

@@ -1,10 +1,7 @@
 (function () {
   'use strict';
-  const scriptEl = document.currentScript || document.querySelector('script[src*="brand.js"]');
-  const siteRoot = new URL('.', scriptEl ? scriptEl.src : window.location.href);
-  const iconUrl = new URL('assets/kitui-farm-emblem.png?v=3', siteRoot).href;
-  const appIconUrl = new URL('icons/kitui-app-icon-192.png?v=3', siteRoot).href;
-
+  const siteRoot = new URL('.', document.currentScript.src);
+  const iconUrl = new URL('assets/kitui-farm-emblem.png', siteRoot).href;
   const createIcon = (className, decorative) => {
     const image = document.createElement('img');
     image.className = className;
@@ -14,190 +11,51 @@
     return image;
   };
 
-  // 1. Keep the signed-in user present while they browse any page.
-  let activeSession = null;
-  let activeToken = '';
+  // Keep the signed-in user present while they browse any page. The chat UI
+  // reads this short-lived heartbeat and shows peers who are currently active.
   try {
-    activeSession = JSON.parse(sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession') || 'null');
-    activeToken = sessionStorage.getItem('kituiFarmToken') || localStorage.getItem('kituiFarmToken') || '';
-    if (activeSession && activeToken && ['buyer', 'farmer'].includes(activeSession.role)) {
+    const session = JSON.parse(sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession') || 'null');
+    const token = sessionStorage.getItem('kituiFarmToken') || localStorage.getItem('kituiFarmToken');
+    if (session && token && ['buyer', 'farmer'].includes(session.role)) {
       const heartbeat = () => fetch('/api/chat/presence', { method: 'POST' }).catch(() => {});
       heartbeat();
       window.setInterval(heartbeat, 25_000);
     }
   } catch (error) { /* Presence must never interrupt page rendering. */ }
 
-  // 2. Version the shared theme and emblem (throttled; never rewrites CSS/icons unless version changed).
+  // Version the shared theme and emblem from the Jekyll build stamp. This
+  // prevents browsers from mixing a cached brand stylesheet with new HTML.
   const brandStylesheet = document.querySelector('link[data-brand-theme]');
-  (function checkSiteAndApkVersion() {
-    let lastCheck = 0;
-    let cachedData = null;
-    try {
-      lastCheck = Number(sessionStorage.getItem('kituiVerCheckedAt') || 0);
-      cachedData = JSON.parse(sessionStorage.getItem('kituiVerData') || 'null');
-    } catch (e) {}
-
-    const applyVersionData = (data, isFresh) => {
-      if (!data || typeof data.version !== 'string' || !data.version.trim()) return;
-      if (isFresh) {
-        let prevVer = '';
-        try { prevVer = localStorage.getItem('kituiAppliedSiteVer') || ''; } catch (e) {}
-        if (prevVer && prevVer !== data.version.trim()) {
-          const version = encodeURIComponent(data.version.trim());
-          if (brandStylesheet) {
-            brandStylesheet.href = new URL('brand-theme.css?siteVersion=' + version, siteRoot).href;
-          }
-          const favicon = document.querySelector('link[rel="icon"]');
-          if (favicon) favicon.href = new URL('assets/kitui-farm-emblem.png?siteVersion=' + version, siteRoot).href;
-          document.querySelectorAll('.kitui-brand-icon, .kitui-login-emblem, .kitui-avatar-icon').forEach((image) => {
-            image.src = new URL('assets/kitui-farm-emblem.png?siteVersion=' + version, siteRoot).href;
-          });
-        }
-        try { localStorage.setItem('kituiAppliedSiteVer', data.version.trim()); } catch (e) {}
-      }
-
-      // Check for newer Android APK releases when running inside the native Android app
-      if (isNativeAndroidApp && typeof data.appVersion === 'string' && data.apkUrl) {
-        const uaMatch = /KituiFarmAndroidApp\/(\d+(?:\.\d+)*)/i.exec(navigator.userAgent || '');
-        const installedVer = (window.KituiAndroid && typeof window.KituiAndroid.getAppVersion === 'function')
-          ? String(window.KituiAndroid.getAppVersion())
-          : (uaMatch ? uaMatch[1] : '1.0.0');
-        const toNums = (v) => String(v).split('.').map((n) => Number(n) || 0);
-        const a = toNums(data.appVersion);
-        const b = toNums(installedVer);
-        let hasNewerApk = false;
-        for (let i = 0; i < 3; i++) {
-          if ((a[i] || 0) !== (b[i] || 0)) { hasNewerApk = (a[i] || 0) > (b[i] || 0); break; }
-        }
-        if (hasNewerApk) {
-          const apkNotifKey = 'kituiFarmApkNotified_' + data.appVersion;
-          try {
-            if (!localStorage.getItem(apkNotifKey)) {
-              localStorage.setItem(apkNotifKey, '1');
-              if (window.KituiAndroid && typeof window.KituiAndroid.showNotification === 'function') {
-                window.KituiAndroid.showNotification(
-                  `KITUI FARM App Update (v${data.appVersion})`,
-                  'A newer Android app version with fixes and features is ready. Tap to download.',
-                  data.apkUrl
-                );
-              }
-            }
-          } catch (e) {}
-          if (!document.getElementById('kfApkUpdateBanner')) {
-            const mainEl = document.querySelector('main');
-            if (mainEl) {
-              const upBanner = document.createElement('aside');
-              upBanner.id = 'kfApkUpdateBanner';
-              upBanner.className = 'kf-apk-card';
-              upBanner.innerHTML = `
-                <div class="kf-apk-card__left">
-                  <img src="${appIconUrl}" alt="" class="kf-apk-card__icon">
-                  <div class="kf-apk-card__copy">
-                    <span class="kf-apk-card__badge">APP UPDATE · v${data.appVersion}</span>
-                    <h2>Update available</h2>
-                    <p>Install KITUI FARM v${data.appVersion} for the latest fixes and features.</p>
-                  </div>
-                </div>
-                <div class="kf-apk-card__actions">
-                  <a class="kf-apk-download-btn" href="${data.apkUrl}">Download Update</a>
-                </div>
-              `;
-              mainEl.insertAdjacentElement('afterbegin', upBanner);
-            }
-          }
-        }
-      }
-    };
-
-    if (cachedData && Date.now() - lastCheck < 180000) {
-      applyVersionData(cachedData, false);
-      return;
+  const versionUrl = new URL('version.json', siteRoot);
+  versionUrl.searchParams.set('_', String(Date.now()));
+  fetch(versionUrl.href, { cache: 'no-store' }).then((response) => {
+    if (!response.ok) return null;
+    return response.json();
+  }).then((data) => {
+    if (!data || typeof data.version !== 'string' || !data.version.trim()) return;
+    const version = encodeURIComponent(data.version.trim());
+    if (brandStylesheet) {
+      brandStylesheet.href = new URL('brand-theme.css?siteVersion=' + version, siteRoot).href;
     }
+    const favicon = document.querySelector('link[rel="icon"]');
+    if (favicon) favicon.href = iconUrl + '?siteVersion=' + version;
+    document.querySelectorAll('.kitui-brand-icon, .kitui-login-emblem, .kitui-avatar-icon').forEach((image) => {
+      image.src = iconUrl + '?siteVersion=' + version;
+    });
+  }).catch(() => {});
 
-    const versionUrl = new URL('version.json', siteRoot);
-    versionUrl.searchParams.set('_', String(Date.now()));
-    fetch(versionUrl.href, { cache: 'no-store' }).then((response) => {
-      if (!response.ok) return null;
-      return response.json();
-    }).then((data) => {
-      if (!data) return;
-      try {
-        sessionStorage.setItem('kituiVerCheckedAt', String(Date.now()));
-        sessionStorage.setItem('kituiVerData', JSON.stringify(data));
-      } catch (e) {}
-      applyVersionData(data, true);
-    }).catch(() => {});
-  })();
-
-  // Shared location helper: uses native Android LocationManager inside APK, falls back to navigator.geolocation
-  window.KITUI_GET_CURRENT_LOCATION = function (onSuccess, onError) {
-    if (window.KituiAndroid && typeof window.KituiAndroid.getCurrentLocation === 'function') {
-      window.__kituiNativeLocationCallback = function (lat, lon, errMsg) {
-        window.__kituiNativeLocationCallback = null;
-        if (errMsg || lat === null || lon === null) {
-          onError(errMsg || 'Could not determine your location. Make sure GPS is turned on or type your area manually.');
-        } else {
-          onSuccess({ latitude: Number(lat), longitude: Number(lon) });
-        }
-      };
-      try {
-        window.KituiAndroid.getCurrentLocation();
-        return;
-      } catch (e) {
-        window.__kituiNativeLocationCallback = null;
-      }
-    }
-    if (!navigator.geolocation) {
-      onError('Location is unavailable on this device. Type your area manually.');
-      return;
-    }
-    if (!window.isSecureContext) {
-      onError('Current location needs a secure HTTPS connection. Type your area manually.');
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (pos) => onSuccess({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
-      (err) => {
-        const msg = err.code === 1
-          ? 'Location permission was denied. Enable Location in Settings or type your area manually.'
-          : err.code === 2
-            ? 'Your device could not determine its location. Turn on GPS or type your area manually.'
-            : 'Location lookup timed out. Try again or type your area manually.';
-        onError(msg);
-      },
-      { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 }
-    );
-  };
-
-  // 3. Render the emblem logo + "KITUI FARM" platform name side-by-side in every header
   document.querySelectorAll('.brand').forEach((brand) => {
     const adminLabel = brand.querySelector('#adminLabel');
-    const existingSmall = brand.querySelector('small');
-    const subtitleText = existingSmall ? existingSmall.textContent.trim() : '';
-    const isAdminBrand = /admin/i.test(brand.textContent) && !adminLabel;
-
-    const titleWrap = document.createElement('span');
-    titleWrap.className = 'kitui-brand-copy';
-
-    const titleStrong = document.createElement('strong');
-    titleStrong.className = 'kitui-brand-name';
-    titleStrong.textContent = isAdminBrand ? 'KITUI FARM · Admin' : 'KITUI FARM';
-    if (adminLabel) {
-      titleStrong.appendChild(document.createTextNode(' '));
-      titleStrong.appendChild(adminLabel);
-    }
-    titleWrap.appendChild(titleStrong);
-
-    if (subtitleText) {
-      const sub = document.createElement('small');
-      sub.className = 'kitui-brand-sub';
-      sub.textContent = subtitleText;
-      titleWrap.appendChild(sub);
-    }
-
-    brand.replaceChildren(createIcon('kitui-brand-icon', true), titleWrap);
+    brand.replaceChildren(createIcon('kitui-brand-icon', false));
+    if (adminLabel) brand.appendChild(adminLabel);
     brand.classList.add('kitui-brand');
     brand.setAttribute('aria-label', 'KITUI FARM');
+  });
+
+  document.querySelectorAll('.brand-mark').forEach((mark) => {
+    mark.replaceChildren(createIcon('kitui-brand-icon', true));
+    mark.classList.add('kitui-brand-icon');
+    mark.removeAttribute('aria-hidden');
   });
 
   const defaultFarmerAvatar = document.getElementById('farmerAvatar');
@@ -207,416 +65,8 @@
 
   const loginHeading = Array.from(document.querySelectorAll('h1')).find((heading) => heading.textContent.trim().toUpperCase() === 'KITUI FARM');
   if (loginHeading) {
-    const loginBrand = document.createElement('div');
-    loginBrand.className = 'kitui-login-brand';
-    const icon = createIcon('kitui-login-emblem', true);
-    const title = document.createElement('h1');
-    title.className = 'kitui-login-title';
-    title.textContent = 'KITUI FARM';
-    loginBrand.append(icon, title);
-    loginHeading.replaceWith(loginBrand);
+    const icon = createIcon('kitui-login-emblem', false);
+    icon.setAttribute('role', 'img');
+    loginHeading.replaceWith(icon);
   }
-
-  // 4. Real-Time Notifications Bell (Navigates to dedicated notifications.html area)
-  function initNotificationsBell() {
-    if (!activeSession || !activeToken || !activeSession.userId) return;
-    if (!['buyer', 'farmer'].includes(activeSession.role)) return;
-    const path = location.pathname.split('/').pop() || 'index.html';
-    if (['login.html', 'signup.html', 'forgot-password.html', 'admin-signin.html', 'admin-register.html'].includes(path)) return;
-
-    const topbarContainer = document.querySelector('.header-actions')
-      || document.querySelector('.topbar-inner')
-      || document.querySelector('.bar');
-    if (!topbarContainer || document.getElementById('kfNotifWrap')) return;
-
-    const SEEN_KEY = `kituiFarmNotifSeen_${activeSession.userId}`;
-    const SNAP_KEY = `kituiFarmNotifSnap_${activeSession.userId}`;
-    const CACHE_KEY = `kituiFarmNotifItems_${activeSession.userId}`;
-    let notifications = [];
-
-    const readJson = (key, fallback) => {
-      try { return JSON.parse(localStorage.getItem(key) || 'null') || fallback; }
-      catch { return fallback; }
-    };
-    const writeJson = (key, val) => {
-      try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
-    };
-
-    const wrap = document.createElement('div');
-    wrap.id = 'kfNotifWrap';
-    wrap.className = 'kf-notif-wrap';
-    const isNotifPage = path === 'notifications.html';
-    wrap.innerHTML = `
-      <a href="notifications.html" class="kf-notif-button ${isNotifPage ? 'active' : ''}" id="kfNotifButton" aria-label="Open notifications page" ${isNotifPage ? 'aria-current="page"' : ''}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
-          <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-        </svg>
-        <span class="kf-notif-badge" id="kfNotifBadge" hidden>0</span>
-      </a>
-    `;
-
-    const moreMenu = topbarContainer.querySelector('#moreMenu, .kf-menu-wrap');
-    if (moreMenu) {
-      topbarContainer.insertBefore(wrap, moreMenu);
-    } else {
-      topbarContainer.appendChild(wrap);
-    }
-
-    const button = wrap.querySelector('#kfNotifButton');
-    const badge = wrap.querySelector('#kfNotifBadge');
-
-    function showSystemNotification(title, body, url, tag) {
-      try {
-        if (window.KituiAndroid && typeof window.KituiAndroid.showNotification === 'function') {
-          const absUrl = new URL(url || 'notifications.html', siteRoot).href;
-          window.KituiAndroid.showNotification(title, body, absUrl);
-          return;
-        }
-        if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification(title, { body, icon: appIconUrl, tag: tag || 'kitui-farm-alert' });
-        }
-      } catch {}
-    }
-
-    function updateBadgeCount() {
-      const seenMap = readJson(SEEN_KEY, {});
-      const unread = notifications.filter((item) => !seenMap[item.key]);
-      const badgeText = unread.length > 99 ? '99+' : String(unread.length);
-      badge.hidden = unread.length === 0;
-      badge.textContent = badgeText;
-      const tabBadge = document.getElementById('kfTabNotifBadge');
-      if (tabBadge) {
-        tabBadge.hidden = unread.length === 0;
-        tabBadge.textContent = badgeText;
-      }
-      button.setAttribute(
-        'aria-label',
-        unread.length ? `Open notifications (${unread.length} unread)` : 'Open notifications'
-      );
-    }
-
-    async function pollNotifications(isFirstRun) {
-      if (document.visibilityState === 'hidden' && !isFirstRun) return;
-      try {
-        const role = activeSession.role === 'farmer' ? 'farmer' : 'buyer';
-        const ordersEndpoint = role === 'farmer' ? '/api/orders' : '/api/orders/purchases';
-        const [chatRes, ordersRes, walletRes] = await Promise.all([
-          fetch('/api/chat/conversations').then((r) => (r.ok ? r.json() : { conversations: [] })).catch(() => ({ conversations: [] })),
-          fetch(ordersEndpoint).then((r) => (r.ok ? r.json() : { orders: [] })).catch(() => ({ orders: [] })),
-          fetch('/api/wallet').then((r) => (r.ok ? r.json() : { transactions: [] })).catch(() => ({ transactions: [] }))
-        ]);
-
-        const items = [];
-        const prevSnap = readJson(SNAP_KEY, { initialized: false, keys: {} });
-        const nextSnapKeys = { ...(prevSnap.keys || {}) };
-        const freshAlerts = [];
-
-        for (const conv of chatRes.conversations || []) {
-          if (Number(conv.unreadCount) > 0) {
-            const key = `chat:${conv.id}:${conv.updatedAt}:${conv.unreadCount}`;
-            const item = {
-              key,
-              category: 'chat',
-              categoryLabel: `Chat · ${conv.unreadCount} unread`,
-              icon: '💬',
-              title: `${conv.unreadCount} unread message${conv.unreadCount === 1 ? '' : 's'} from ${conv.peerName}`,
-              body: conv.lastMessage || `Regarding ${conv.listingName}`,
-              time: conv.updatedAt,
-              href: 'chat.html'
-            };
-            items.push(item);
-            if (prevSnap.initialized && !prevSnap.keys[key]) freshAlerts.push(item);
-            nextSnapKeys[key] = true;
-          }
-        }
-
-        for (const order of (ordersRes.orders || []).slice(0, 12)) {
-          const latestUpdate = Array.isArray(order.deliveryUpdates) && order.deliveryUpdates.length
-            ? order.deliveryUpdates[order.deliveryUpdates.length - 1]
-            : null;
-          const time = (latestUpdate && latestUpdate.createdAt) || order.createdAt;
-          const status = order.status || 'Processing';
-          const key = `order:${order.id}:${status}:${order.returnRequest ? order.returnRequest.status : ''}`;
-          const productNames = Array.isArray(order.items) ? order.items.map((i) => i.name).join(', ') : 'Order';
-          const title = role === 'farmer'
-            ? `Order ${order.id} · ${status}`
-            : `Order ${order.id} is ${status}`;
-          const body = latestUpdate && latestUpdate.note
-            ? `${productNames} — ${latestUpdate.note}`
-            : `${productNames} · KES ${Number(order.total || 0).toLocaleString('en-KE')}`;
-          const item = {
-            key,
-            category: 'order',
-            categoryLabel: `Order · ${status}`,
-            icon: status === 'Delivered' || status === 'Completed' ? '✅' : '📦',
-            title,
-            body,
-            time,
-            href: role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html#orders'
-          };
-          items.push(item);
-          if (prevSnap.initialized && !prevSnap.keys[key]) freshAlerts.push(item);
-          nextSnapKeys[key] = true;
-        }
-
-        for (const tx of (walletRes.transactions || []).slice(0, 8)) {
-          const key = `wallet:${tx.id}:${tx.status}`;
-          const sign = tx.direction === 'credit' ? '+' : '−';
-          const item = {
-            key,
-            category: 'wallet',
-            categoryLabel: `Wallet · ${tx.status || 'completed'}`,
-            icon: tx.direction === 'credit' ? '💰' : '💳',
-            title: `Wallet ${tx.type}: ${sign}KES ${Number(tx.amount || 0).toLocaleString('en-KE')}`,
-            body: tx.description || 'KITUI FARM Wallet activity',
-            time: tx.createdAt,
-            href: 'wallet.html'
-          };
-          items.push(item);
-          if (prevSnap.initialized && !prevSnap.keys[key]) freshAlerts.push(item);
-          nextSnapKeys[key] = true;
-        }
-
-        items.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
-        notifications = items;
-        writeJson(CACHE_KEY, items);
-        writeJson(SNAP_KEY, { initialized: true, keys: nextSnapKeys });
-        updateBadgeCount();
-
-        if (freshAlerts.length > 0) {
-          const top = freshAlerts[0];
-          showSystemNotification(top.title, top.body, top.href, top.key);
-        }
-      } catch (error) {
-        /* Never disrupt normal browsing if notification polling fails */
-      }
-    }
-
-    const cachedItems = readJson(CACHE_KEY, []);
-    if (Array.isArray(cachedItems) && cachedItems.length) {
-      notifications = cachedItems;
-      updateBadgeCount();
-    }
-    pollNotifications(true);
-    window.setInterval(() => pollNotifications(false), 20_000);
-    window.addEventListener('focus', () => pollNotifications(false));
-  }
-
-  // 5. Direct Native Android APK "Get the app" card (no Chrome PWA prompt, hidden inside native app or once dismissed)
-  const APK_DOWNLOAD_URL = 'https://github.com/Monte-gg/kitui-farm/releases/download/v1.0.5/kitui-farm-android-v1.0.5.apk';
-  const APK_FILENAME = 'kitui-farm-android-v1.0.5.apk';
-  const APK_HIDDEN_KEY = 'kituiFarmApkHidden';
-  const isNativeAndroidApp = /KituiFarmAndroidApp/i.test(navigator.userAgent || '')
-    || Boolean(window.KituiAndroid);
-
-  // Load dedicated slim & smooth Android App Layout ONLY inside the installed Android APK
-  if (isNativeAndroidApp) {
-    document.documentElement.classList.add('kf-native-android-app');
-    if (!document.querySelector('link[data-android-app-layout]')) {
-      const appCss = document.createElement('link');
-      appCss.rel = 'stylesheet';
-      appCss.href = new URL('android-app-layout.css?v=4', siteRoot).href;
-      appCss.dataset.androidAppLayout = 'true';
-      document.head.appendChild(appCss);
-    }
-  }
-
-  // Keep the header identical in height on dashboards & subpages on mobile/app
-  // by placing the dashboard search box cleanly at the top of <main>
-  if (isNativeAndroidApp || window.innerWidth <= 760) {
-    const headerSearch = document.querySelector('.topbar .search-box.header-search');
-    const mainEl = document.querySelector('main');
-    if (headerSearch && mainEl && !document.querySelector('.kf-app-search-slot')) {
-      const slot = document.createElement('div');
-      slot.className = 'kf-app-search-slot';
-      slot.appendChild(headerSearch);
-      mainEl.insertAdjacentElement('afterbegin', slot);
-    }
-  }
-
-  // Prevent browser PWA install prompt from ever triggering
-  window.addEventListener('beforeinstallprompt', (event) => {
-    event.preventDefault();
-  });
-
-  // Register Stale-While-Revalidate service worker for instant (0ms) feature-to-feature switching
-  if ('serviceWorker' in navigator) {
-    const swUrl = new URL('sw.js', siteRoot).href;
-    navigator.serviceWorker.register(swUrl).catch(() => {});
-  }
-
-  // Keep Render backend connection warm when returning to the app from background
-  let lastWarmAt = 0;
-  function warmBackendConnection() {
-    const now = Date.now();
-    if (now - lastWarmAt < 25000) return;
-    lastWarmAt = now;
-    fetch('/api/health', { method: 'GET', cache: 'no-store' }).catch(() => {});
-  }
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      warmBackendConnection();
-    }
-  });
-
-  function injectAndroidApkCard() {
-    if (isNativeAndroidApp) {
-      document.documentElement.classList.add('kf-native-android-app');
-      return;
-    }
-    try {
-      if (localStorage.getItem(APK_HIDDEN_KEY) === '1') return;
-    } catch (e) {}
-    if (document.getElementById('kfAndroidApkCard')) return;
-    const path = location.pathname.split('/').pop() || 'index.html';
-    if ([
-      'admin-chat.html', 'wallet-admin.html', 'receipt.html',
-      'admin-signin.html', 'admin-register.html', 'admin.html', 'admin-profile.html'
-    ].includes(path)) return;
-
-    const main = document.querySelector('main');
-    if (!main) return;
-    const isAuthCardPage = main.classList.contains('container') || main.classList.contains('card');
-
-    const card = document.createElement('section');
-    card.id = 'kfAndroidApkCard';
-    card.className = isAuthCardPage ? 'kf-apk-card kf-apk-card--auth' : 'kf-apk-card';
-    card.setAttribute('aria-labelledby', 'kfApkCardTitle');
-    card.innerHTML = `
-      <div class="kf-apk-card__left">
-        <img src="${appIconUrl}" alt="KITUI FARM app icon" class="kf-apk-card__icon">
-        <div class="kf-apk-card__copy">
-          <span class="kf-apk-card__badge">ANDROID APP · v1.0.3</span>
-          <h2 id="kfApkCardTitle">Get the app</h2>
-          <p>Download the KITUI FARM Android app. After the download finishes, open the APK and allow installation if Android asks.</p>
-        </div>
-      </div>
-      <div class="kf-apk-card__actions">
-        <a class="kf-apk-download-btn" href="${APK_DOWNLOAD_URL}" download="${APK_FILENAME}">
-          <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
-            <path d="M17.523 15.341a.96.96 0 0 1-.959-.96.96.96 0 0 1 1.918 0 .96.96 0 0 1-.959.96m-11.046 0a.96.96 0 0 1-.959-.96.96.96 0 0 1 1.918 0 .96.96 0 0 1-.959.96m11.4-6.02 1.997-3.459a.416.416 0 0 0-.152-.567.416.416 0 0 0-.568.152L17.13 8.951a12.19 12.19 0 0 0-10.26 0L4.846 5.447a.416.416 0 0 0-.568-.152.416.416 0 0 0-.152.567l1.997 3.46C2.688 11.186.343 14.658 0 18.761h24c-.344-4.103-2.688-7.575-6.123-9.44"/>
-          </svg>
-          <span>Download Android app</span>
-        </a>
-        <div class="kf-apk-card__footer">
-          <small class="kf-apk-card__meta">${APK_FILENAME}</small>
-          <button type="button" class="kf-apk-dismiss-btn" id="kfDismissApkBtn">Already downloaded? Hide</button>
-        </div>
-      </div>
-    `;
-
-    card.querySelector('#kfDismissApkBtn').addEventListener('click', () => {
-      try { localStorage.setItem(APK_HIDDEN_KEY, '1'); } catch (e) {}
-      card.remove();
-    });
-
-    if (isAuthCardPage) {
-      document.body.classList.add('kf-auth-stack');
-      main.insertAdjacentElement('beforebegin', card);
-    } else {
-      main.insertAdjacentElement('afterbegin', card);
-    }
-  }
-
-  // 6. Native Android App Bottom Bar (Home tab + quick navigation, ONLY inside native Android APK)
-  function injectNativeAppTabBar() {
-    if (!isNativeAndroidApp) return;
-    if (document.getElementById('kfNativeTabBar')) return;
-    const path = location.pathname.split('/').pop() || 'index.html';
-    const appPages = [
-      'buyer-dashboard.html', 'farmer-dashboard.html', 'farmer-store.html',
-      'chat.html', 'wallet.html', 'receipts.html', 'profile.html', 'settings.html',
-      'notifications.html', 'about-us.html', 'customer-service.html'
-    ];
-    if (!appPages.includes(path)) return;
-    if (location.search.includes('admin=1')) return;
-
-    const role = activeSession?.role === 'farmer' ? 'farmer' : 'buyer';
-    const homeHref = role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
-    const profileHref = activeSession?.userId
-      ? `profile.html?accountId=${encodeURIComponent(activeSession.userId)}`
-      : 'profile.html';
-
-    const items = [
-      { href: homeHref, match: ['buyer-dashboard.html', 'farmer-dashboard.html', 'farmer-store.html'], label: 'Home', icon: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5Z"/>' },
-      { href: 'chat.html', match: ['chat.html'], label: 'Messages', icon: '<path d="M21 12a8 8 0 0 1-8 8H7l-4 3v-6.5A8 8 0 1 1 21 12Z"/>' },
-      { href: 'wallet.html', match: ['wallet.html'], label: 'Wallet', icon: '<rect x="3" y="6" width="18" height="13" rx="2.5"/><path d="M16 12.5h5v3h-5a1.5 1.5 0 0 1 0-3Z"/>' },
-      { href: 'notifications.html', match: ['notifications.html'], label: 'Alerts', icon: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/>' },
-      { href: profileHref, match: ['profile.html', 'settings.html'], label: 'Account', icon: '<circle cx="12" cy="8" r="4"/><path d="M4 20c1.8-3.5 5-5.5 8-5.5s6.2 2 8 5.5"/>' }
-    ];
-
-    const nav = document.createElement('nav');
-    nav.id = 'kfNativeTabBar';
-    nav.className = 'kf-native-tabbar';
-    nav.setAttribute('aria-label', 'App navigation');
-    nav.innerHTML = items.map((item) => {
-      const active = item.match.includes(path);
-      const isAlerts = item.href === 'notifications.html';
-      return `<a href="${item.href}" class="kf-native-tabbar__item ${active ? 'active' : ''}" ${active ? 'aria-current="page"' : ''}>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${item.icon}</svg>
-        ${isAlerts ? '<span class="kf-native-tabbar__badge" id="kfTabNotifBadge" hidden>0</span>' : ''}
-        <span>${item.label}</span>
-      </a>`;
-    }).join('');
-    document.body.appendChild(nav);
-    document.body.classList.add('kf-has-native-tabbar');
-
-    // Instant tactile touch reaction (0ms) on section switch
-    nav.querySelectorAll('.kf-native-tabbar__item').forEach((link) => {
-      link.addEventListener('pointerdown', () => {
-        nav.querySelectorAll('.kf-native-tabbar__item').forEach((i) => i.classList.remove('active'));
-        link.classList.add('active');
-      }, { passive: true });
-    });
-
-    // Re-sync the active tab when returning via Back (bfcache restore) so the
-    // highlighted tab always matches the section on screen
-    const syncActiveTab = () => {
-      nav.querySelectorAll('.kf-native-tabbar__item').forEach((link, index) => {
-        const on = items[index].match.includes(path);
-        link.classList.toggle('active', on);
-        if (on) link.setAttribute('aria-current', 'page');
-        else link.removeAttribute('aria-current');
-      });
-    };
-    window.addEventListener('pageshow', syncActiveTab);
-
-    // Prefetch all other app sections so switching is instantaneous
-    const prefetchTargets = [homeHref, 'chat.html', 'wallet.html', 'notifications.html', profileHref, 'settings.html'];
-    prefetchTargets.forEach((targetUrl) => {
-      if (!targetUrl || targetUrl.includes(path)) return;
-      const pl = document.createElement('link');
-      pl.rel = 'prefetch';
-      pl.as = 'document';
-      pl.href = targetUrl;
-      document.head.appendChild(pl);
-    });
-  }
-
-  // 7. Highlight active page + instant touch-press highlighter inside all dropdown menus
-  function initDropdownHighlighter() {
-    const currentFile = window.location.pathname.split('/').pop() || 'index.html';
-    document.querySelectorAll('.more-panel a, .more-panel button, .menu-panel a, .menu-panel button, .kf-feature-menu a').forEach((item) => {
-      if (item.tagName === 'A') {
-        const rawHref = item.getAttribute('href') || '';
-        if (rawHref && !rawHref.startsWith('#')) {
-          const hrefFile = rawHref.split('?')[0].split('#')[0];
-          const isCurrent = hrefFile === currentFile;
-          item.classList.toggle('is-current-page', isCurrent);
-          if (isCurrent) item.setAttribute('aria-current', 'page');
-        }
-      }
-      item.addEventListener('pointerdown', () => item.classList.add('is-pressed'));
-      const clearPress = () => item.classList.remove('is-pressed');
-      item.addEventListener('pointerup', clearPress);
-      item.addEventListener('pointercancel', clearPress);
-      item.addEventListener('pointerleave', clearPress);
-    });
-  }
-
-  initNotificationsBell();
-  injectAndroidApkCard();
-  injectNativeAppTabBar();
-  initDropdownHighlighter();
 })();

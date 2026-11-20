@@ -3,7 +3,7 @@
 <head>
     <script src="api-base.js"></script>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="theme-init.js?v=1"></script>
 
     <meta name="theme-color" content="#08723d">
@@ -39,15 +39,11 @@
         .back + .back { margin-top:12px; }
     </style>
     <script src="site-only.js" defer></script>
-    <script defer src="update-notification.js?v=5"></script>
-        <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="KITUI FARM">
-    <link rel="apple-touch-icon" href="icons/kitui-app-icon-192.png?v=3">
+    <script defer src="update-notification.js?v=4"></script>
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
-    <link rel="stylesheet" href="brand-theme.css?v=11" data-brand-theme>
-    <script src="brand.js?v=12" defer></script>
-    <link rel="stylesheet" href="mobile-layout.css?v=7">
+    <link rel="stylesheet" href="brand-theme.css?v=4" data-brand-theme>
+    <script src="brand.js?v=4" defer></script>
+    <link rel="stylesheet" href="mobile-layout.css?v=2">
 </head>
 <body>
     <main class="card">
@@ -59,7 +55,6 @@
             <div class="field"><label for="adminName">Full name</label><input id="adminName" name="name" autocomplete="name" maxlength="100" required></div>
             <div class="field"><label for="adminEmail">Admin email</label><input id="adminEmail" name="email" type="email" autocomplete="username" maxlength="254" required></div>
             <div class="field"><label for="adminPassword">Password</label><div class="password-wrap"><input id="adminPassword" name="password" type="password" autocomplete="current-password" maxlength="128" required><button class="toggle-password" type="button" aria-label="Show password" aria-pressed="false" aria-controls="adminPassword"><svg class="eye-on" viewBox="0 0 24 24" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"></path><circle cx="12" cy="12" r="3"></circle></svg><svg class="eye-off" viewBox="0 0 24 24" aria-hidden="true"><path d="m3 3 18 18"></path><path d="M10.6 5.2A10.8 10.8 0 0 1 12 5c6.4 0 10 7 10 7s-3.6 7-10 7a10 10 0 0 1-4-.8"></path><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"></path></svg></button></div></div>
-            <div class="field" id="securityCodeField" hidden><label for="adminSecurityCode">4-digit admin security code (first-time enable)</label><input id="adminSecurityCode" name="code" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="one-time-code" placeholder="Enter 4-digit code (e.g. 0987)"></div>
             <button class="button" id="adminLoginButton" type="submit">Continue to admin console</button>
             <p class="status" id="adminLoginStatus" role="status" aria-live="polite"></p>
         </form>
@@ -87,32 +82,20 @@
             status.classList.remove('error');
             status.textContent = 'Verifying admin access…';
             try {
-                const nameValue = document.getElementById('adminName').value.trim();
-                const emailValue = document.getElementById('adminEmail').value.trim().toLowerCase();
-                const passwordValue = document.getElementById('adminPassword').value;
-                const codeField = document.getElementById('securityCodeField');
-                const codeInput = document.getElementById('adminSecurityCode');
                 const response = await fetch('/api/admin/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        name: nameValue,
-                        email: emailValue,
-                        password: passwordValue,
-                        ...(codeInput.value.trim() ? { code: codeInput.value.trim() } : {})
+                        name: document.getElementById('adminName').value.trim(),
+                        email: document.getElementById('adminEmail').value.trim().toLowerCase(),
+                        password: document.getElementById('adminPassword').value
                     })
                 });
                 if (!(response.headers.get('content-type') || '').includes('application/json')) {
                     throw new Error('Admin sign-in is unavailable on this site copy. Open the KITUI FARM website and try again.');
                 }
                 const result = await response.json();
-                if (!response.ok) {
-                    if (response.status === 401 || response.status === 403) {
-                        codeField.hidden = false;
-                        button.textContent = 'Enable admin & sign in';
-                    }
-                    throw new Error(result.error || 'Admin details could not be verified. Enter your 4-digit security code (default 0987) above to enable admin access on this Gmail.');
-                }
+                if (!response.ok) throw new Error(result.error || 'Admin details could not be verified.');
                 sessionStorage.setItem('kituiFarmToken', result.token);
                 localStorage.setItem('kituiFarmToken', result.token);
                 const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');

@@ -1,7 +1,6 @@
 :root {
   color-scheme: light;
   --green: #08723d !important;
-  --green-hover: #17472c;
   --green-dark: #17472c !important;
   --dark: #17472c !important;
   --deep: #17472c !important;
@@ -16,18 +15,11 @@
   --accent-orange: #d77b20;
   --cream: #fff2c7;
   --brand-brown: #432a17;
-  --radius-lg: 20px;
-  --radius-md: 14px;
-  --radius-sm: 10px;
-  --shadow-card: 0 10px 28px rgba(23, 71, 44, 0.06), 0 2px 6px rgba(52, 39, 24, 0.04);
-  --shadow-hover: 0 18px 40px rgba(23, 71, 44, 0.13), 0 4px 12px rgba(52, 39, 24, 0.06);
-  --shadow-bar: 0 4px 20px rgba(23, 71, 44, 0.07);
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
   --green: #63b67f !important;
-  --green-hover: #78cc94;
   --green-dark: #d5ead6 !important;
   --dark: #d5ead6 !important;
   --deep: #d5ead6 !important;
@@ -42,189 +34,44 @@
   --accent-orange: #f0a34b;
   --cream: #3d3423;
   --brand-brown: #f2ddb3;
-  --shadow-card: 0 12px 30px rgba(0, 0, 0, 0.32);
-  --shadow-hover: 0 18px 42px rgba(0, 0, 0, 0.48);
-  --shadow-bar: 0 4px 24px rgba(0, 0, 0, 0.4);
 }
 
-/* =========================================================
-   MODERN APP SHELL, SPACIOUS CONTAINERS & TYPOGRAPHY
-   ========================================================= */
-[hidden] { display: none !important; }
-html { scroll-behavior: smooth; }
-body {
-  background-color: var(--bg) !important;
-  background-image:
-    radial-gradient(circle at 12% 8%, rgba(8, 114, 61, 0.05), transparent 38%),
-    radial-gradient(circle at 88% 14%, rgba(215, 123, 32, 0.05), transparent 40%);
-  color: var(--ink) !important;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-}
-:root[data-theme="dark"] body {
-  background-image: none !important;
-}
-
-/* Widen subpages & topbars so pages like Profile, Settings, Wallet, About,
-   and Customer Service never look squeezed or compacted on desktop screens */
-@media (min-width: 761px) {
-  .topbar-inner, .bar, .page, .layout, main:not(.container):not(.card) {
-    width: min(1380px, calc(100% - 48px)) !important;
-  }
-  .topbar-inner, .bar {
-    min-height: 70px !important;
-    padding-top: 0 !important;
-    padding-bottom: 0 !important;
-    gap: 16px;
-  }
-  main:not(.container):not(.card):not(.admin-layout) {
-    padding-top: 38px;
-    padding-bottom: 68px;
-  }
-  #profileForm {
-    gap: 20px 24px;
-    padding: 28px 30px;
-  }
-  .identity {
-    padding: 26px 30px;
-    gap: 20px;
-  }
-  .danger-zone {
-    padding: 26px 30px;
-  }
-}
-@media (min-width: 1200px) {
-  .product-grid {
-    grid-template-columns: repeat(auto-fill, minmax(295px, 1fr)) !important;
-  }
-}
-
-h1, h2, h3 { color: var(--green-dark) !important; letter-spacing: -0.02em; }
-.eyebrow, .section-kicker {
-  color: var(--accent-orange) !important;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-/* Solid Topbar (no backdrop-filter so position:fixed panels never get trapped) */
-.topbar, header {
-  z-index: 1000 !important;
-  background-color: var(--surface) !important;
-  border-color: var(--line) !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  box-shadow: var(--shadow-bar);
-}
-
-/* Modern Cards, Panels, Hero & Metrics */
-.card, .panel, .metric, .container, .contact, .receipt-card, .paper, .welcome-panel {
-  background-color: var(--surface);
-  border: 1px solid var(--line) !important;
-  border-radius: var(--radius-lg) !important;
-  box-shadow: var(--shadow-card) !important;
-  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
-}
-
-.product-card {
-  border-radius: var(--radius-lg) !important;
-  border: 1px solid var(--line) !important;
-  box-shadow: var(--shadow-card) !important;
-  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
-}
-@media (hover: hover) {
-  .product-card:hover, .module-card:hover, .receipt-card:hover {
-    transform: translateY(-4px);
-    box-shadow: var(--shadow-hover) !important;
-    border-color: color-mix(in srgb, var(--green) 45%, var(--line)) !important;
-  }
-}
-
-/* Modern Hero Banner */
-.page > .hero, .page > .welcome {
-  padding: clamp(22px, 3.6vw, 34px);
-  margin-bottom: 26px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--green-light) 0%, var(--surface) 68%, var(--cream) 100%);
-  box-shadow: var(--shadow-card);
-}
-:root[data-theme="dark"] .page > .hero,
-:root[data-theme="dark"] .page > .welcome {
-  background: linear-gradient(135deg, var(--green-light) 0%, var(--surface) 82%);
-}
-
-/* Modern Buttons & Pills */
-.button, .btn, .btn-login {
-  border-radius: 12px !important;
-  font-weight: 700 !important;
-  letter-spacing: -0.01em;
-  transition: transform 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease, border-color 0.16s ease;
-}
-.button.primary, .primary, .btn:not(.secondary):not(.danger), .btn-login,
-button[type="submit"]:not(.danger), .filter-button.active,
-.account-type input:checked + label {
+body { background-color: var(--bg) !important; color: var(--ink) !important; }
+h1, h2, h3 { color: var(--green-dark) !important; }
+.eyebrow, .section-kicker { color: var(--accent-orange) !important; }
+.topbar, header { background-color: var(--surface) !important; border-color: var(--line) !important; }
+.button.primary, .primary, .btn:not(.secondary):not(.danger), button[type="submit"]:not(.danger),
+.filter-button.active, .account-type input:checked + label {
   background-color: var(--green) !important;
   border-color: var(--green) !important;
   color: #fff !important;
-  box-shadow: 0 4px 14px rgba(8, 114, 61, 0.22);
 }
-:root[data-theme="dark"] .button.primary,
-:root[data-theme="dark"] .primary,
-:root[data-theme="dark"] .btn-login,
-:root[data-theme="dark"] button[type="submit"]:not(.danger),
-:root[data-theme="dark"] .filter-button.active {
-  color: #0e1a12 !important;
+.button.primary:hover, .primary:hover, .btn:not(.secondary):not(.danger):hover, button[type="submit"]:not(.danger):hover {
+  background-color: var(--green-dark) !important;
+  border-color: var(--green-dark) !important;
 }
-.button.primary:hover, .primary:hover, .btn:not(.secondary):not(.danger):hover,
-.btn-login:hover, button[type="submit"]:not(.danger):hover {
-  background-color: var(--green-hover) !important;
-  border-color: var(--green-hover) !important;
+.button:not(.secondary):not(.danger):hover, .btn:not(.secondary):not(.danger):hover, button[type="submit"]:not(.danger):hover {
+  background-color: var(--green-dark) !important;
+  border-color: var(--green-dark) !important;
 }
-.button.secondary:hover {
-  background-color: var(--green-light) !important;
-  border-color: var(--green) !important;
-  color: var(--green-dark) !important;
-}
-
-.filter-button {
-  border-radius: 999px !important;
-  padding: 10px 16px !important;
-  font-weight: 700 !important;
-  box-shadow: 0 2px 6px rgba(52, 39, 24, 0.04);
-}
-.search-box {
-  background-color: var(--surface);
-  border-radius: 999px !important;
-  padding: 5px 7px 5px 14px !important;
-  box-shadow: 0 3px 14px rgba(23, 71, 44, 0.06) !important;
-}
-.search-box .button { border-radius: 999px !important; padding: 9px 18px !important; }
-
+.button.secondary:hover, .button:not(.primary):not(.danger):hover { border-color: var(--accent-orange) !important; }
 .product-category, .category { background-color: var(--cream) !important; color: var(--brand-brown) !important; }
 .product-image { background: linear-gradient(140deg, var(--cream), var(--green-light)) !important; }
 .cart-count { background-color: var(--accent-orange) !important; }
-a:not(.button):not(.brand):not(.kf-mobile-tabbar__item) { color: var(--green); }
-
-input:not([type="checkbox"]):not([type="radio"]), select, textarea {
-  border-radius: 11px !important;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease;
-}
-input:focus, select:focus, textarea:focus {
-  border-color: var(--green) !important;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 18%, transparent);
-}
+.card, .panel, .metric, .search-box { background-color: var(--surface); }
+a:not(.button):not(.brand) { color: var(--green) ; }
+input:focus, select:focus, textarea:focus { border-color: var(--green) !important; }
 input[type="checkbox"], input[type="radio"] { accent-color: var(--green); }
 
-/* Keep common page surfaces in sync with the account theme */
-:root[data-theme="dark"] body { background-color: var(--bg) !important; color: var(--ink) !important; }
-main:not(.container):not(.card) { background: transparent !important; }
+/* Keep common page surfaces in sync with the account theme, including pages
+   whose local styles use literal white backgrounds. */
+:root[data-theme="dark"] body,
+:root[data-theme="dark"] main { background-color: var(--bg) !important; color: var(--ink) !important; }
 :root[data-theme="dark"] .topbar,
 :root[data-theme="dark"] header,
 :root[data-theme="dark"] .card,
 :root[data-theme="dark"] .panel,
 :root[data-theme="dark"] .metric,
-:root[data-theme="dark"] .container,
 :root[data-theme="dark"] .search-box,
 :root[data-theme="dark"] .contact,
 :root[data-theme="dark"] details,
@@ -234,8 +81,10 @@ main:not(.container):not(.card) { background: transparent !important; }
 :root[data-theme="dark"] .thread-head,
 :root[data-theme="dark"] .profile-product,
 :root[data-theme="dark"] .menu-panel,
+:root[data-theme="dark"] .menu-panel button,
 :root[data-theme="dark"] .more-panel,
-:root[data-theme="dark"] .kf-feature-menu,
+:root[data-theme="dark"] .more-panel a,
+:root[data-theme="dark"] .more-panel button,
 :root[data-theme="dark"] .emoji-panel,
 :root[data-theme="dark"] .emoji-panel button,
 :root[data-theme="dark"] .profile-dialog-head,
@@ -249,125 +98,6 @@ main:not(.container):not(.card) { background: transparent !important; }
   background-color: var(--surface) !important;
   color: var(--ink) !important;
   border-color: var(--line) !important;
-}
-
-/* =========================================================
-   DROPDOWN MENU HIGHLIGHTER & FULL VIEWPORT SCROLLABILITY
-   ========================================================= */
-.more-panel,
-.menu-panel,
-.kf-feature-menu {
-  max-height: calc(100vh - 86px) !important;
-  max-height: calc(100svh - 86px) !important;
-  overflow-y: auto !important;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-  padding: 8px !important;
-  border-radius: 15px !important;
-  border: 1px solid var(--line) !important;
-  background-color: var(--surface) !important;
-  box-shadow: 0 16px 40px rgba(15, 30, 18, 0.24) !important;
-}
-.more-panel a,
-.more-panel button,
-.menu-panel a,
-.menu-panel button,
-.kf-feature-menu a,
-.kf-feature-menu button {
-  position: relative;
-  display: flex !important;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 39px;
-  margin: 1px 0;
-  padding: 8px 12px !important;
-  border: 0;
-  border-radius: 10px !important;
-  background-color: transparent !important;
-  color: var(--ink) !important;
-  font-size: 13.5px !important;
-  font-weight: 650 !important;
-  text-decoration: none !important;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
-}
-.more-panel .menu-profile,
-.menu-panel .menu-profile {
-  margin-bottom: 6px !important;
-  padding-bottom: 12px !important;
-  border-bottom: 1px solid var(--line) !important;
-  border-radius: 10px 10px 6px 6px !important;
-}
-.more-panel a:hover,
-.more-panel a:focus-visible,
-.more-panel a:active,
-.more-panel a.is-current-page,
-.more-panel a[aria-current="page"],
-.more-panel button:not(.menu-logout):hover,
-.more-panel button:not(.menu-logout):focus-visible,
-.more-panel button:not(.menu-logout):active,
-.menu-panel a:hover,
-.menu-panel a:focus-visible,
-.menu-panel a:active,
-.menu-panel a.is-current-page,
-.menu-panel a[aria-current="page"],
-.menu-panel button:not(.menu-logout):hover,
-.menu-panel button:not(.menu-logout):focus-visible,
-.menu-panel button:not(.menu-logout):active,
-.kf-feature-menu a:hover,
-.kf-feature-menu a:focus-visible,
-.kf-feature-menu a:active,
-.kf-feature-menu a.is-current-page,
-.kf-feature-menu a[aria-current="page"],
-.kf-feature-menu button:hover,
-.kf-feature-menu button:focus-visible {
-  background-color: var(--green-light) !important;
-  color: var(--green-dark) !important;
-  box-shadow: inset 3.5px 0 0 var(--green) !important;
-}
-:root[data-theme="dark"] .more-panel a:hover,
-:root[data-theme="dark"] .more-panel a:focus-visible,
-:root[data-theme="dark"] .more-panel a:active,
-:root[data-theme="dark"] .more-panel a.is-current-page,
-:root[data-theme="dark"] .more-panel a[aria-current="page"],
-:root[data-theme="dark"] .more-panel button:not(.menu-logout):hover,
-:root[data-theme="dark"] .more-panel button:not(.menu-logout):focus-visible,
-:root[data-theme="dark"] .more-panel button:not(.menu-logout):active,
-:root[data-theme="dark"] .menu-panel a:hover,
-:root[data-theme="dark"] .menu-panel a:focus-visible,
-:root[data-theme="dark"] .menu-panel a:active,
-:root[data-theme="dark"] .menu-panel a.is-current-page,
-:root[data-theme="dark"] .menu-panel a[aria-current="page"],
-:root[data-theme="dark"] .menu-panel button:not(.menu-logout):hover,
-:root[data-theme="dark"] .menu-panel button:not(.menu-logout):focus-visible,
-:root[data-theme="dark"] .menu-panel button:not(.menu-logout):active,
-:root[data-theme="dark"] .kf-feature-menu a:hover,
-:root[data-theme="dark"] .kf-feature-menu a:focus-visible,
-:root[data-theme="dark"] .kf-feature-menu a:active,
-:root[data-theme="dark"] .kf-feature-menu a.is-current-page,
-:root[data-theme="dark"] .kf-feature-menu a[aria-current="page"] {
-  background-color: #2c4a35 !important;
-  color: #e8f7eb !important;
-  box-shadow: inset 3.5px 0 0 #63b67f !important;
-}
-.more-panel button.menu-logout,
-.menu-panel button.menu-logout {
-  color: #d93829 !important;
-}
-:root[data-theme="dark"] .more-panel button.menu-logout,
-:root[data-theme="dark"] .menu-panel button.menu-logout {
-  color: #ff8e84 !important;
-}
-.more-panel button.menu-logout:hover,
-.more-panel button.menu-logout:focus-visible,
-.more-panel button.menu-logout:active,
-.menu-panel button.menu-logout:hover,
-.menu-panel button.menu-logout:focus-visible,
-.menu-panel button.menu-logout:active {
-  background-color: rgba(217, 56, 41, 0.16) !important;
-  box-shadow: inset 3.5px 0 0 #e5484d !important;
 }
 :root[data-theme="dark"] .hero,
 :root[data-theme="dark"] .balance-card,
@@ -403,20 +133,8 @@ main:not(.container):not(.card) { background: transparent !important; }
 :root[data-theme="dark"] .hint,
 :root[data-theme="dark"] .empty,
 :root[data-theme="dark"] .preview,
-:root[data-theme="dark"] label,
 :root[data-theme="dark"] small { color: var(--muted) !important; }
-:root[data-theme="dark"] option { background-color: var(--surface); color: var(--ink); }
-:root[data-theme="dark"] .cart-panel { background-color: var(--surface) !important; color: var(--ink) !important; border-color: var(--line) !important; }
-:root[data-theme="dark"] th,
-:root[data-theme="dark"] td,
-:root[data-theme="dark"] .cart-line,
-:root[data-theme="dark"] .conversation-row,
-:root[data-theme="dark"] .person-item { border-color: var(--line) !important; }
-:root[data-theme="dark"] .status-pill { background: #3b301c !important; color: #f6c97a !important; }
 
-/* =========================================================
-   BRAND EMBLEM + VISIBLE PLATFORM NAME ("KITUI FARM")
-   ========================================================= */
 .brand.kitui-brand {
   display: inline-flex !important;
   width: auto;
@@ -424,535 +142,17 @@ main:not(.container):not(.card) { background: transparent !important; }
   min-height: 48px;
   align-items: center;
   justify-content: flex-start;
-  gap: 11px !important;
-  color: var(--green-dark) !important;
-  font-size: 17px !important;
-  font-weight: 850 !important;
-  letter-spacing: 0.02em;
+  gap: 0;
+  color: transparent !important;
+  font-size: 0 !important;
   text-decoration: none;
 }
-.kitui-brand-icon {
-  display: block;
-  width: 48px;
-  height: 48px;
-  flex: 0 0 48px;
-  object-fit: contain;
-  border-radius: 50%;
-}
-.brand-mark.kitui-brand-icon {
-  width: 46px;
-  height: 46px;
-  border: 0;
-  border-radius: 50%;
-  background: transparent !important;
-}
-.kitui-brand-copy {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  min-width: 0;
-  line-height: 1.15;
-}
-.kitui-brand-name {
-  display: block;
-  color: var(--green-dark) !important;
-  font-size: 17px !important;
-  font-weight: 850 !important;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-}
-.kitui-brand-sub {
-  display: block;
-  margin-top: 2px;
-  color: var(--muted) !important;
-  font-size: 11.5px !important;
-  font-weight: 600 !important;
-  white-space: nowrap;
-}
+.kitui-brand-icon { display: block; width: 62px; height: 62px; object-fit: contain; }
+.brand-mark.kitui-brand-icon { width: 50px; height: 50px; border: 0; border-radius: 50%; background: transparent !important; font-size: 0; }
 .kitui-avatar-icon { width: 72%; height: 72%; object-fit: contain; }
-.kitui-login-brand {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  margin: 0 auto 24px;
-}
-.kitui-login-emblem {
-  display: block;
-  width: clamp(92px, 24vw, 128px);
-  height: auto;
-  margin: 0;
-}
-.kitui-login-title {
-  margin: 0 !important;
-  color: var(--green-dark) !important;
-  font-size: clamp(22px, 5vw, 27px) !important;
-  font-weight: 850 !important;
-  letter-spacing: 0.04em;
-  text-align: center;
-}
+.kitui-login-emblem { display: block; width: clamp(120px, 30vw, 180px); height: auto; margin: 0 auto 24px; }
 
 @media (max-width: 560px) {
-  .kitui-brand-icon { width: 38px; height: 38px; flex-basis: 38px; }
-  .brand-mark.kitui-brand-icon { width: 38px; height: 38px; }
-  .kitui-brand-name { font-size: 15px !important; }
-  .kitui-brand-sub { display: none; }
-  .identity {
-    flex-direction: column !important;
-    align-items: center !important;
-    text-align: center !important;
-    gap: 14px !important;
-    padding: 20px 16px !important;
-  }
-  .identity .avatar {
-    width: 76px !important;
-    height: 76px !important;
-    flex: 0 0 76px !important;
-    font-size: 28px !important;
-  }
-  .identity-details {
-    width: 100% !important;
-  }
-  .photo-actions {
-    justify-content: center !important;
-    width: 100% !important;
-    gap: 10px !important;
-    margin-top: 12px !important;
-  }
-  .photo-actions .button {
-    flex: 1 1 135px !important;
-  }
-}
-
-/* =========================================================
-   APP NOTIFICATIONS BELL & DROPDOWN PANEL
-   ========================================================= */
-.kf-notif-wrap {
-  position: relative;
-  flex: 0 0 auto;
-}
-.kf-notif-badge[hidden],
-.kf-notif-panel[hidden],
-.kf-notif-push-bar[hidden] {
-  display: none !important;
-}
-.kf-notif-button {
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface);
-  color: var(--green-dark);
-  cursor: pointer;
-  transition: border-color 0.18s ease, background-color 0.18s ease;
-}
-@media (max-width: 560px) {
-  .kf-notif-button {
-    width: 40px;
-    height: 40px;
-    border-radius: 11px;
-  }
-}
-.kf-notif-button svg {
-  width: 20px;
-  height: 20px;
-}
-.kf-notif-button:hover,
-.kf-notif-button[aria-expanded="true"] {
-  border-color: var(--green);
-  background: var(--green-light);
-  color: var(--green-dark);
-}
-.kf-notif-badge {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  display: grid;
-  place-items: center;
-  min-width: 20px;
-  height: 20px;
-  padding: 0 5px;
-  border: 2px solid var(--surface);
-  border-radius: 999px;
-  background: var(--accent-orange);
-  color: #fff;
-  font-size: 10.5px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
-.kf-notif-panel {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
-  z-index: 1010;
-  width: min(370px, calc(100vw - 24px));
-  max-height: min(480px, 76vh);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--surface);
-  box-shadow: 0 18px 46px rgba(15, 30, 18, 0.24);
-}
-@media (max-width: 640px) {
-  .kf-notif-panel {
-    position: fixed !important;
-    top: calc(66px + env(safe-area-inset-top, 0px)) !important;
-    left: 12px !important;
-    right: 12px !important;
-    width: auto !important;
-    max-width: none !important;
-    max-height: min(440px, 72vh) !important;
-  }
-}
-.kf-notif-panel__head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 14px 16px;
-  border-bottom: 1px solid var(--line);
-}
-.kf-notif-panel__head strong {
-  display: block;
-  color: var(--green-dark);
-  font-size: 15px;
-}
-.kf-notif-panel__head small {
-  display: block;
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 11.5px;
-}
-.kf-notif-mark-read {
-  border: 0;
-  background: transparent;
-  color: var(--green);
-  font: inherit;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.kf-notif-mark-read:hover { text-decoration: underline; }
-.kf-notif-push-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 16px;
-  background: var(--green-light);
-  color: var(--green-dark);
-  font-size: 12.5px;
-  font-weight: 600;
-  border-bottom: 1px solid var(--line);
-}
-.kf-notif-push-bar .button.small {
-  min-height: 32px;
-  padding: 5px 10px;
-  font-size: 12px;
-}
-.kf-notif-list {
-  overflow-y: auto;
-  max-height: 360px;
-  divide-y: 1px solid var(--line);
-}
-.kf-notif-empty {
-  margin: 0;
-  padding: 24px 18px;
-  text-align: center;
-  color: var(--muted);
-  font-size: 13px;
-}
-.kf-notif-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 11px;
-  padding: 12px 15px;
-  border-bottom: 1px solid var(--line);
-  color: var(--ink) !important;
-  text-decoration: none !important;
-  transition: background-color 0.15s ease;
-}
-.kf-notif-item:last-child { border-bottom: 0; }
-.kf-notif-item:hover { background: color-mix(in srgb, var(--green-light) 50%, var(--surface)); }
-.kf-notif-item.unread { background: color-mix(in srgb, var(--green-light) 35%, var(--surface)); }
-.kf-notif-item__icon {
-  display: grid;
-  place-items: center;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
-  border-radius: 10px;
-  background: var(--green-light);
-  font-size: 17px;
-}
-.kf-notif-item__body {
-  flex: 1;
-  min-width: 0;
-}
-.kf-notif-item__body strong {
-  display: block;
-  color: var(--green-dark);
-  font-size: 13px;
-  line-height: 1.35;
-}
-.kf-notif-item__body span {
-  display: block;
-  margin-top: 2px;
-  color: var(--ink);
-  font-size: 12.5px;
-  line-height: 1.4;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-.kf-notif-item__body time {
-  display: block;
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 11px;
-}
-.kf-notif-dot {
-  width: 9px;
-  height: 9px;
-  flex: 0 0 9px;
-  margin-top: 6px;
-  border-radius: 50%;
-  background: var(--accent-orange);
-}
-
-
-/* =========================================================
-   DIRECT ANDROID APK DOWNLOAD CARD ("Get the app")
-   Auto-hidden when opened inside the native Android app
-   ========================================================= */
-.kf-native-android-app #kfAndroidApkCard,
-.kf-native-android-app .kf-apk-card {
-  display: none !important;
-}
-body.kf-auth-stack {
-  flex-direction: column !important;
-  gap: 18px;
-  padding: 24px 16px 40px !important;
-}
-.kf-apk-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 18px;
-  width: 100%;
-  margin: 0 auto 24px;
-  padding: 20px 24px;
-  border: 1px solid color-mix(in srgb, var(--green) 38%, var(--line));
-  border-radius: 18px;
-  background: linear-gradient(135deg, var(--green-light) 0%, var(--surface) 72%);
-  box-shadow: var(--shadow-card);
-}
-.kf-apk-card--auth {
-  max-width: 500px;
-  margin: 0 auto;
-  padding: 18px 20px;
-}
-.kf-apk-card__left {
-  display: flex;
-  align-items: center;
-  gap: 15px;
-  flex: 1 1 280px;
-  min-width: 0;
-}
-.kf-apk-card__icon {
-  width: 56px;
-  height: 56px;
-  flex: 0 0 56px;
-  border-radius: 14px;
-  object-fit: contain;
-  background: #ffffff;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.14);
-}
-.kf-apk-card__copy {
-  min-width: 0;
-}
-.kf-apk-card__badge {
-  display: inline-block;
-  margin-bottom: 4px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  background: var(--cream);
-  color: var(--brand-brown);
-  font-size: 10.5px;
-  font-weight: 800;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-.kf-apk-card__copy h2 {
-  margin: 0 0 4px !important;
-  color: var(--green-dark) !important;
-  font-size: 18px !important;
-  line-height: 1.25;
-}
-.kf-apk-card__copy p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 13.5px;
-  line-height: 1.45;
-}
-.kf-apk-card__actions {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 6px;
-  flex: 0 0 auto;
-}
-.kf-apk-download-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  min-height: 46px;
-  padding: 11px 20px;
-  border-radius: 12px;
-  background: var(--green) !important;
-  color: #ffffff !important;
-  font-size: 14.5px;
-  font-weight: 800;
-  text-decoration: none !important;
-  white-space: nowrap;
-  box-shadow: 0 6px 18px rgba(8, 114, 61, 0.28);
-  transition: transform 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
-}
-:root[data-theme="dark"] .kf-apk-download-btn {
-  color: #0e1a12 !important;
-}
-.kf-apk-download-btn:hover {
-  transform: translateY(-1px);
-  background: var(--green-hover) !important;
-  box-shadow: 0 10px 24px rgba(8, 114, 61, 0.34);
-}
-.kf-apk-download-btn svg {
-  width: 21px;
-  height: 21px;
-  flex: 0 0 21px;
-}
-.kf-apk-card__meta {
-  color: var(--muted);
-  font-size: 11.5px;
-  font-weight: 600;
-}
-@media (max-width: 600px) {
-  .kf-apk-card {
-    padding: 16px;
-    gap: 14px;
-  }
-  .kf-apk-card__actions {
-    width: 100%;
-    align-items: stretch;
-  }
-  .kf-apk-download-btn {
-    width: 100%;
-  }
-  .kf-apk-card__meta {
-    text-align: center;
-  }
-}
-
-.kf-apk-card__footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.kf-apk-dismiss-btn {
-  border: 0;
-  padding: 2px 4px;
-  background: transparent;
-  color: var(--muted);
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 700;
-  text-decoration: underline;
-  cursor: pointer;
-}
-.kf-apk-dismiss-btn:hover {
-  color: var(--green-dark);
-}
-@media (max-width: 600px) {
-  .kf-apk-card__footer {
-    justify-content: space-between;
-  }
-}
-
-
-/* Instant touch-press highlighter in phone app dropdown menus */
-.more-panel a.is-pressed,
-.more-panel button:not(.menu-logout).is-pressed,
-.menu-panel a.is-pressed,
-.menu-panel button:not(.menu-logout).is-pressed,
-.kf-feature-menu a.is-pressed {
-  background-color: var(--green-light) !important;
-  color: var(--green-dark) !important;
-  box-shadow: inset 4px 0 0 var(--green) !important;
-}
-:root[data-theme="dark"] .more-panel a.is-pressed,
-:root[data-theme="dark"] .more-panel button:not(.menu-logout).is-pressed,
-:root[data-theme="dark"] .menu-panel a.is-pressed,
-:root[data-theme="dark"] .menu-panel button:not(.menu-logout).is-pressed,
-:root[data-theme="dark"] .kf-feature-menu a.is-pressed {
-  background-color: #2c4a35 !important;
-  color: #e8f7eb !important;
-  box-shadow: inset 4px 0 0 #63b67f !important;
-}
-
-/* Native Android App Bottom Tab Bar (Home, Messages, Wallet, Alerts, Account) */
-.kf-native-tabbar {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 995;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  align-items: center;
-  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
-  background: var(--surface);
-  border-top: 1px solid var(--line);
-  box-shadow: 0 -6px 22px rgba(15, 30, 18, 0.14);
-}
-.kf-native-tabbar__item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  min-height: 50px;
-  padding: 4px 2px;
-  border-radius: 11px;
-  color: var(--muted) !important;
-  font-size: 11px;
-  font-weight: 750;
-  text-decoration: none !important;
-  transition: background-color 0.14s ease, color 0.14s ease;
-}
-.kf-native-tabbar__item svg {
-  width: 21px;
-  height: 21px;
-}
-.kf-native-tabbar__item.active,
-.kf-native-tabbar__item:active {
-  color: var(--green) !important;
-  background: color-mix(in srgb, var(--green-light) 75%, transparent);
-}
-body.kf-has-native-tabbar main,
-body.kf-has-native-tabbar .page {
-  padding-bottom: calc(86px + env(safe-area-inset-bottom, 0px)) !important;
+  .kitui-brand-icon { width: 54px; height: 54px; }
+  .brand-mark.kitui-brand-icon { width: 44px; height: 44px; }
 }

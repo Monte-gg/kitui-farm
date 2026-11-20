@@ -1,39 +1,17 @@
-/* Shared mobile-browser layout for iOS Safari and Android Chrome. */
+/* Shared phone-browser layout for iOS Safari and Android Chrome. */
 html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 img, video, canvas, svg { max-width: 100%; }
 
 @media (max-width: 760px) {
   *, *::before, *::after { box-sizing: border-box; min-width: 0; }
-  html, body {
-    width: 100%;
-    min-width: 320px;
-    overflow-x: clip;
-    -webkit-tap-highlight-color: transparent;
-  }
+  html, body { width: 100%; min-width: 320px; overflow-x: hidden; }
   body { min-height: 100vh; min-height: 100svh; }
-  header, .topbar {
-    padding-top: env(safe-area-inset-top, 0px);
-    user-select: none;
-  }
-  main:not(.container):not(.card) {
-    width: calc(100% - 24px) !important;
-    max-width: 100% !important;
-    margin-left: auto !important;
-    margin-right: auto !important;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-  }
-  main.container, main.card {
-    width: min(100%, 440px) !important;
-    max-width: 100% !important;
-  }
+  header, .topbar { padding-top: env(safe-area-inset-top, 0px); }
+  main { width: auto; max-width: 100%; padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-left: max(16px, env(safe-area-inset-left, 0px)); }
 
   .topbar-inner, .bar, .layout, .admin-layout, .page, .container, .content,
   .main-content, .page-container, .wrapper { max-width: 100%; }
-  .topbar-inner, .bar {
-    width: calc(100% - 24px) !important;
-    gap: 8px;
-  }
+  .topbar-inner, .bar { gap: 8px; }
   .nav, .header-actions, .top-actions, .actions, .toolbar, .section-head {
     flex-wrap: wrap;
     gap: 8px;
@@ -41,83 +19,17 @@ img, video, canvas, svg { max-width: 100%; }
   .nav, .top-actions { max-width: 100%; }
   .nav > *, .top-actions > * { max-width: 100%; }
 
-  /* Keep header identical in height on dashboards and all subpages */
-  .topbar-inner, .bar {
-    width: calc(100% - 24px) !important;
-    min-height: 60px !important;
-    padding-top: 0 !important;
-    padding-bottom: 0 !important;
-    flex-wrap: nowrap !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    gap: 8px !important;
-  }
-  .header-actions {
-    width: auto !important;
-    flex: 0 0 auto !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: flex-end !important;
-    flex-wrap: nowrap !important;
-    gap: 8px !important;
-  }
-  .kf-app-search-slot {
-    margin: 0 0 14px !important;
-  }
-  .kf-app-search-slot .search-box {
-    width: 100% !important;
-    max-width: 100% !important;
-  }
-
-  /* Keep Topbar Cart & Dropdown Menus centered inside the phone screen (without hijacking chat message menus) */
-  .topbar .cart-panel,
-  .topbar .more-panel,
-  .topbar .kf-feature-menu,
-  header .cart-panel,
-  header .more-panel,
-  header .kf-feature-menu {
-    position: fixed !important;
-    top: calc(68px + env(safe-area-inset-top, 0px)) !important;
-    left: 12px !important;
-    right: 12px !important;
-    width: auto !important;
-    max-width: none !important;
-    max-height: calc(100svh - 88px) !important;
-    overflow-y: auto !important;
-    overscroll-behavior: contain;
-    -webkit-overflow-scrolling: touch;
-    z-index: 1060 !important;
-  }
-
-  /* Horizontal swipeable category filters for effortless mobile browsing */
-  .filters {
-    flex-wrap: nowrap !important;
-    overflow-x: auto !important;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    padding-bottom: 4px;
-    gap: 8px !important;
-  }
-  .filters::-webkit-scrollbar { display: none; }
-  .filter-button {
-    flex: 0 0 auto !important;
-    white-space: nowrap !important;
-  }
-
-  h1 { font-size: clamp(1.55rem, 6.2vw, 2.2rem); line-height: 1.15; overflow-wrap: anywhere; }
-  h2 { font-size: clamp(1.15rem, 4.8vw, 1.5rem); }
+  h1 { font-size: clamp(1.7rem, 7vw, 2.35rem); line-height: 1.12; overflow-wrap: anywhere; }
+  h2 { font-size: clamp(1.2rem, 5vw, 1.55rem); }
   p, label { overflow-wrap: anywhere; }
 
   input:not([type="checkbox"]):not([type="radio"]), select, textarea {
     max-width: 100%;
-    min-height: 46px;
-    font-size: 16px !important; /* Prevents iOS zooming into form fields. */
-  }
-  button, .button, a.button, input[type="submit"] {
     min-height: 44px;
-    touch-action: manipulation;
-    user-select: none;
+    font-size: 16px !important; /* Prevents Safari zooming into form fields. */
   }
+  button, .button, a.button, input[type="submit"] { min-height: 44px; }
+  button, .button { touch-action: manipulation; }
 
   .grid, .columns, .fields, .split, .form-grid, .dashboard-grid, .admin-layout,
   .wallet-grid, .settings-grid, .profile-grid { grid-template-columns: minmax(0, 1fr) !important; }
@@ -135,7 +47,6 @@ img, video, canvas, svg { max-width: 100%; }
   .table-wrap:not(.people-table-wrap)::before {
     display: block;
     margin: 0 0 8px;
-    padding: 0 14px;
     color: var(--muted);
     content: "Swipe sideways to view all columns";
     font-size: 12px;
@@ -164,38 +75,17 @@ img, video, canvas, svg { max-width: 100%; }
   dialog { width: calc(100vw - 24px) !important; max-width: 560px; max-height: calc(100svh - 24px); overflow: auto; }
   .card, .panel, .contact, .welcome-panel { max-width: 100%; }
   .product-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  main, .page { padding-bottom: calc(28px + env(safe-area-inset-bottom, 0px)); }
+  main, .page { padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
 }
 
 @media (max-width: 480px) {
   .product-grid, .stats, .metrics, .stat-grid { grid-template-columns: minmax(0, 1fr) !important; }
   .topbar-inner, .bar { align-items: center; }
+  .brand { max-width: calc(100vw - 115px); }
   .nav > .button, .top-actions > .button { flex: 1 1 auto; }
-  .card, .panel { border-radius: 16px !important; }
-  .container, .auth-card { padding: 18px !important; }
+  .card, .panel { border-radius: 14px; }
+  .card, .panel, .container, .auth-card { padding: 16px; }
   .form-actions > *, .actions > .button { flex: 1 1 100%; }
   .composer { gap: 7px; }
   .emoji-panel { max-width: calc(100vw - 32px); }
-}
-
-@media (max-width: 560px) {
-  .card, .panel { overflow: hidden; max-width: 100%; }
-  .card p, .card small, .card span, .entry, .notice {
-    overflow-wrap: anywhere;
-    word-break: break-word;
-  }
-  .entry {
-    flex-direction: column !important;
-    align-items: stretch !important;
-    gap: 8px !important;
-  }
-  .entry .amount {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: space-between !important;
-    flex-wrap: wrap !important;
-    gap: 8px !important;
-    width: 100% !important;
-    white-space: normal !important;
-  }
 }

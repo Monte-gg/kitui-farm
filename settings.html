@@ -3,7 +3,7 @@
 <head>
     <script src="api-base.js"></script>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="theme-init.js?v=1"></script>
 
     <meta name="theme-color" content="#08723d">
@@ -105,16 +105,12 @@
         }
 </style>
     <script src="site-only.js" defer></script>
-    <script defer src="update-notification.js?v=5"></script>
-    <script defer src="subpage-nav.js?v=6"></script>
-        <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="KITUI FARM">
-    <link rel="apple-touch-icon" href="icons/kitui-app-icon-192.png?v=3">
+    <script defer src="update-notification.js?v=4"></script>
+    <script defer src="subpage-nav.js?v=4"></script>
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
-    <link rel="stylesheet" href="brand-theme.css?v=11" data-brand-theme>
-    <script src="brand.js?v=12" defer></script>
-    <link rel="stylesheet" href="mobile-layout.css?v=7">
+    <link rel="stylesheet" href="brand-theme.css?v=4" data-brand-theme>
+    <script src="brand.js?v=4" defer></script>
+    <link rel="stylesheet" href="mobile-layout.css?v=2">
 </head>
 <body>
     <header class="topbar">
@@ -133,45 +129,6 @@
         <p class="eyebrow">Preferences</p>
         <h1>App settings</h1>
         <p class="intro">Adjust how KITUI FARM looks and behaves on this account.</p>
-        
-        <section class="card" id="appPermissionsCard" aria-labelledby="appPermissionsTitle">
-            <div class="card-heading">
-                <h2 id="appPermissionsTitle">App permissions</h2>
-                <p>Enable Location and Notifications so all KITUI FARM features and update alerts work smoothly on your phone.</p>
-            </div>
-            <div class="perm-all-box" style="padding:14px 16px;background:rgba(8,114,61,0.08);border-radius:14px;border:1px solid rgba(8,114,61,0.24);margin:8px 0 16px;">
-                <button type="button" class="button primary" id="enableAllPermsBtn" style="width:100%;font-size:1.02rem;font-weight:700;padding:12px 18px;display:flex;align-items:center;justify-content:center;gap:10px;">
-                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
-                    <span>Enable access to all permissions</span>
-                </button>
-                <p style="margin:8px 0 0;font-size:0.83rem;color:var(--muted);text-align:center;">Turns on Location &amp; Notifications together in one step for instant alerts and GPS lookup.</p>
-            </div>
-            <div class="setting-row">
-                <div class="setting-copy">
-                    <strong>Location access</strong>
-                    <small id="permLocationStatus">Needed for "Use current location" on your profile and farm listings.</small>
-                </div>
-                <button type="button" class="button secondary" id="enableLocationPermBtn">Enable location</button>
-            </div>
-            <div class="setting-row">
-                <div class="setting-copy">
-                    <strong>App notifications</strong>
-                    <small id="permNotifStatus">Get instant alerts for chat messages, orders, wallet activity, and app updates.</small>
-                </div>
-                <button type="button" class="button secondary" id="enableNotifPermBtn">Enable notifications</button>
-            </div>
-            <div class="setting-row" id="androidSettingsRow">
-                <div class="setting-copy">
-                    <strong>Phone permission settings</strong>
-                    <small id="permSettingsSub">Open Android App Info / Device Settings to turn on Location and Notifications if previously denied.</small>
-                </div>
-                <button type="button" class="button secondary" id="openAndroidSettingsBtn">Open phone settings</button>
-            </div>
-            <div id="permNoticeBox" class="notice" style="display:none;margin-top:12px;padding:12px 14px;border-radius:10px;background:rgba(215,123,32,0.12);border:1px solid rgba(215,123,32,0.3);font-size:0.88rem;">
-                <strong style="color:var(--accent-orange, #d77b20);display:block;margin-bottom:4px;">Location permission denied by device:</strong>
-                <span>Tap <strong>"Open phone settings"</strong> above &rarr; tap <strong>Permissions</strong> &rarr; turn on <strong>Location</strong> and <strong>Notifications</strong>. If using Chrome, tap the lock/tune icon 🔒 beside the website address.</span>
-            </div>
-        </section>
         <form id="settingsForm">
             <section class="card">
                 <div class="card-heading"><h2>Appearance</h2><p>Choose the display that works best for you.</p></div>
@@ -185,8 +142,8 @@
                 </div>
             </section>
             <section class="card" aria-labelledby="versionTitle">
-                <div class="card-heading"><h2 id="versionTitle">Website &amp; App version</h2><p>Check which KITUI FARM release is available and download updates when a new release is ready.</p></div>
-                <div class="setting-row"><div class="setting-copy"><strong>Available version</strong><small id="versionAvailable">Checking the latest release…</small></div><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="version-status" id="versionStatus" role="status" aria-live="polite">Checking</span><button class="button" id="downloadUpdateButton" type="button" hidden>Download &amp; Update App</button></div></div>
+                <div class="card-heading"><h2 id="versionTitle">Website version</h2><p>Check which KITUI FARM release is available and whether this browser has refreshed to it.</p></div>
+                <div class="setting-row"><div class="setting-copy"><strong>Available version</strong><small id="versionAvailable">Checking the latest release…</small></div><span class="version-status" id="versionStatus" role="status" aria-live="polite">Checking</span></div>
             </section>
             <section class="card">
                 <div class="card-heading"><h2>Actions</h2><p>Manage safety prompts for changes to your account’s data.</p></div>
@@ -243,18 +200,6 @@
                 available.textContent = current;
                 status.textContent = comparison > 0 ? 'Update available' : installed === current ? 'Up to date' : installed ? 'Current release loaded' : 'Latest release';
                 status.classList.toggle('update-available', comparison > 0);
-                const updateBtn = document.getElementById('downloadUpdateButton');
-                if (updateBtn) {
-                    updateBtn.hidden = comparison <= 0;
-                    updateBtn.onclick = () => {
-                        if (typeof window.KITUI_TRIGGER_APP_UPDATE === 'function') {
-                            window.KITUI_TRIGGER_APP_UPDATE();
-                        } else {
-                            localStorage.setItem('kituiFarmSiteVersion', current);
-                            location.reload();
-                        }
-                    };
-                }
             } catch (error) {
                 available.textContent = error.message || 'Version check unavailable.';
                 status.textContent = 'Unknown';
@@ -399,145 +344,6 @@
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
             if (document.getElementById('theme').value === 'system') applyTheme('system');
         });
-
-        (function initAppPermissionsCard() {
-            const locStatus = document.getElementById('permLocationStatus');
-            const notifStatus = document.getElementById('permNotifStatus');
-            const locBtn = document.getElementById('enableLocationPermBtn');
-            const notifBtn = document.getElementById('enableNotifPermBtn');
-            const allBtn = document.getElementById('enableAllPermsBtn');
-            const androidRow = document.getElementById('androidSettingsRow');
-            const openSettingsBtn = document.getElementById('openAndroidSettingsBtn');
-            const noticeBox = document.getElementById('permNoticeBox');
-
-            function refreshPermUI() {
-                const bridge = window.KituiAndroid;
-                let hasLoc = false;
-                let hasNotif = false;
-
-                if (bridge) {
-                    hasLoc = typeof bridge.hasLocationPermission === 'function' && bridge.hasLocationPermission();
-                    hasNotif = typeof bridge.hasNotificationPermission === 'function' && bridge.hasNotificationPermission();
-                } else {
-                    hasNotif = ('Notification' in window && Notification.permission === 'granted');
-                }
-
-                if (hasLoc) {
-                    locStatus.textContent = 'Enabled ✓ — "Use current location" is active.';
-                    locBtn.textContent = 'Enabled ✓';
-                    locBtn.classList.remove('secondary');
-                    locBtn.classList.add('primary');
-                    if (noticeBox) noticeBox.style.display = 'none';
-                } else {
-                    locBtn.classList.remove('primary');
-                    locBtn.classList.add('secondary');
-                }
-
-                if (hasNotif) {
-                    notifStatus.textContent = 'Enabled ✓ — you will receive instant alerts & updates.';
-                    notifBtn.textContent = 'Enabled ✓';
-                    notifBtn.classList.remove('secondary');
-                    notifBtn.classList.add('primary');
-                } else {
-                    notifBtn.classList.remove('primary');
-                    notifBtn.classList.add('secondary');
-                }
-
-                if (hasLoc && hasNotif) {
-                    allBtn.innerHTML = `<span>All permissions enabled ✓</span>`;
-                    allBtn.disabled = true;
-                    allBtn.style.opacity = '0.85';
-                    if (noticeBox) noticeBox.style.display = 'none';
-                } else {
-                    allBtn.disabled = false;
-                    allBtn.style.opacity = '1';
-                }
-            }
-
-            window.__kituiPermissionsUpdated = refreshPermUI;
-            refreshPermUI();
-
-            allBtn.addEventListener('click', async () => {
-                const bridge = window.KituiAndroid;
-                if (bridge && typeof bridge.enableAllPermissions === 'function') {
-                    bridge.enableAllPermissions();
-                    setTimeout(refreshPermUI, 1200);
-                } else if (bridge && typeof bridge.requestAppPermissions === 'function') {
-                    bridge.requestAppPermissions();
-                    setTimeout(refreshPermUI, 1200);
-                } else {
-                    // Browser flow: request notifications and geolocation
-                    try {
-                        if ('Notification' in window && Notification.permission !== 'granted') {
-                            await Notification.requestPermission();
-                        }
-                    } catch (e) {}
-
-                    if (typeof window.KITUI_GET_CURRENT_LOCATION === 'function') {
-                        locStatus.textContent = 'Requesting location access…';
-                        window.KITUI_GET_CURRENT_LOCATION(
-                            () => {
-                                locStatus.textContent = 'Enabled ✓ — location access granted.';
-                                locBtn.textContent = 'Enabled ✓';
-                                refreshPermUI();
-                            },
-                            (err) => {
-                                locStatus.textContent = err;
-                                if (noticeBox) noticeBox.style.display = 'block';
-                            }
-                        );
-                    }
-                    setTimeout(refreshPermUI, 1200);
-                }
-            });
-
-            locBtn.addEventListener('click', () => {
-                const bridge = window.KituiAndroid;
-                if (bridge && typeof bridge.requestLocationPermission === 'function') {
-                    bridge.requestLocationPermission();
-                    setTimeout(refreshPermUI, 1200);
-                } else if (typeof window.KITUI_GET_CURRENT_LOCATION === 'function') {
-                    locStatus.textContent = 'Requesting location permission…';
-                    window.KITUI_GET_CURRENT_LOCATION(
-                        () => {
-                            locStatus.textContent = 'Enabled ✓ — location access granted.';
-                            locBtn.textContent = 'Enabled ✓';
-                            refreshPermUI();
-                        },
-                        (err) => {
-                            locStatus.textContent = err;
-                            if (noticeBox) noticeBox.style.display = 'block';
-                        }
-                    );
-                }
-            });
-
-            notifBtn.addEventListener('click', async () => {
-                const bridge = window.KituiAndroid;
-                if (bridge && typeof bridge.requestNotificationPermission === 'function') {
-                    bridge.requestNotificationPermission();
-                    setTimeout(refreshPermUI, 1200);
-                } else if ('Notification' in window) {
-                    try {
-                        const res = await Notification.requestPermission();
-                        notifStatus.textContent = res === 'granted' ? 'Enabled ✓ — notifications are active.' : 'Notifications were blocked in browser settings.';
-                        if (res === 'granted') notifBtn.textContent = 'Enabled ✓';
-                    } catch {}
-                    refreshPermUI();
-                }
-            });
-
-            if (openSettingsBtn) {
-                openSettingsBtn.addEventListener('click', () => {
-                    const bridge = window.KituiAndroid;
-                    if (bridge && typeof bridge.openAppSettings === 'function') {
-                        bridge.openAppSettings();
-                    } else {
-                        alert("To enable permissions on your phone:\n\n1. Tap the lock/tune icon 🔒 at the top left of your browser address bar.\n2. Tap 'Permissions'.\n3. Turn on 'Location' and 'Notifications'.\n4. Return here and tap 'Enable access to all permissions'.");
-                    }
-                });
-            }
-        })();
     </script>
 </body>
 </html>

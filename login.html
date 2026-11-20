@@ -3,7 +3,7 @@
 <head>
     <script src="api-base.js"></script>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="theme-init.js?v=1"></script>
 
     <meta name="theme-color" content="#08723d">
@@ -100,15 +100,11 @@
         @media (max-width: 480px) { .container { padding: 28px 22px; } }
 </style>
     <script src="site-only.js" defer></script>
-    <script defer src="update-notification.js?v=5"></script>
-        <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="KITUI FARM">
-    <link rel="apple-touch-icon" href="icons/kitui-app-icon-192.png?v=3">
+    <script defer src="update-notification.js?v=4"></script>
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
-    <link rel="stylesheet" href="brand-theme.css?v=11" data-brand-theme>
-    <script src="brand.js?v=12" defer></script>
-    <link rel="stylesheet" href="mobile-layout.css?v=7">
+    <link rel="stylesheet" href="brand-theme.css?v=4" data-brand-theme>
+    <script src="brand.js?v=4" defer></script>
+    <link rel="stylesheet" href="mobile-layout.css?v=2">
 </head>
 <body>
     <main class="container">
@@ -160,28 +156,6 @@
             formStatus.textContent = loginNotice.get('emailSent') === '1'
                 ? 'Your account was permanently deleted. A confirmation email has been sent.'
                 : 'Your account was permanently deleted, but the confirmation email could not be sent. Contact Customer Service at 0114 583 373 if you need help.';
-        }
-
-        // Default to keeping users signed in automatically (especially in the Android app)
-        rememberCheckbox.checked = true;
-
-        // Auto-login: if a saved session & token already exist, open the dashboard directly
-        if (loginNotice.get('accountDeleted') !== '1' && loginNotice.get('loggedOut') !== '1') {
-            try {
-                const savedSessionRaw = sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession');
-                const savedToken = sessionStorage.getItem('kituiFarmToken') || localStorage.getItem('kituiFarmToken');
-                if (savedSessionRaw && savedToken) {
-                    const savedSession = JSON.parse(savedSessionRaw);
-                    if (savedSession && savedSession.userId && savedSession.role) {
-                        sessionStorage.setItem('kituiFarmSession', savedSessionRaw);
-                        sessionStorage.setItem('kituiFarmToken', savedToken);
-                        const autoDest = savedSession.role === 'admin'
-                            ? 'admin.html'
-                            : (savedSession.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html');
-                        window.location.replace(autoDest);
-                    }
-                }
-            } catch (e) {}
         }
 
         if (rememberedLogin) {
@@ -245,7 +219,7 @@
                     body: JSON.stringify({
                         identifier: isEmail ? value.toLowerCase() : '+254' + phoneDigits,
                         password: passwordInput.value,
-                        remember: rememberCheckbox.checked || /KituiFarmAndroidApp/i.test(navigator.userAgent || "")
+                        remember: rememberCheckbox.checked
                     })
                 });
                 if (!(response.headers.get('content-type') || '').includes('application/json')) {
@@ -260,7 +234,7 @@
                 if (result.token) {
                     try {
                         sessionStorage.setItem('kituiFarmToken', result.token);
-                        if (rememberCheckbox.checked || /KituiFarmAndroidApp/i.test(navigator.userAgent || "")) localStorage.setItem('kituiFarmToken', result.token);
+                        if (rememberCheckbox.checked) localStorage.setItem('kituiFarmToken', result.token);
                     } catch (error) { /* ignore */ }
                 }
                 const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
@@ -276,7 +250,7 @@
                     location: user.location || ''
                 });
                 sessionStorage.setItem('kituiFarmSession', session);
-                if (rememberCheckbox.checked || /KituiFarmAndroidApp/i.test(navigator.userAgent || "")) {
+                if (rememberCheckbox.checked) {
                     localStorage.setItem('kituiFarmSession', session);
                     localStorage.setItem('kituiFarmRememberedLogin', value);
                 } else {

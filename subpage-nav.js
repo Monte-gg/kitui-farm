@@ -25,10 +25,9 @@
 
     header.classList.add('kf-subpage-header');
     const back = container.querySelector('.kf-back-button') || document.createElement('button');
-    const homeBtn = container.querySelector('.kf-home-button') || document.createElement('a');
     const menuWrap = container.querySelector('.kf-menu-wrap') || document.createElement('div');
     for (const child of [...container.children]) {
-        if (![brand, back, homeBtn, menuWrap].includes(child)) child.classList.add('kf-legacy-controls');
+        if (![brand, back, menuWrap].includes(child)) child.classList.add('kf-legacy-controls');
     }
 
     back.className = 'kf-back-button';
@@ -39,12 +38,6 @@
         if (window.history.length > 1) window.history.back();
         else window.location.assign(dashboardUrl);
     });
-
-    homeBtn.className = 'kf-home-button';
-    homeBtn.href = dashboardUrl;
-    homeBtn.setAttribute('aria-label', 'Return to dashboard');
-    homeBtn.title = dashboardLabel;
-    homeBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1v-9.5Z"></path></svg><span>Home</span>';
 
     menuWrap.className = 'kf-menu-wrap';
     const toggle = menuWrap.querySelector('.kf-menu-button') || document.createElement('button');
@@ -63,7 +56,6 @@
 
     const links = [
         [dashboardLabel, dashboardUrl],
-        ...(isAdmin ? [] : [['Notifications', 'notifications.html']]),
         ['Profile & Account', 'profile.html'],
         ['Wallet & Payments', 'wallet.html'],
         ['Settings', 'settings.html'],
@@ -82,15 +74,6 @@
     if (dashboardLink) { dashboardLink.href = dashboardUrl; dashboardLink.textContent = dashboardLabel; }
     const profileLink = [...menu.querySelectorAll('a')].find(link => link.textContent.toLowerCase().includes('profile'));
     if (profileLink) profileLink.href = profileHref;
-
-    const currentFile = window.location.pathname.split('/').pop() || 'index.html';
-    for (const link of menu.querySelectorAll('a')) {
-        const hrefFile = (link.getAttribute('href') || '').split('?')[0].split('#')[0];
-        const isCurrent = hrefFile === currentFile;
-        link.classList.toggle('is-current-page', isCurrent);
-        if (isCurrent) link.setAttribute('aria-current', 'page');
-        else link.removeAttribute('aria-current');
-    }
 
     function closeMenu() {
         menu.hidden = true;
@@ -118,6 +101,5 @@
 
     menuWrap.append(toggle, menu);
     container.insertBefore(back, brand);
-    container.insertBefore(homeBtn, brand);
     if (menuWrap.parentElement !== container) container.append(menuWrap);
 })();

@@ -12,15 +12,15 @@ const COOKIE = 'kitui_farm_session';
 // Static front ends (for example GitHub Pages) are allowed to call this API.
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://monte-gg.github.io')
     .split(',').map(origin => origin.trim()).filter(Boolean);
-const SESSION_MS = 180 * 24 * 60 * 60 * 1000;
+const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
 const DEFAULT_SETTINGS = { theme: 'system', density: 'comfortable', confirmDeletes: true };
 const CATEGORIES = new Set(['Fruits', 'Vegetables', 'Grains & Pulses', 'Roots & Tubers']);
 const PAYMENT_METHODS = new Set([
     'KITUI FARM Wallet'
 ]);
 const STATIC_ASSETS = [
-    'api-base.js', 'brand-theme.css', 'brand.js', 'manifest.webmanifest', 'mobile-layout.css',
-    'site-only.js', 'subpage-nav.css', 'subpage-nav.js', 'sw.js', 'theme-init.js', 'update-notification.js'
+    'api-base.js', 'brand-theme.css', 'brand.js', 'mobile-layout.css',
+    'site-only.js', 'subpage-nav.css', 'subpage-nav.js', 'theme-init.js', 'update-notification.js'
 ];
 const PAGES = [
     'about-us.html', 'admin-register.html', 'admin-signin.html', 'buyer-dashboard.html', 'chat.html', 'customer-service.html', 'email-verify.html', 'farmer-dashboard.html', 'farmer-store.html',
@@ -1786,25 +1786,19 @@ function createApp(options = {}) {
             return res.status(400).json({ error: 'Enter your name, a valid Gmail address, and a password of at least 8 characters.' });
         }
         try {
-            const existing = await store.get('SELECT * FROM users WHERE lower(trim(email)) = lower(?)', [email]);
-            const id = existing ? existing.id : crypto.randomUUID();
-            const phone = existing ? existing.phone : `ADMIN-${crypto.randomUUID()}`;
+            const existing = await store.get('SELECT id FROM users WHERE lower(trim(email)) = lower(?)', [email]);
+            if (existing) return res.status(409).json({ error: 'An account already uses this Gmail. Sign in to it or register with a different email.' });
+            const id = crypto.randomUUID();
+            const phone = `ADMIN-${crypto.randomUUID()}`;
             const salt = crypto.randomBytes(16);
             const passwordHash = crypto.scryptSync(password, salt, 64,
                 { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
             const createdAt = new Date().toISOString();
             await store.transaction(async () => {
-                if (existing) {
-                    await store.run(
-                        'UPDATE users SET name = ?, password_salt = ?, password_hash = ? WHERE id = ?',
-                        [name, salt.toString('hex'), passwordHash.toString('hex'), id]
-                    );
-                } else {
-                    await store.run(`INSERT INTO users (id, name, email, phone, role, password_salt, password_hash, created_at)
-                        VALUES (?, ?, ?, ?, 'buyer', ?, ?, ?)`,
-                    [id, name, email, phone, salt.toString('hex'), passwordHash.toString('hex'), createdAt]);
-                }
-                await store.run('INSERT INTO wallet_admins (user_id, created_at) VALUES (?, ?) ON CONFLICT (user_id) DO NOTHING', [id, createdAt]);
+                await store.run(`INSERT INTO users (id, name, email, phone, role, password_salt, password_hash, created_at)
+                    VALUES (?, ?, ?, ?, 'buyer', ?, ?, ?)`,
+                [id, name, email, phone, salt.toString('hex'), passwordHash.toString('hex'), createdAt]);
+                await store.run('INSERT INTO wallet_admins (user_id, created_at) VALUES (?, ?)', [id, createdAt]);
             });
             adminRegistrationGrants.delete(grantHash);
             try {
@@ -1814,7 +1808,7 @@ function createApp(options = {}) {
                     status: Number.isInteger(emailError.status) ? emailError.status : 502
                 });
             }
-            res.status(201).json({ registered: true, enabledExisting: Boolean(existing) });
+            res.status(201).json({ registered: true });
         } catch (error) {
             if (error.errcode === 2067 || error.code === '23505') {
                 return res.status(409).json({ error: 'An account already uses this Gmail. Sign in to it or register with a different email.' });
@@ -1832,20 +1826,14 @@ function createApp(options = {}) {
         }
         if (attempt.count >= 5) return res.status(429).json({ error: 'Too many admin sign-in attempts. Try again in 15 minutes.' });
         try {
-            const normalizeAdminName = value => String(value || '')
-                .toLowerCase()
-                .replace(/[\u2018\u2019'`]/g, '')
-                .replace(/[^a-z0-9\s]/g, ' ')
-                .trim()
-                .split(/\s+/)
-                .filter(Boolean);
-            const rawName = text(req.body?.name, 100).trim();
+            const name = text(req.body?.name, 100).trim().toLowerCase();
             const email = text(req.body?.email, 254).trim().toLowerCase();
             const password = req.body?.password;
-            const code = text(req.body?.code, 4);
-            let user = emailIsValid(email) && typeof password === 'string' && password.length <= 128
+            const user = name.length >= 2 && emailIsValid(email) && typeof password === 'string' && password.length <= 128
                 ? await store.get('SELECT * FROM users WHERE lower(trim(email)) = ?', [email])
                 : null;
+            const admin = user ? await store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [user.id]) : null;
+            const nameMatches = Boolean(user && user.name.trim().toLowerCase() === name);
             let passwordMatches = false;
             if (user && typeof password === 'string') {
                 const actual = crypto.scryptSync(password, Buffer.from(user.password_salt, 'hex'), 64,
@@ -1853,59 +1841,10 @@ function createApp(options = {}) {
                 const expected = Buffer.from(user.password_hash, 'hex');
                 passwordMatches = actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
             }
-            if (code && rawName.length >= 2 && emailIsValid(email) && typeof password === 'string' && password.length >= 8 && password.length <= 128) {
-                const configuredCode = text(process.env.ADMIN_REGISTRATION_CODE || '0987', 4);
-                const provided = Buffer.from(code);
-                const expectedCode = Buffer.from(configuredCode);
-                const codeMatches = /^[0-9]{4}$/.test(configuredCode)
-                    && provided.length === expectedCode.length && crypto.timingSafeEqual(provided, expectedCode);
-                if (!codeMatches) {
-                    attempt.count++;
-                    adminAttempts.set(req.ip, attempt);
-                    return res.status(401).json({ error: 'The 4-digit security code is incorrect.' });
-                }
-                const id = user ? user.id : crypto.randomUUID();
-                const phone = user ? user.phone : `ADMIN-${crypto.randomUUID()}`;
-                const salt = crypto.randomBytes(16);
-                const passwordHash = crypto.scryptSync(password, salt, 64,
-                    { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 });
-                const createdAt = new Date().toISOString();
-                await store.transaction(async () => {
-                    if (user) {
-                        await store.run(
-                            'UPDATE users SET name = ?, password_salt = ?, password_hash = ? WHERE id = ?',
-                            [rawName, salt.toString('hex'), passwordHash.toString('hex'), id]
-                        );
-                    } else {
-                        await store.run(`INSERT INTO users (id, name, email, phone, role, password_salt, password_hash, created_at)
-                            VALUES (?, ?, ?, ?, 'buyer', ?, ?, ?)`,
-                        [id, rawName, email, phone, salt.toString('hex'), passwordHash.toString('hex'), createdAt]);
-                    }
-                    await store.run('INSERT INTO wallet_admins (user_id, created_at) VALUES (?, ?) ON CONFLICT (user_id) DO NOTHING', [id, createdAt]);
-                });
-                user = await store.get('SELECT * FROM users WHERE id = ?', [id]);
-                passwordMatches = true;
-            }
-            if (!user || !passwordMatches) {
+            if (!user || !admin || !nameMatches || !passwordMatches) {
                 attempt.count++;
                 adminAttempts.set(req.ip, attempt);
-                return res.status(401).json({ error: 'The email or password could not be verified. Enter your 4-digit security code (default 0987) to create or enable admin access on this Gmail.' });
-            }
-            const admin = await store.get('SELECT user_id FROM wallet_admins WHERE user_id = ?', [user.id]);
-            if (!admin) {
-                return res.status(403).json({
-                    error: 'This Gmail account does not have Admin Console access enabled yet. Enter the 4-digit security code (default 0987) below and click "Enable admin & sign in".'
-                });
-            }
-            const storedTokens = normalizeAdminName(user.name);
-            const inputTokens = normalizeAdminName(rawName);
-            const nameMatches = !inputTokens.length || !storedTokens.length
-                || inputTokens.every(token => storedTokens.includes(token))
-                || storedTokens.every(token => inputTokens.includes(token));
-            if (!nameMatches) {
-                attempt.count++;
-                adminAttempts.set(req.ip, attempt);
-                return res.status(401).json({ error: 'The name entered does not match the name on this admin account.' });
+                return res.status(401).json({ error: 'The details could not be verified for an enabled admin account.' });
             }
             adminAttempts.delete(req.ip);
             const token = await createSession(user, res, true);
@@ -3147,7 +3086,7 @@ function createApp(options = {}) {
     }
 
     app.post('/api/chat/presence', auth, async (req, res) => {
-        if (!['buyer', 'farmer'].includes(req.user.role)) {
+        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
             return res.status(403).json({ error: 'Online status is available to farmer and customer accounts.' });
         }
         await store.run(`INSERT INTO chat_presence (user_id, last_seen) VALUES (?, ?)
@@ -3156,7 +3095,7 @@ function createApp(options = {}) {
     });
 
     app.get('/api/chat/presence', auth, async (req, res) => {
-        if (!['buyer', 'farmer'].includes(req.user.role)) {
+        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
             return res.status(403).json({ error: 'Online status is available to farmer and customer accounts.' });
         }
         const cutoff = new Date(Date.now() - 90_000).toISOString();
@@ -3227,7 +3166,7 @@ function createApp(options = {}) {
 
     app.get('/api/chat/people', auth, async (req, res, next) => {
         try {
-            if (!['buyer', 'farmer'].includes(req.user.role)) {
+            if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
                 return res.status(403).json({ error: 'User directory is available to farmer and customer accounts.' });
             }
             const requestedRole = text(req.query.role, 20);
@@ -3243,6 +3182,7 @@ function createApp(options = {}) {
                     (SELECT COUNT(*) FROM listings WHERE listings.farmer_id = users.id AND listings.quantity > 0) AS product_count
                 FROM users
                 WHERE users.id <> ? ${roleClause}
+                    AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)
                 ORDER BY users.role ASC, lower(users.name) ASC LIMIT 500
             `, params);
             res.json({ people: rows.map(row => ({
@@ -3256,12 +3196,13 @@ function createApp(options = {}) {
     });
 
     app.get('/api/chat/people/:id', auth, async (req, res) => {
-        if (!['buyer', 'farmer'].includes(req.user.role)) {
+        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
             return res.status(403).json({ error: 'User profiles are available to farmer and customer accounts.' });
         }
         const person = await store.get(`
             SELECT users.id, users.name, users.role, users.location, users.profile_photo, users.created_at
             FROM users WHERE users.id = ?
+                AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = users.id)
         `, [req.params.id]);
         if (!person) return res.status(404).json({ error: 'This profile is not available.' });
         const listings = person.role === 'farmer'
@@ -3694,7 +3635,7 @@ function createApp(options = {}) {
         res.json({ orders: await Promise.all(rows.map(row => publicOrder(store, row))) });
     });
     app.get('/api/orders/purchases', auth, async (req, res) => {
-        if (!['buyer', 'farmer'].includes(req.user.role)) {
+        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
             return res.status(403).json({ error: 'Marketplace purchases are available to farmer and customer accounts.' });
         }
         const rows = await store.all('SELECT * FROM orders WHERE buyer_id = ? AND buyer_hidden = false ORDER BY created_at DESC', [req.user.id]);
@@ -3702,7 +3643,7 @@ function createApp(options = {}) {
     });
 
     app.get('/api/community/purchases', auth, async (req, res) => {
-        if (!['buyer', 'farmer'].includes(req.user.role)) {
+        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
             return res.status(403).json({ error: 'Community activity is available to farmer and customer accounts.' });
         }
         const rows = await store.all(`
@@ -3710,15 +3651,16 @@ function createApp(options = {}) {
                 order_items.location, orders.created_at
             FROM order_items
             JOIN orders ON orders.id = order_items.order_id
-            WHERE orders.status <> 'Cancelled'
+            WHERE orders.buyer_id <> ? AND orders.status <> 'Cancelled'
+                AND NOT EXISTS (SELECT 1 FROM wallet_admins WHERE wallet_admins.user_id = orders.buyer_id)
             ORDER BY orders.created_at DESC LIMIT 30
-        `);
+        `, [req.user.id]);
         res.json({ purchases: rows.map(row => ({ productName: row.product_name, quantity: Number(row.quantity),
             farmerName: row.seller_name, location: row.location || '', createdAt: row.created_at })) });
     });
 
     app.post('/api/orders', auth, async (req, res, next) => {
-        if (!['buyer', 'farmer'].includes(req.user.role)) {
+        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
             return res.status(403).json({ error: 'A farmer or customer account is required to place a marketplace order.' });
         }
         const lines = req.body?.items;
@@ -3882,7 +3824,7 @@ function createApp(options = {}) {
     });
 
     app.post('/api/orders/:id/returns', auth, async (req, res, next) => {
-        if (!['buyer', 'farmer'].includes(req.user.role)) {
+        if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
             return res.status(403).json({ error: 'A customer account is required to request a return or refund.' });
         }
         const reason = text(req.body?.reason, 1000);
@@ -4006,7 +3948,7 @@ function createApp(options = {}) {
 
     app.delete('/api/orders/:id', auth, async (req, res, next) => {
         try {
-            if (!['buyer', 'farmer'].includes(req.user.role)) {
+            if (!['buyer', 'farmer'].includes(req.user.role) || await chatIsAdmin(req.user.id)) {
                 return res.status(403).json({ error: 'A farmer or customer account is required.' });
             }
             const order = await store.get('SELECT * FROM orders WHERE id = ? AND buyer_id = ?', [req.params.id, req.user.id]);
@@ -4171,7 +4113,6 @@ function createApp(options = {}) {
         res.json({ version: '1.0.0' });
     });
     app.use('/assets', express.static(path.join(ROOT, 'assets'), { dotfiles: 'allow', fallthrough: false }));
-    app.use('/icons', express.static(path.join(ROOT, 'icons'), { dotfiles: 'allow', fallthrough: false }));
     app.get('/wallet.html', (req, res) => {
         res.setHeader('Cache-Control', 'no-store');
         res.sendFile('wallet.html', { root: ROOT, dotfiles: 'allow' });

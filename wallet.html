@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <script src="theme-init.js?v=1"></script>
 
     <meta name="theme-color" content="#08723d">
@@ -15,16 +15,12 @@
     </style>
     <script src="api-base.js"></script>
     <script src="site-only.js" defer></script>
-    <script defer src="update-notification.js?v=5"></script>
-    <script defer src="subpage-nav.js?v=6"></script>
-        <meta name="mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-title" content="KITUI FARM">
-    <link rel="apple-touch-icon" href="icons/kitui-app-icon-192.png?v=3">
+    <script defer src="update-notification.js?v=4"></script>
+    <script defer src="subpage-nav.js?v=4"></script>
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
-    <link rel="stylesheet" href="brand-theme.css?v=11" data-brand-theme>
-    <script src="brand.js?v=12" defer></script>
-    <link rel="stylesheet" href="mobile-layout.css?v=7">
+    <link rel="stylesheet" href="brand-theme.css?v=4" data-brand-theme>
+    <script src="brand.js?v=4" defer></script>
+    <link rel="stylesheet" href="mobile-layout.css?v=2">
 </head>
 <body>
     <header class="topbar"><div class="topbar-inner"><a class="brand" id="brandLink" href="index.html">🌱 KITUI FARM</a><nav class="nav" aria-label="Wallet navigation"><a class="button" id="backLink" href="buyer-dashboard.html">← Dashboard</a><a class="button" href="customer-service.html">Customer service</a></nav></div></header>
@@ -32,7 +28,7 @@
         <h1>My wallet</h1><p class="intro">Deposit with M-Pesa, withdraw to M-Pesa, and review every wallet transaction.</p>
         <section class="card wide" id="walletSetup" hidden><h2 id="walletSetupTitle">Create your wallet</h2><p class="hint" id="walletSetupHint">Create a secure KES wallet to deposit, withdraw, and pay for farm products.</p><form id="createWalletForm"><button class="button primary" type="submit">Create KITUI FARM Wallet</button><p class="message" id="createWalletMessage" role="status" aria-live="polite"></p></form><form id="reopenWalletForm" hidden><div class="split"><div class="field"><label for="reopenPassword">Account password</label><input id="reopenPassword" type="password" autocomplete="current-password" required></div><div class="field"><label for="reopenConfirmation">Type REOPEN to confirm</label><input id="reopenConfirmation" required></div></div><button class="button primary" type="submit">Recover closed wallet</button><p class="message" id="reopenMessage" role="status" aria-live="polite"></p></form></section>
         <div class="grid" id="walletContent">
-            <section class="card balance-card wide"><p class="label">Available balance</p><p class="balance" id="walletBalance">KES —</p><div class="wallet-meta"><span>Wallet ID: <strong id="walletId">Loading…</strong></span><span>Status: <strong id="walletStatus">—</strong></span></div><p class="hint">Wallet payments, transfers, and withdrawals update this balance instantly.</p></section>
+            <section class="card balance-card"><p class="label">Available balance</p><p class="balance" id="walletBalance">KES —</p><div class="wallet-meta"><span>Wallet ID: <strong id="walletId">Loading…</strong></span><span>Status: <strong id="walletStatus">—</strong></span></div><p class="hint">Wallet payments, transfers, and withdrawals update this balance instantly.</p></section>
 
             <section class="card"><h2>Deposit with M-Pesa</h2><p class="hint">Safaricom sends an STK Push prompt to your phone. Enter your M-Pesa PIN and your wallet is credited automatically.</p>
                 <form id="depositForm" novalidate>
