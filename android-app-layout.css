@@ -310,3 +310,41 @@ html.kf-native-android-app .kf-native-tabbar__badge {
 html.kf-native-android-app .kf-native-tabbar__badge[hidden] {
   display: none !important;
 }
+
+/* Prevent any text, amounts, or long words from overflowing outside cards */
+html.kf-native-android-app .card,
+html.kf-native-android-app .panel {
+  overflow: hidden !important;
+  max-width: 100% !important;
+}
+html.kf-native-android-app .card p,
+html.kf-native-android-app .card small,
+html.kf-native-android-app .card span,
+html.kf-native-android-app .panel p,
+html.kf-native-android-app .panel small,
+html.kf-native-android-app .entry,
+html.kf-native-android-app .notice {
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+}
+html.kf-native-android-app .entry {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 8px !important;
+  padding: 13px 0 !important;
+}
+html.kf-native-android-app .entry > span:first-child {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+html.kf-native-android-app .entry .amount {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  width: 100% !important;
+  white-space: normal !important;
+  font-size: 15px !important;
+}

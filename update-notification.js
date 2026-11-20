@@ -140,6 +140,19 @@
       btnNode.textContent = 'Download & Update';
     }
     banner.hidden = false;
+    try {
+      if (window.KituiAndroid && typeof window.KituiAndroid.showNotification === 'function') {
+        var notifiedKey = 'kituiFarmUpdateNotified_' + version;
+        if (!sessionStorage.getItem(notifiedKey)) {
+          sessionStorage.setItem(notifiedKey, '1');
+          window.KituiAndroid.showNotification(
+            'KITUI FARM update available',
+            'New features and fixes are ready. Tap to update KITUI FARM.',
+            window.location.href
+          );
+        }
+      }
+    } catch (error) {}
   }
 
   async function checkVersion() {

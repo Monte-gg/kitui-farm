@@ -45,7 +45,99 @@
     document.querySelectorAll('.kitui-brand-icon, .kitui-login-emblem, .kitui-avatar-icon').forEach((image) => {
       image.src = new URL('assets/kitui-farm-emblem.png?siteVersion=' + version, siteRoot).href;
     });
+
+    // Check for newer Android APK releases when running inside the native Android app
+    if (isNativeAndroidApp && typeof data.appVersion === 'string' && data.apkUrl) {
+      const uaMatch = /KituiFarmAndroidApp\/(\d+(?:\.\d+)*)/i.exec(navigator.userAgent || '');
+      const installedVer = (window.KituiAndroid && typeof window.KituiAndroid.getAppVersion === 'function')
+        ? String(window.KituiAndroid.getAppVersion())
+        : (uaMatch ? uaMatch[1] : '1.0.0');
+      const toNums = (v) => String(v).split('.').map((n) => Number(n) || 0);
+      const a = toNums(data.appVersion);
+      const b = toNums(installedVer);
+      let hasNewerApk = false;
+      for (let i = 0; i < 3; i++) {
+        if ((a[i] || 0) !== (b[i] || 0)) { hasNewerApk = (a[i] || 0) > (b[i] || 0); break; }
+      }
+      if (hasNewerApk) {
+        const apkNotifKey = 'kituiFarmApkNotified_' + data.appVersion;
+        try {
+          if (!localStorage.getItem(apkNotifKey)) {
+            localStorage.setItem(apkNotifKey, '1');
+            if (window.KituiAndroid && typeof window.KituiAndroid.showNotification === 'function') {
+              window.KituiAndroid.showNotification(
+                `KITUI FARM App Update (v${data.appVersion})`,
+                'A newer Android app version with fixes and features is ready. Tap to download.',
+                data.apkUrl
+              );
+            }
+          }
+        } catch (e) {}
+        if (!document.getElementById('kfApkUpdateBanner')) {
+          const mainEl = document.querySelector('main');
+          if (mainEl) {
+            const upBanner = document.createElement('aside');
+            upBanner.id = 'kfApkUpdateBanner';
+            upBanner.className = 'kf-apk-card';
+            upBanner.innerHTML = `
+              <div class="kf-apk-card__left">
+                <img src="${appIconUrl}" alt="" class="kf-apk-card__icon">
+                <div class="kf-apk-card__copy">
+                  <span class="kf-apk-card__badge">APP UPDATE · v${data.appVersion}</span>
+                  <h2>Update available</h2>
+                  <p>Install KITUI FARM v${data.appVersion} for the latest fixes and features.</p>
+                </div>
+              </div>
+              <div class="kf-apk-card__actions">
+                <a class="kf-apk-download-btn" href="${data.apkUrl}">Download Update</a>
+              </div>
+            `;
+            mainEl.insertAdjacentElement('afterbegin', upBanner);
+          }
+        }
+      }
+    }
   }).catch(() => {});
+
+  // Shared location helper: uses native Android LocationManager inside APK, falls back to navigator.geolocation
+  window.KITUI_GET_CURRENT_LOCATION = function (onSuccess, onError) {
+    if (window.KituiAndroid && typeof window.KituiAndroid.getCurrentLocation === 'function') {
+      window.__kituiNativeLocationCallback = function (lat, lon, errMsg) {
+        window.__kituiNativeLocationCallback = null;
+        if (errMsg || lat === null || lon === null) {
+          onError(errMsg || 'Could not determine your location. Make sure GPS is turned on or type your area manually.');
+        } else {
+          onSuccess({ latitude: Number(lat), longitude: Number(lon) });
+        }
+      };
+      try {
+        window.KituiAndroid.getCurrentLocation();
+        return;
+      } catch (e) {
+        window.__kituiNativeLocationCallback = null;
+      }
+    }
+    if (!navigator.geolocation) {
+      onError('Location is unavailable on this device. Type your area manually.');
+      return;
+    }
+    if (!window.isSecureContext) {
+      onError('Current location needs a secure HTTPS connection. Type your area manually.');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => onSuccess({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+      (err) => {
+        const msg = err.code === 1
+          ? 'Location permission was denied. Enable Location in Settings or type your area manually.'
+          : err.code === 2
+            ? 'Your device could not determine its location. Turn on GPS or type your area manually.'
+            : 'Location lookup timed out. Try again or type your area manually.';
+        onError(msg);
+      },
+      { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 }
+    );
+  };
 
   // 3. Render the emblem logo + "KITUI FARM" platform name side-by-side in every header
   document.querySelectorAll('.brand').forEach((brand) => {
@@ -282,8 +374,8 @@
   }
 
   // 5. Direct Native Android APK "Get the app" card (no Chrome PWA prompt, hidden inside native app or once dismissed)
-  const APK_DOWNLOAD_URL = 'https://github.com/Monte-gg/kitui-farm/releases/download/v1.0.2/kitui-farm-android-v1.0.2.apk';
-  const APK_FILENAME = 'kitui-farm-android-v1.0.2.apk';
+  const APK_DOWNLOAD_URL = 'https://github.com/Monte-gg/kitui-farm/releases/download/v1.0.3/kitui-farm-android-v1.0.3.apk';
+  const APK_FILENAME = 'kitui-farm-android-v1.0.3.apk';
   const APK_HIDDEN_KEY = 'kituiFarmApkHidden';
   const isNativeAndroidApp = /KituiFarmAndroidApp/i.test(navigator.userAgent || '')
     || Boolean(window.KituiAndroid);
@@ -294,7 +386,7 @@
     if (!document.querySelector('link[data-android-app-layout]')) {
       const appCss = document.createElement('link');
       appCss.rel = 'stylesheet';
-      appCss.href = new URL('android-app-layout.css?v=2', siteRoot).href;
+      appCss.href = new URL('android-app-layout.css?v=3', siteRoot).href;
       appCss.dataset.androidAppLayout = 'true';
       document.head.appendChild(appCss);
     }
@@ -352,7 +444,7 @@
       <div class="kf-apk-card__left">
         <img src="${appIconUrl}" alt="KITUI FARM app icon" class="kf-apk-card__icon">
         <div class="kf-apk-card__copy">
-          <span class="kf-apk-card__badge">ANDROID APP · v1.0.2</span>
+          <span class="kf-apk-card__badge">ANDROID APP · v1.0.3</span>
           <h2 id="kfApkCardTitle">Get the app</h2>
           <p>Download the KITUI FARM Android app. After the download finishes, open the APK and allow installation if Android asks.</p>
         </div>

@@ -177,3 +177,25 @@ img, video, canvas, svg { max-width: 100%; }
   .composer { gap: 7px; }
   .emoji-panel { max-width: calc(100vw - 32px); }
 }
+
+@media (max-width: 560px) {
+  .card, .panel { overflow: hidden; max-width: 100%; }
+  .card p, .card small, .card span, .entry, .notice {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .entry {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 8px !important;
+  }
+  .entry .amount {
+    display: flex !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    width: 100% !important;
+    white-space: normal !important;
+  }
+}
