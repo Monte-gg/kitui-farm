@@ -1,6 +1,7 @@
 :root {
   color-scheme: light;
   --green: #08723d !important;
+  --green-hover: #17472c;
   --green-dark: #17472c !important;
   --dark: #17472c !important;
   --deep: #17472c !important;
@@ -26,6 +27,7 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   --green: #63b67f !important;
+  --green-hover: #78cc94;
   --green-dark: #d5ead6 !important;
   --dark: #d5ead6 !important;
   --deep: #d5ead6 !important;
@@ -53,9 +55,8 @@ html { scroll-behavior: smooth; }
 body {
   background-color: var(--bg) !important;
   background-image:
-    radial-gradient(circle at 12% 8%, rgba(8, 114, 61, 0.06), transparent 38%),
-    radial-gradient(circle at 88% 14%, rgba(215, 123, 32, 0.07), transparent 40%);
-  background-attachment: fixed;
+    radial-gradient(circle at 12% 8%, rgba(8, 114, 61, 0.05), transparent 38%),
+    radial-gradient(circle at 88% 14%, rgba(215, 123, 32, 0.05), transparent 40%);
   color: var(--ink) !important;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -104,12 +105,13 @@ h1, h2, h3 { color: var(--green-dark) !important; letter-spacing: -0.02em; }
   text-transform: uppercase;
 }
 
-/* Glassmorphic Topbar */
+/* Solid Topbar (no backdrop-filter so position:fixed panels never get trapped) */
 .topbar, header {
-  background-color: color-mix(in srgb, var(--surface) 90%, transparent) !important;
+  z-index: 1000 !important;
+  background-color: var(--surface) !important;
   border-color: var(--line) !important;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   box-shadow: var(--shadow-bar);
 }
 
@@ -174,16 +176,13 @@ button[type="submit"]:not(.danger), .filter-button.active,
 }
 .button.primary:hover, .primary:hover, .btn:not(.secondary):not(.danger):hover,
 .btn-login:hover, button[type="submit"]:not(.danger):hover {
-  background-color: var(--green-dark) !important;
-  border-color: var(--green-dark) !important;
+  background-color: var(--green-hover) !important;
+  border-color: var(--green-hover) !important;
 }
-.button:not(.secondary):not(.danger):hover, .btn:not(.secondary):not(.danger):hover,
-button[type="submit"]:not(.danger):hover {
-  background-color: var(--green-dark) !important;
-  border-color: var(--green-dark) !important;
-}
-.button.secondary:hover, .button:not(.primary):not(.danger):hover {
-  border-color: var(--accent-orange) !important;
+.button.secondary:hover {
+  background-color: var(--green-light) !important;
+  border-color: var(--green) !important;
+  color: var(--green-dark) !important;
 }
 
 .filter-button {
@@ -404,6 +403,14 @@ main:not(.container):not(.card) { background: transparent !important; }
 :root[data-theme="dark"] .preview,
 :root[data-theme="dark"] label,
 :root[data-theme="dark"] small { color: var(--muted) !important; }
+:root[data-theme="dark"] option { background-color: var(--surface); color: var(--ink); }
+:root[data-theme="dark"] .cart-panel { background-color: var(--surface) !important; color: var(--ink) !important; border-color: var(--line) !important; }
+:root[data-theme="dark"] th,
+:root[data-theme="dark"] td,
+:root[data-theme="dark"] .cart-line,
+:root[data-theme="dark"] .conversation-row,
+:root[data-theme="dark"] .person-item { border-color: var(--line) !important; }
+:root[data-theme="dark"] .status-pill { background: #3b301c !important; color: #f6c97a !important; }
 
 /* =========================================================
    BRAND EMBLEM + VISIBLE PLATFORM NAME ("KITUI FARM")

@@ -57,18 +57,20 @@ img, video, canvas, svg { max-width: 100%; }
     max-width: 100% !important;
   }
 
-  /* Keep Cart & Dropdown Menus centered inside the phone screen (never clipped off left edge) */
-  .cart-panel,
-  .more-panel,
-  .menu-panel,
-  .kf-feature-menu {
+  /* Keep Topbar Cart & Dropdown Menus centered inside the phone screen (without hijacking chat message menus) */
+  .topbar .cart-panel,
+  .topbar .more-panel,
+  .topbar .kf-feature-menu,
+  header .cart-panel,
+  header .more-panel,
+  header .kf-feature-menu {
     position: fixed !important;
-    top: calc(74px + env(safe-area-inset-top, 0px)) !important;
+    top: calc(68px + env(safe-area-inset-top, 0px)) !important;
     left: 12px !important;
     right: 12px !important;
     width: auto !important;
     max-width: none !important;
-    max-height: calc(100svh - 94px) !important;
+    max-height: calc(100svh - 88px) !important;
     overflow-y: auto !important;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;

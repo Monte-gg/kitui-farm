@@ -1,7 +1,7 @@
 'use strict';
 
 // Network-first PWA service worker for KITUI FARM + System Notification handler.
-const CACHE_NAME = 'kitui-farm-shell-v7';
+const CACHE_NAME = 'kitui-farm-shell-v8';
 const APP_SHELL_FILES = [
   './',
   './index.html',
