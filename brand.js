@@ -416,7 +416,7 @@
     if (!document.querySelector('link[data-android-app-layout]')) {
       const appCss = document.createElement('link');
       appCss.rel = 'stylesheet';
-      appCss.href = new URL('android-app-layout.css?v=3', siteRoot).href;
+      appCss.href = new URL('android-app-layout.css?v=4', siteRoot).href;
       appCss.dataset.androidAppLayout = 'true';
       document.head.appendChild(appCss);
     }
@@ -569,6 +569,18 @@
         link.classList.add('active');
       }, { passive: true });
     });
+
+    // Re-sync the active tab when returning via Back (bfcache restore) so the
+    // highlighted tab always matches the section on screen
+    const syncActiveTab = () => {
+      nav.querySelectorAll('.kf-native-tabbar__item').forEach((link, index) => {
+        const on = items[index].match.includes(path);
+        link.classList.toggle('active', on);
+        if (on) link.setAttribute('aria-current', 'page');
+        else link.removeAttribute('aria-current');
+      });
+    };
+    window.addEventListener('pageshow', syncActiveTab);
 
     // Prefetch all other app sections so switching is instantaneous
     const prefetchTargets = [homeHref, 'chat.html', 'wallet.html', 'notifications.html', profileHref, 'settings.html'];
