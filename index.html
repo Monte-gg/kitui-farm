@@ -49,15 +49,6 @@
     <script>
         (function () {
             try {
-                const params = new URLSearchParams(window.location.search);
-                const isStandalone = params.get('source') === 'pwa'
-                    || (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
-                    || (window.matchMedia && window.matchMedia('(display-mode: fullscreen)').matches)
-                    || window.navigator.standalone === true;
-                if (isStandalone) {
-                    localStorage.setItem('kituiFarmAppInstalled', '1');
-                    sessionStorage.setItem('kituiFarmAppMode', '1');
-                }
                 const rawSession = sessionStorage.getItem('kituiFarmSession') || localStorage.getItem('kituiFarmSession');
                 const rawToken = sessionStorage.getItem('kituiFarmToken') || localStorage.getItem('kituiFarmToken');
                 if (rawSession && rawToken) {
@@ -79,8 +70,8 @@
     </script>
     <script src="site-only.js" defer></script>
     <script defer src="update-notification.js?v=4"></script>
-    <link rel="stylesheet" href="brand-theme.css?v=5" data-brand-theme>
-    <script src="brand.js?v=5" defer></script>
+    <link rel="stylesheet" href="brand-theme.css?v=6" data-brand-theme>
+    <script src="brand.js?v=6" defer></script>
     <link rel="stylesheet" href="mobile-layout.css?v=3">
 </head>
 <body>
