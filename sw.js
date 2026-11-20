@@ -2,7 +2,7 @@
 
 // Stale-While-Revalidate service worker for KITUI FARM (v10) + System Notification handler.
 // Delivers instantaneous (0ms) section switching between dashboards, wallet, chat, alerts, and settings.
-const CACHE_NAME = 'kitui-farm-shell-v10';
+const CACHE_NAME = 'kitui-farm-shell-v11';
 const APP_SHELL_FILES = [
   './',
   './index.html',

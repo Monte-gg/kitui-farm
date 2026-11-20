@@ -2,7 +2,7 @@
   'use strict';
 
   var VERSION_KEY = 'kituiFarmSiteVersion';
-  var CHECK_INTERVAL_MS = 15 * 1000;
+  var CHECK_INTERVAL_MS = 120 * 1000;
   var latestVersion = '';
   var baselineVersion = '';
   var banner = null;

@@ -64,7 +64,8 @@ import java.util.List;
 public class MainActivity extends AppCompatActivity {
 
     private static final String START_URL = "https://monte-gg.github.io/kitui-farm/";
-    private static final String APP_VERSION = "1.0.4";
+    private static final String API_HEALTH_URL = "https://kitui-farm.onrender.com/api/health";
+    private static final String APP_VERSION = "1.0.5";
     private static final String APP_UA_SUFFIX = " KituiFarmAndroidApp/" + APP_VERSION;
     private static final String CHANNEL_ID = "kitui_farm_alerts";
     private static final String PREFS_NAME = "kitui_farm_prefs";
@@ -82,6 +83,7 @@ public class MainActivity extends AppCompatActivity {
     private String pendingGeoOrigin;
     private GeolocationPermissions.Callback pendingGeoCallback;
     private boolean pendingNativeLocationRequest = false;
+    private long lastApiWarmMs = 0L;
     private LocationListener activeLocationListener = null;
 
     private final ActivityResultLauncher<Intent> fileChooserLauncher =
@@ -446,12 +448,38 @@ public class MainActivity extends AppCompatActivity {
             String initialUrl = (deepLink != null && deepLink.startsWith("https://")) ? deepLink : START_URL;
             loadUrlOrError(initialUrl);
         }
+        warmApiConnection();
     }
 
     @Override
     protected void onResume() {
         super.onResume();
+        if (webView != null) {
+            webView.onResume();
+            webView.resumeTimers();
+        }
+        warmApiConnection();
         notifyPermissionsChanged();
+    }
+
+    private void warmApiConnection() {
+        long now = System.currentTimeMillis();
+        if (now - lastApiWarmMs < 20000L) return;
+        lastApiWarmMs = now;
+        new Thread(() -> {
+            java.net.HttpURLConnection conn = null;
+            try {
+                java.net.URL url = new java.net.URL(API_HEALTH_URL);
+                conn = (java.net.HttpURLConnection) url.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setConnectTimeout(4000);
+                conn.setReadTimeout(4000);
+                conn.getResponseCode();
+            } catch (Exception ignored) {
+            } finally {
+                if (conn != null) conn.disconnect();
+            }
+        }).start();
     }
 
     @Override
@@ -584,7 +612,6 @@ public class MainActivity extends AppCompatActivity {
     @SuppressLint("SetJavaScriptEnabled")
     private void configureWebView() {
         webView.setBackgroundColor(Color.parseColor("#171E19"));
-        webView.setLayerType(View.LAYER_TYPE_HARDWARE, null);
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -668,7 +695,6 @@ public class MainActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 swipeRefresh.setRefreshing(false);
-                CookieManager.getInstance().flush();
                 view.evaluateJavascript(
                         "(function(){try{" +
                         "if(window.KituiAndroid&&window.KituiAndroid.printPage){window.print=function(){window.KituiAndroid.printPage();};}" +
@@ -830,6 +856,9 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+        if (webView != null) {
+            webView.onPause();
+        }
         CookieManager.getInstance().flush();
     }
 

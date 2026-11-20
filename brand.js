@@ -27,77 +27,107 @@
     }
   } catch (error) { /* Presence must never interrupt page rendering. */ }
 
-  // 2. Version the shared theme and emblem from the build stamp.
+  // 2. Version the shared theme and emblem (throttled; never rewrites CSS/icons unless version changed).
   const brandStylesheet = document.querySelector('link[data-brand-theme]');
-  const versionUrl = new URL('version.json', siteRoot);
-  versionUrl.searchParams.set('_', String(Date.now()));
-  fetch(versionUrl.href, { cache: 'no-store' }).then((response) => {
-    if (!response.ok) return null;
-    return response.json();
-  }).then((data) => {
-    if (!data || typeof data.version !== 'string' || !data.version.trim()) return;
-    const version = encodeURIComponent(data.version.trim());
-    if (brandStylesheet) {
-      brandStylesheet.href = new URL('brand-theme.css?siteVersion=' + version, siteRoot).href;
-    }
-    const favicon = document.querySelector('link[rel="icon"]');
-    if (favicon) favicon.href = new URL('assets/kitui-farm-emblem.png?siteVersion=' + version, siteRoot).href;
-    document.querySelectorAll('.kitui-brand-icon, .kitui-login-emblem, .kitui-avatar-icon').forEach((image) => {
-      image.src = new URL('assets/kitui-farm-emblem.png?siteVersion=' + version, siteRoot).href;
-    });
+  (function checkSiteAndApkVersion() {
+    let lastCheck = 0;
+    let cachedData = null;
+    try {
+      lastCheck = Number(sessionStorage.getItem('kituiVerCheckedAt') || 0);
+      cachedData = JSON.parse(sessionStorage.getItem('kituiVerData') || 'null');
+    } catch (e) {}
 
-    // Check for newer Android APK releases when running inside the native Android app
-    if (isNativeAndroidApp && typeof data.appVersion === 'string' && data.apkUrl) {
-      const uaMatch = /KituiFarmAndroidApp\/(\d+(?:\.\d+)*)/i.exec(navigator.userAgent || '');
-      const installedVer = (window.KituiAndroid && typeof window.KituiAndroid.getAppVersion === 'function')
-        ? String(window.KituiAndroid.getAppVersion())
-        : (uaMatch ? uaMatch[1] : '1.0.0');
-      const toNums = (v) => String(v).split('.').map((n) => Number(n) || 0);
-      const a = toNums(data.appVersion);
-      const b = toNums(installedVer);
-      let hasNewerApk = false;
-      for (let i = 0; i < 3; i++) {
-        if ((a[i] || 0) !== (b[i] || 0)) { hasNewerApk = (a[i] || 0) > (b[i] || 0); break; }
-      }
-      if (hasNewerApk) {
-        const apkNotifKey = 'kituiFarmApkNotified_' + data.appVersion;
-        try {
-          if (!localStorage.getItem(apkNotifKey)) {
-            localStorage.setItem(apkNotifKey, '1');
-            if (window.KituiAndroid && typeof window.KituiAndroid.showNotification === 'function') {
-              window.KituiAndroid.showNotification(
-                `KITUI FARM App Update (v${data.appVersion})`,
-                'A newer Android app version with fixes and features is ready. Tap to download.',
-                data.apkUrl
-              );
-            }
+    const applyVersionData = (data, isFresh) => {
+      if (!data || typeof data.version !== 'string' || !data.version.trim()) return;
+      if (isFresh) {
+        let prevVer = '';
+        try { prevVer = localStorage.getItem('kituiAppliedSiteVer') || ''; } catch (e) {}
+        if (prevVer && prevVer !== data.version.trim()) {
+          const version = encodeURIComponent(data.version.trim());
+          if (brandStylesheet) {
+            brandStylesheet.href = new URL('brand-theme.css?siteVersion=' + version, siteRoot).href;
           }
-        } catch (e) {}
-        if (!document.getElementById('kfApkUpdateBanner')) {
-          const mainEl = document.querySelector('main');
-          if (mainEl) {
-            const upBanner = document.createElement('aside');
-            upBanner.id = 'kfApkUpdateBanner';
-            upBanner.className = 'kf-apk-card';
-            upBanner.innerHTML = `
-              <div class="kf-apk-card__left">
-                <img src="${appIconUrl}" alt="" class="kf-apk-card__icon">
-                <div class="kf-apk-card__copy">
-                  <span class="kf-apk-card__badge">APP UPDATE · v${data.appVersion}</span>
-                  <h2>Update available</h2>
-                  <p>Install KITUI FARM v${data.appVersion} for the latest fixes and features.</p>
+          const favicon = document.querySelector('link[rel="icon"]');
+          if (favicon) favicon.href = new URL('assets/kitui-farm-emblem.png?siteVersion=' + version, siteRoot).href;
+          document.querySelectorAll('.kitui-brand-icon, .kitui-login-emblem, .kitui-avatar-icon').forEach((image) => {
+            image.src = new URL('assets/kitui-farm-emblem.png?siteVersion=' + version, siteRoot).href;
+          });
+        }
+        try { localStorage.setItem('kituiAppliedSiteVer', data.version.trim()); } catch (e) {}
+      }
+
+      // Check for newer Android APK releases when running inside the native Android app
+      if (isNativeAndroidApp && typeof data.appVersion === 'string' && data.apkUrl) {
+        const uaMatch = /KituiFarmAndroidApp\/(\d+(?:\.\d+)*)/i.exec(navigator.userAgent || '');
+        const installedVer = (window.KituiAndroid && typeof window.KituiAndroid.getAppVersion === 'function')
+          ? String(window.KituiAndroid.getAppVersion())
+          : (uaMatch ? uaMatch[1] : '1.0.0');
+        const toNums = (v) => String(v).split('.').map((n) => Number(n) || 0);
+        const a = toNums(data.appVersion);
+        const b = toNums(installedVer);
+        let hasNewerApk = false;
+        for (let i = 0; i < 3; i++) {
+          if ((a[i] || 0) !== (b[i] || 0)) { hasNewerApk = (a[i] || 0) > (b[i] || 0); break; }
+        }
+        if (hasNewerApk) {
+          const apkNotifKey = 'kituiFarmApkNotified_' + data.appVersion;
+          try {
+            if (!localStorage.getItem(apkNotifKey)) {
+              localStorage.setItem(apkNotifKey, '1');
+              if (window.KituiAndroid && typeof window.KituiAndroid.showNotification === 'function') {
+                window.KituiAndroid.showNotification(
+                  `KITUI FARM App Update (v${data.appVersion})`,
+                  'A newer Android app version with fixes and features is ready. Tap to download.',
+                  data.apkUrl
+                );
+              }
+            }
+          } catch (e) {}
+          if (!document.getElementById('kfApkUpdateBanner')) {
+            const mainEl = document.querySelector('main');
+            if (mainEl) {
+              const upBanner = document.createElement('aside');
+              upBanner.id = 'kfApkUpdateBanner';
+              upBanner.className = 'kf-apk-card';
+              upBanner.innerHTML = `
+                <div class="kf-apk-card__left">
+                  <img src="${appIconUrl}" alt="" class="kf-apk-card__icon">
+                  <div class="kf-apk-card__copy">
+                    <span class="kf-apk-card__badge">APP UPDATE · v${data.appVersion}</span>
+                    <h2>Update available</h2>
+                    <p>Install KITUI FARM v${data.appVersion} for the latest fixes and features.</p>
+                  </div>
                 </div>
-              </div>
-              <div class="kf-apk-card__actions">
-                <a class="kf-apk-download-btn" href="${data.apkUrl}">Download Update</a>
-              </div>
-            `;
-            mainEl.insertAdjacentElement('afterbegin', upBanner);
+                <div class="kf-apk-card__actions">
+                  <a class="kf-apk-download-btn" href="${data.apkUrl}">Download Update</a>
+                </div>
+              `;
+              mainEl.insertAdjacentElement('afterbegin', upBanner);
+            }
           }
         }
       }
+    };
+
+    if (cachedData && Date.now() - lastCheck < 180000) {
+      applyVersionData(cachedData, false);
+      return;
     }
-  }).catch(() => {});
+
+    const versionUrl = new URL('version.json', siteRoot);
+    versionUrl.searchParams.set('_', String(Date.now()));
+    fetch(versionUrl.href, { cache: 'no-store' }).then((response) => {
+      if (!response.ok) return null;
+      return response.json();
+    }).then((data) => {
+      if (!data) return;
+      try {
+        sessionStorage.setItem('kituiVerCheckedAt', String(Date.now()));
+        sessionStorage.setItem('kituiVerData', JSON.stringify(data));
+      } catch (e) {}
+      applyVersionData(data, true);
+    }).catch(() => {});
+  })();
 
   // Shared location helper: uses native Android LocationManager inside APK, falls back to navigator.geolocation
   window.KITUI_GET_CURRENT_LOCATION = function (onSuccess, onError) {
@@ -374,8 +404,8 @@
   }
 
   // 5. Direct Native Android APK "Get the app" card (no Chrome PWA prompt, hidden inside native app or once dismissed)
-  const APK_DOWNLOAD_URL = 'https://github.com/Monte-gg/kitui-farm/releases/download/v1.0.4/kitui-farm-android-v1.0.4.apk';
-  const APK_FILENAME = 'kitui-farm-android-v1.0.4.apk';
+  const APK_DOWNLOAD_URL = 'https://github.com/Monte-gg/kitui-farm/releases/download/v1.0.5/kitui-farm-android-v1.0.5.apk';
+  const APK_FILENAME = 'kitui-farm-android-v1.0.5.apk';
   const APK_HIDDEN_KEY = 'kituiFarmApkHidden';
   const isNativeAndroidApp = /KituiFarmAndroidApp/i.test(navigator.userAgent || '')
     || Boolean(window.KituiAndroid);
@@ -410,12 +440,25 @@
     event.preventDefault();
   });
 
-  // Unregister any old PWA service worker so Chrome does not offer PWA installation
+  // Register Stale-While-Revalidate service worker for instant (0ms) feature-to-feature switching
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistrations().then((regs) => {
-      regs.forEach((reg) => reg.unregister().catch(() => {}));
-    }).catch(() => {});
+    const swUrl = new URL('sw.js', siteRoot).href;
+    navigator.serviceWorker.register(swUrl).catch(() => {});
   }
+
+  // Keep Render backend connection warm when returning to the app from background
+  let lastWarmAt = 0;
+  function warmBackendConnection() {
+    const now = Date.now();
+    if (now - lastWarmAt < 25000) return;
+    lastWarmAt = now;
+    fetch('/api/health', { method: 'GET', cache: 'no-store' }).catch(() => {});
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      warmBackendConnection();
+    }
+  });
 
   function injectAndroidApkCard() {
     if (isNativeAndroidApp) {
