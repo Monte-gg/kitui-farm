@@ -274,7 +274,7 @@
             <div class="form-group">
                 <label for="email">Gmail address</label>
                 <input type="email" id="email" name="email" autocomplete="email" placeholder="you@gmail.com" required>
-                <small class="field-hint">We’ll send a verification link to confirm this inbox before activating your account.</small>
+                <small class="field-hint">We’ll use this Gmail address for account verification, receipts, and password resets.</small>
                 <p class="error-message" id="emailError" aria-live="polite"></p>
             </div>
             <div class="form-group">
@@ -326,7 +326,12 @@
         const signupPhone = document.getElementById('phone');
         const signupPassword = document.getElementById('password');
         const signupStatus = document.getElementById('formStatus');
+        const signupRemember = document.getElementById('remember');
+        const signupSubmitButton = signupForm.querySelector('button[type="submit"]');
+        const defaultSubmitText = signupSubmitButton ? signupSubmitButton.textContent : 'Create Account';
         const resendVerificationButton = document.getElementById('resendVerificationButton');
+        const isApp = /KituiFarmAndroidApp/i.test(navigator.userAgent || '') || Boolean(window.KituiAndroid);
+        if (isApp && signupRemember) signupRemember.checked = true;
 
         function setError(id, message) {
             const element = document.getElementById(id);
@@ -388,8 +393,14 @@
             setError('termsError', acceptedTerms ? '' : 'Please agree to the Terms and Conditions.');
             if (!name || !validEmail || !validPhone || !validPassword || !acceptedTerms) return;
 
+            let redirecting = false;
             try {
+                if (signupSubmitButton) {
+                    signupSubmitButton.disabled = true;
+                    signupSubmitButton.textContent = 'Creating account…';
+                }
                 const email = signupEmail.value.trim().toLowerCase();
+                const keepSignedIn = Boolean((signupRemember && signupRemember.checked) || isApp);
                 const response = await fetch('/api/auth/signup', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -399,7 +410,7 @@
                         phone: '+254' + phone,
                         role: document.querySelector('input[name="accountType"]:checked').value,
                         password: signupPassword.value,
-                        remember: document.getElementById('remember').checked
+                        remember: keepSignedIn
                     })
                 });
                 if (!(response.headers.get('content-type') || '').includes('application/json')) {
@@ -416,7 +427,7 @@
                 if (result.token) {
                     try {
                         sessionStorage.setItem('kituiFarmToken', result.token);
-                        if (document.getElementById('remember').checked) localStorage.setItem('kituiFarmToken', result.token);
+                        if (keepSignedIn) localStorage.setItem('kituiFarmToken', result.token);
                     } catch (error) { /* ignore */ }
                 }
                 const users = JSON.parse(localStorage.getItem('kituiFarmUsers') || '[]');
@@ -431,15 +442,20 @@
                     role: user.role,
                     location: user.location || ''
                 });
-                const remember = document.getElementById('remember').checked;
                 sessionStorage.setItem('kituiFarmSession', session);
-                if (remember) {
+                if (keepSignedIn) {
                     localStorage.setItem('kituiFarmSession', session);
                     localStorage.setItem('kituiFarmRememberedLogin', email);
                 }
+                redirecting = true;
                 window.location.href = user.role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
             } catch (error) {
                 signupStatus.textContent = error.message || 'Account creation failed. Please try again.';
+            } finally {
+                if (!redirecting && signupSubmitButton) {
+                    signupSubmitButton.disabled = false;
+                    signupSubmitButton.textContent = defaultSubmitText;
+                }
             }
         });
 

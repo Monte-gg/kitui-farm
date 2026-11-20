@@ -773,3 +773,223 @@ test('version 4 clean-slate migration wipes users, admins, wallets, orders, chat
         fs.rmSync(tmpDir, { recursive: true, force: true });
     }
 });
+
+// ---------------------------------------------------------------------------
+// Signup email fallback and Gmail OAuth verification
+// ---------------------------------------------------------------------------
+
+const GMAIL_ENV_KEYS = [
+    'GMAIL_USER', 'GMAIL_OAUTH_CLIENT_ID', 'GMAIL_OAUTH_CLIENT_SECRET',
+    'GMAIL_OAUTH_REFRESH_TOKEN', 'REQUIRE_EMAIL_VERIFICATION', 'PUBLIC_APP_URL'
+];
+
+function useGmailEnv(overrides = {}) {
+    const previous = Object.fromEntries(GMAIL_ENV_KEYS.map(key => [key, process.env[key]]));
+    for (const key of GMAIL_ENV_KEYS) delete process.env[key];
+    Object.assign(process.env, overrides);
+    return () => {
+        for (const key of GMAIL_ENV_KEYS) {
+            if (previous[key] === undefined) delete process.env[key];
+            else process.env[key] = previous[key];
+        }
+    };
+}
+
+function stubGmail({ tokenStatus = 200, tokenBody = { access_token: 'gmail-test-token' }, sendStatus = 200, sendBody = { id: 'msg-1' } } = {}) {
+    const realFetch = global.fetch;
+    const calls = [];
+    global.fetch = async (url, options = {}) => {
+        const target = String(url);
+        if (target.startsWith('https://oauth2.googleapis.com/')) {
+            calls.push({ target, body: options.body ? String(options.body) : '' });
+            return jsonResponse(tokenBody, tokenStatus);
+        }
+        if (target.startsWith('https://gmail.googleapis.com/')) {
+            const parsed = options.body ? JSON.parse(options.body) : null;
+            calls.push({ target, body: parsed });
+            return jsonResponse(sendBody, sendStatus);
+        }
+        return realFetch(url, options);
+    };
+    return { calls, restore: () => { global.fetch = realFetch; } };
+}
+
+test('creates user account immediately when Gmail delivery is unconfigured', async () => {
+    const restoreEnv = useGmailEnv();
+    try {
+        const payload = {
+            name: 'Unconfigured Email Buyer',
+            email: 'unconfigured@gmail.com',
+            phone: '+254711111111',
+            role: 'buyer',
+            password: 'StrongPass123',
+            remember: true
+        };
+        const signupRes = await request('/api/auth/signup', { method: 'POST', body: payload });
+        assert.equal(signupRes.status, 201);
+        assert.equal(signupRes.data.emailVerificationSkipped, true);
+        assert.equal(signupRes.data.user.email, 'unconfigured@gmail.com');
+        assert.ok(signupRes.data.token);
+        assert.ok(signupRes.cookie.startsWith('kitui_farm_session='));
+        assert.match(signupRes.headers.get('set-cookie'), /HttpOnly/);
+
+        const pendingCount = await db.get('SELECT COUNT(*) AS count FROM pending_signups');
+        assert.equal(pendingCount.count, 0);
+
+        const me = await request('/api/auth/me', { cookie: signupRes.cookie });
+        assert.equal(me.status, 200);
+        assert.equal(me.data.user.id, signupRes.data.user.id);
+
+        const dupEmail = await request('/api/auth/signup', {
+            method: 'POST',
+            body: { ...payload, phone: '+254711111112' }
+        });
+        assert.equal(dupEmail.status, 409);
+
+        const dupPhone = await request('/api/auth/signup', {
+            method: 'POST',
+            body: { ...payload, email: 'otherbuyer@gmail.com' }
+        });
+        assert.equal(dupPhone.status, 409);
+    } finally { restoreEnv(); }
+});
+
+test('falls back to direct account creation when Gmail OAuth authorization fails', async () => {
+    const restoreEnv = useGmailEnv({
+        GMAIL_USER: 'kituifarm@gmail.com',
+        GMAIL_OAUTH_CLIENT_ID: 'client-id',
+        GMAIL_OAUTH_CLIENT_SECRET: 'client-secret',
+        GMAIL_OAUTH_REFRESH_TOKEN: 'expired-refresh-token',
+        PUBLIC_APP_URL: 'https://monte-gg.github.io/kitui-farm'
+    });
+    const gmail = stubGmail({
+        tokenStatus: 400,
+        tokenBody: { error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }
+    });
+    try {
+        const signupRes = await request('/api/auth/signup', {
+            method: 'POST',
+            body: {
+                name: 'OAuth Fallback Farmer',
+                email: 'oauthfallback@gmail.com',
+                phone: '+254722222222',
+                role: 'farmer',
+                password: 'StrongPass123',
+                remember: true
+            }
+        });
+        assert.equal(signupRes.status, 201);
+        assert.equal(signupRes.data.emailVerificationSkipped, true);
+        assert.equal(signupRes.data.user.role, 'farmer');
+        assert.ok(signupRes.data.token);
+        assert.ok(gmail.calls.some(call => call.target.includes('oauth2.googleapis.com/token')));
+
+        const pendingCount = await db.get('SELECT COUNT(*) AS count FROM pending_signups');
+        assert.equal(pendingCount.count, 0);
+
+        const loginRes = await request('/api/auth/login', {
+            method: 'POST',
+            body: { identifier: 'oauthfallback@gmail.com', password: 'StrongPass123' }
+        });
+        assert.equal(loginRes.status, 200);
+        assert.equal(loginRes.data.user.id, signupRes.data.user.id);
+    } finally {
+        gmail.restore();
+        restoreEnv();
+    }
+});
+
+test('enforces email verification and blocks signup when REQUIRE_EMAIL_VERIFICATION is true', async () => {
+    const restoreEnv = useGmailEnv({
+        GMAIL_USER: 'kituifarm@gmail.com',
+        GMAIL_OAUTH_CLIENT_ID: 'client-id',
+        GMAIL_OAUTH_CLIENT_SECRET: 'client-secret',
+        GMAIL_OAUTH_REFRESH_TOKEN: 'expired-refresh-token',
+        REQUIRE_EMAIL_VERIFICATION: 'true',
+        PUBLIC_APP_URL: 'https://monte-gg.github.io/kitui-farm'
+    });
+    const gmail = stubGmail({
+        tokenStatus: 400,
+        tokenBody: { error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }
+    });
+    try {
+        const signupRes = await request('/api/auth/signup', {
+            method: 'POST',
+            body: {
+                name: 'Strict Mode Buyer',
+                email: 'strictmode@gmail.com',
+                phone: '+254733333333',
+                role: 'buyer',
+                password: 'StrongPass123'
+            }
+        });
+        assert.equal(signupRes.status, 502);
+        assert.match(signupRes.data.error, /Gmail authorization failed/);
+
+        const usersCount = await db.get('SELECT COUNT(*) AS count FROM users WHERE email = ?', ['strictmode@gmail.com']);
+        const pendingCount = await db.get('SELECT COUNT(*) AS count FROM pending_signups');
+        assert.equal(usersCount.count, 0);
+        assert.equal(pendingCount.count, 0);
+    } finally {
+        gmail.restore();
+        restoreEnv();
+    }
+});
+
+test('uses verification link flow and completes signup when Gmail OAuth succeeds', async () => {
+    const restoreEnv = useGmailEnv({
+        GMAIL_USER: 'kituifarm@gmail.com',
+        GMAIL_OAUTH_CLIENT_ID: 'client-id',
+        GMAIL_OAUTH_CLIENT_SECRET: 'client-secret',
+        GMAIL_OAUTH_REFRESH_TOKEN: 'valid-refresh-token',
+        PUBLIC_APP_URL: 'https://monte-gg.github.io/kitui-farm'
+    });
+    const gmail = stubGmail({
+        tokenStatus: 200,
+        tokenBody: { access_token: 'gmail-valid-token' },
+        sendStatus: 200,
+        sendBody: { id: 'msg-verified-1' }
+    });
+    try {
+        const signupRes = await request('/api/auth/signup', {
+            method: 'POST',
+            body: {
+                name: 'Verified Flow Buyer',
+                email: 'verifiedflow@gmail.com',
+                phone: '+254744444444',
+                role: 'buyer',
+                password: 'StrongPass123',
+                remember: true
+            }
+        });
+        assert.equal(signupRes.status, 202);
+        assert.equal(signupRes.data.verificationRequired, true);
+        assert.equal(signupRes.data.email, 'verifiedflow@gmail.com');
+
+        const pendingRow = await db.get('SELECT email FROM pending_signups WHERE email = ?', ['verifiedflow@gmail.com']);
+        assert.equal(pendingRow.email, 'verifiedflow@gmail.com');
+        const userBefore = await db.get('SELECT id FROM users WHERE email = ?', ['verifiedflow@gmail.com']);
+        assert.equal(userBefore, undefined);
+
+        const sendCall = gmail.calls.find(call => call.target.includes('gmail.googleapis.com/gmail/v1/users/me/messages/send'));
+        assert.ok(sendCall?.body?.raw);
+        const rawEmailText = Buffer.from(sendCall.body.raw, 'base64url').toString('utf8');
+        const tokenMatch = rawEmailText.match(/email-verify\.html\?token=([a-f0-9]{64})/i);
+        assert.ok(tokenMatch, 'verification email should include the 64-hex verification token');
+
+        const verifyRes = await request('/api/auth/verify-email', {
+            method: 'POST',
+            body: { token: tokenMatch[1] }
+        });
+        assert.equal(verifyRes.status, 201);
+        assert.equal(verifyRes.data.user.email, 'verifiedflow@gmail.com');
+        assert.ok(verifyRes.data.token);
+        assert.ok(verifyRes.cookie.startsWith('kitui_farm_session='));
+
+        const pendingAfter = await db.get('SELECT COUNT(*) AS count FROM pending_signups');
+        assert.equal(pendingAfter.count, 0);
+    } finally {
+        gmail.restore();
+        restoreEnv();
+    }
+});

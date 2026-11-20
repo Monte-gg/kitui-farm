@@ -951,16 +951,19 @@ async function sendGmailMessage({ email, subject, body, html }) {
                 refresh_token: oauthRefreshToken,
                 grant_type: 'refresh_token'
             }),
-            signal: AbortSignal.timeout(15000)
+            signal: AbortSignal.timeout(8000)
         });
         const tokenPayload = await tokenResponse.json().catch(() => ({}));
         if (!tokenResponse.ok || !tokenPayload.access_token) {
+            const oauthError = typeof tokenPayload.error === 'string' ? tokenPayload.error : 'unknown_error';
             console.error('[signup-email] Gmail OAuth token request failed', {
                 httpStatus: tokenResponse.status,
-                error: typeof tokenPayload.error === 'string' ? tokenPayload.error : 'unknown_error'
+                error: oauthError,
+                errorDescription: typeof tokenPayload.error_description === 'string' ? tokenPayload.error_description : undefined
             });
             const error = new Error('Gmail authorization failed. Check the Gmail API OAuth values in Render.');
             error.status = 502;
+            error.oauthError = oauthError;
             throw error;
         }
         const sendResponse = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
@@ -970,7 +973,7 @@ async function sendGmailMessage({ email, subject, body, html }) {
                 'content-type': 'application/json'
             },
             body: JSON.stringify({ raw: Buffer.from(rawMessage).toString('base64url') }),
-            signal: AbortSignal.timeout(20000)
+            signal: AbortSignal.timeout(10000)
         });
         if (!sendResponse.ok) {
             const sendPayload = await sendResponse.json().catch(() => ({}));
@@ -1668,7 +1671,7 @@ function createApp(options = {}) {
         const now = Date.now();
         const attempt = signupAttempts.get(req.ip) || { count: 0, resetAt: now + 15 * 60 * 1000 };
         if (attempt.resetAt <= now) { attempt.count = 0; attempt.resetAt = now + 15 * 60 * 1000; }
-        if (attempt.count >= 5) return res.status(429).json({ error: 'Too many verification emails requested. Try again in 15 minutes.' });
+        if (attempt.count >= 5) return res.status(429).json({ error: 'Too many sign-up attempts. Try again in 15 minutes.' });
         attempt.count++;
         signupAttempts.set(req.ip, attempt);
         try {
@@ -1697,11 +1700,32 @@ function createApp(options = {}) {
                 await sendSignupVerification({ email, name, token: rawToken, baseUrl: appBaseUrl(req) });
             } catch (error) {
                 await store.run('DELETE FROM pending_signups WHERE email = ? AND token_hash = ?', [email, tokenHash]);
-                throw error;
+                const requireEmailVerification = String(process.env.REQUIRE_EMAIL_VERIFICATION || '').trim().toLowerCase() === 'true';
+                const emailUnavailable = error.status === 502 || error.status === 503;
+                if (!emailUnavailable || requireEmailVerification) {
+                    throw error;
+                }
+                console.warn('[signup-email] Verification email unavailable; creating account directly', {
+                    status: error.status,
+                    oauthError: error.oauthError || undefined
+                });
+                const id = crypto.randomUUID();
+                await store.run(`
+                    INSERT INTO users (id, name, email, phone, role, password_salt, password_hash, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                `, [id, name, email, phone, accountRole, salt.toString('hex'), passwordHash.toString('hex'), createdAt]);
+                const user = await store.get('SELECT * FROM users WHERE id = ?', [id]);
+                const sessionToken = await createSession(user, res, Boolean(req.body.remember));
+                return res.status(201).json({
+                    user: publicUser(user),
+                    token: sessionToken,
+                    remember: Boolean(req.body.remember),
+                    emailVerificationSkipped: true
+                });
             }
             res.status(202).json({ verificationRequired: true, email });
         } catch (error) {
-            if (error.errcode === 2067) {
+            if (error.errcode === 2067 || error.code === '23505') {
                 return res.status(409).json({ error: 'An account already exists with this email or phone number.' });
             }
             if (error.status) return res.status(error.status).json({ error: error.message });
@@ -1771,7 +1795,7 @@ function createApp(options = {}) {
             }
             res.status(201).json({ user: publicUser(user), token: sessionToken, remember: Boolean(pending.remember) });
         } catch (error) {
-            if (error.errcode === 2067) return res.status(409).json({ error: 'An account already exists with this email or phone number. Please sign in.' });
+            if (error.errcode === 2067 || error.code === '23505') return res.status(409).json({ error: 'An account already exists with this email or phone number. Please sign in.' });
             if (error.status) return res.status(error.status).json({ error: error.message });
             next(error);
         }
