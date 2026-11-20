@@ -1,8 +1,10 @@
 (function () {
   'use strict';
 
+  if (/KituiFarmAndroidApp/i.test(navigator.userAgent || '') || window.KituiAndroid) return;
+
   var VERSION_KEY = 'kituiFarmSiteVersion';
-  var CHECK_INTERVAL_MS = 15 * 1000;
+  var CHECK_INTERVAL_MS = 120 * 1000;
   var latestVersion = '';
   var baselineVersion = '';
   var banner = null;

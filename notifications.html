@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script src="api-base.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <script src="theme-init.js?v=2"></script>
+    <meta name="theme-color" content="#08723d">
+    <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
+    <title>Notifications · KITUI FARM</title>
+    <script>
+        const notifSession = (() => {
+            try {
+                let raw = sessionStorage.getItem('kituiFarmSession');
+                if (!raw) {
+                    raw = localStorage.getItem('kituiFarmSession') || 'null';
+                    if (raw && raw !== 'null') sessionStorage.setItem('kituiFarmSession', raw);
+                }
+                const session = JSON.parse(raw || 'null');
+                return session && session.userId && ['buyer', 'farmer'].includes(session.role) ? session : null;
+            } catch {
+                return null;
+            }
+        })();
+        if (!notifSession) window.location.replace('login.html?next=notifications.html');
+    </script>
+    <style>
+        :root {
+            --green: #08723d; --green-dark: #17472c; --green-light: #e5f0d8;
+            --ink: #342718; --muted: #6d776c; --line: #e5dcc6; --surface: #fffdf7;
+            --bg: #fbf8ed; --accent-orange: #d77b20;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+        :root[data-theme="dark"] {
+            --green: #63b67f; --green-dark: #d5ead6; --green-light: #293d2e;
+            --ink: #f1eddf; --muted: #b5b29f; --line: #3d493c; --surface: #202820;
+            --bg: #171e19; --accent-orange: #f0a34b;
+        }
+        * { box-sizing: border-box; }
+        [hidden] { display: none !important; }
+        body { margin: 0; min-height: 100vh; background: var(--bg); color: var(--ink); }
+        button { font: inherit; }
+        .topbar { background: var(--surface); border-bottom: 1px solid var(--line); }
+        .topbar-inner, main { width: min(1380px, calc(100% - 48px)); margin: auto; }
+        .topbar-inner { min-height: 74px; display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+        .brand { display: flex; align-items: center; gap: 11px; text-decoration: none; color: var(--green-dark); font-weight: 800; }
+        .brand-mark { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--green-light); font-size: 22px; }
+        .button { display: inline-flex; align-items: center; justify-content: center; min-height: 42px; padding: 9px 16px; border: 1px solid transparent; border-radius: 11px; background: var(--green); color: #fff; font-weight: 700; text-decoration: none; cursor: pointer; }
+        .button.secondary { border-color: var(--line); background: var(--surface); color: var(--ink); }
+        main { padding: 34px 0 70px; }
+        .eyebrow { margin: 0 0 8px; color: var(--accent-orange); font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+        .page-head { display: flex; align-items: flex-end; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin-bottom: 22px; }
+        .page-head h1 { margin: 0 0 6px; color: var(--green-dark); font-size: clamp(26px, 4vw, 36px); }
+        .intro { margin: 0; color: var(--muted); line-height: 1.5; }
+        .head-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+
+        .push-banner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 14px;
+            margin-bottom: 20px;
+            padding: 16px 20px;
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            background: var(--green-light);
+            color: var(--green-dark);
+        }
+        .push-banner strong { display: block; font-size: 15px; margin-bottom: 2px; }
+        .push-banner span { font-size: 13.5px; color: var(--muted); }
+
+        .filter-bar {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 9px;
+            margin-bottom: 18px;
+        }
+        .filter-pill {
+            min-height: 40px;
+            padding: 8px 16px;
+            border: 1px solid var(--line);
+            border-radius: 999px;
+            background: var(--surface);
+            color: var(--ink);
+            font-size: 13.5px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: .16s ease;
+        }
+        .filter-pill.active, .filter-pill:hover {
+            border-color: var(--green);
+            background: var(--green);
+            color: #fff;
+        }
+        :root[data-theme="dark"] .filter-pill.active { color: #0e1a12; }
+
+        .notif-card {
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            background: var(--surface);
+        }
+        .notif-stream {
+            display: grid;
+        }
+        .notif-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 15px;
+            padding: 18px 22px;
+            border-bottom: 1px solid var(--line);
+            color: var(--ink) !important;
+            text-decoration: none !important;
+            transition: background-color 0.16s ease;
+        }
+        .notif-row:last-child { border-bottom: 0; }
+        .notif-row:hover {
+            background: color-mix(in srgb, var(--green-light) 48%, var(--surface));
+        }
+        .notif-row.unread {
+            background: color-mix(in srgb, var(--green-light) 32%, var(--surface));
+            box-shadow: inset 4px 0 0 var(--green);
+        }
+        .notif-icon {
+            display: grid;
+            place-items: center;
+            width: 44px;
+            height: 44px;
+            flex: 0 0 44px;
+            border-radius: 12px;
+            background: var(--green-light);
+            font-size: 20px;
+        }
+        .notif-content {
+            flex: 1;
+            min-width: 0;
+        }
+        .notif-top {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 6px 14px;
+        }
+        .notif-top strong {
+            color: var(--green-dark);
+            font-size: 15.5px;
+        }
+        .notif-top time {
+            color: var(--muted);
+            font-size: 12.5px;
+            white-space: nowrap;
+        }
+        .notif-body {
+            margin: 5px 0 0;
+            color: var(--ink);
+            font-size: 14px;
+            line-height: 1.45;
+        }
+        .notif-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 8px;
+            padding: 3px 10px;
+            border-radius: 999px;
+            background: var(--bg);
+            border: 1px solid var(--line);
+            color: var(--muted);
+            font-size: 11.5px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+        .notif-dot {
+            width: 10px;
+            height: 10px;
+            flex: 0 0 10px;
+            margin-top: 8px;
+            border-radius: 50%;
+            background: var(--accent-orange);
+        }
+        .empty-box {
+            padding: 48px 24px;
+            text-align: center;
+            color: var(--muted);
+        }
+        .empty-box strong {
+            display: block;
+            margin-bottom: 6px;
+            color: var(--green-dark);
+            font-size: 17px;
+        }
+        @media (max-width: 640px) {
+            .notif-row { padding: 15px 16px; gap: 12px; }
+            .notif-icon { width: 40px; height: 40px; flex-basis: 40px; font-size: 18px; }
+        }
+    </style>
+    <script src="site-only.js?v=2" defer></script>
+    <script defer src="update-notification.js?v=5"></script>
+    <link rel="stylesheet" href="subpage-nav.css?v=4">
+    <script defer src="subpage-nav.js?v=4"></script>
+    <link rel="stylesheet" href="brand-theme.css?v=4" data-brand-theme>
+    <script src="brand.js?v=5" defer></script>
+    <link rel="stylesheet" href="mobile-layout.css?v=2">
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <a class="brand" id="brandLink" href="buyer-dashboard.html"><span class="brand-mark" aria-hidden="true">🌱</span><strong>KITUI FARM</strong></a>
+        </div>
+    </header>
+    <main>
+        <p class="eyebrow">Activity Center</p>
+        <div class="page-head">
+            <div>
+                <h1>Notifications</h1>
+                <p class="intro">Stay up to date on your chat messages, order deliveries, and M-Pesa wallet activity.</p>
+            </div>
+            <div class="head-actions">
+                <button type="button" class="button secondary" id="refreshNotifsBtn">Refresh</button>
+                <button type="button" class="button primary" id="markAllReadBtn">Mark all as read</button>
+            </div>
+        </div>
+
+        <section class="push-banner" id="pushBanner" hidden>
+            <div>
+                <strong>Phone &amp; browser alerts</strong>
+                <span>Receive instant notifications on your screen when a farmer or buyer messages you or your order updates.</span>
+            </div>
+            <button type="button" class="button primary" id="enableAlertsBtn">Enable phone alerts</button>
+        </section>
+
+        <div class="filter-bar" role="tablist" aria-label="Filter notifications">
+            <button type="button" class="filter-pill active" data-filter="all">All activity</button>
+            <button type="button" class="filter-pill" data-filter="unread">Unread</button>
+            <button type="button" class="filter-pill" data-filter="chat">Messages</button>
+            <button type="button" class="filter-pill" data-filter="order">Orders &amp; Delivery</button>
+            <button type="button" class="filter-pill" data-filter="wallet">Wallet</button>
+        </div>
+
+        <section class="notif-card" aria-live="polite">
+            <div class="notif-stream" id="notifStream">
+                <div class="empty-box">
+                    <strong>Loading your notifications…</strong>
+                    <span>Checking recent messages, orders, and wallet transactions.</span>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        (function () {
+            const userId = notifSession.userId;
+            const role = notifSession.role === 'farmer' ? 'farmer' : 'buyer';
+            const SEEN_KEY = `kituiFarmNotifSeen_${userId}`;
+            const CACHE_KEY = `kituiFarmNotifItems_${userId}`;
+            document.getElementById('brandLink').href = role === 'farmer' ? 'farmer-dashboard.html' : 'buyer-dashboard.html';
+
+            const streamNode = document.getElementById('notifStream');
+            const pushBanner = document.getElementById('pushBanner');
+            const enableAlertsBtn = document.getElementById('enableAlertsBtn');
+            let allItems = [];
+            let currentFilter = 'all';
+
+            function readJson(key, fallback) {
+                try { return JSON.parse(localStorage.getItem(key) || 'null') || fallback; }
+                catch { return fallback; }
+            }
+            function writeJson(key, val) {
+                try { localStorage.setItem(key, JSON.stringify(val)); } catch {}
+            }
+            function escapeHtml(value) {
+                return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+            }
+            function formatTime(iso) {
+                if (!iso) return 'Recently';
+                const d = new Date(iso);
+                if (Number.isNaN(d.getTime())) return 'Recently';
+                return d.toLocaleString('en-KE', { dateStyle: 'medium', timeStyle: 'short' });
+            }
+
+            function updatePushBanner() {
+                if (window.KituiAndroid && typeof window.KituiAndroid.hasNotificationPermission === 'function') {
+                    pushBanner.hidden = Boolean(window.KituiAndroid.hasNotificationPermission());
+                    return;
+                }
+                if (!('Notification' in window)) { pushBanner.hidden = true; return; }
+                pushBanner.hidden = Notification.permission !== 'default';
+            }
+            updatePushBanner();
+
+            enableAlertsBtn.addEventListener('click', async () => {
+                if (window.KituiAndroid && typeof window.KituiAndroid.requestAppPermissions === 'function') {
+                    window.KituiAndroid.requestAppPermissions();
+                    window.setTimeout(updatePushBanner, 1200);
+                    return;
+                }
+                if (!('Notification' in window)) return;
+                try {
+                    const perm = await Notification.requestPermission();
+                    if (perm === 'granted') {
+                        new Notification('KITUI FARM alerts enabled', {
+                            body: 'You will now receive instant notifications for messages, orders, and wallet activity.'
+                        });
+                    }
+                } catch {}
+                updatePushBanner();
+            });
+
+            function renderStream() {
+                const seenMap = readJson(SEEN_KEY, {});
+                const filtered = allItems.filter((item) => {
+                    if (currentFilter === 'unread') return !seenMap[item.key];
+                    if (currentFilter === 'all') return true;
+                    return item.category === currentFilter;
+                });
+
+                const badge = document.querySelector('#kfAppBellBadge, .kf-notif-badge');
+                const unreadCount = allItems.filter((item) => !seenMap[item.key]).length;
+                if (badge) {
+                    badge.hidden = unreadCount === 0;
+                    badge.textContent = unreadCount > 99 ? '99+' : String(unreadCount);
+                }
+                if (typeof window.__kituiSyncNotifBadges === 'function') {
+                    window.__kituiSyncNotifBadges();
+                }
+
+                if (!filtered.length) {
+                    streamNode.innerHTML = `
+                        <div class="empty-box">
+                            <strong>No notifications in this view</strong>
+                            <span>New chat messages, order status updates, and M-Pesa wallet activity will appear here automatically.</span>
+                        </div>
+                    `;
+                    return;
+                }
+
+                streamNode.innerHTML = filtered.map((item) => {
+                    const isUnread = !seenMap[item.key];
+                    return `
+                        <a href="${escapeHtml(item.href)}" class="notif-row ${isUnread ? 'unread' : ''}" data-notif-key="${escapeHtml(item.key)}">
+                            <span class="notif-icon" aria-hidden="true">${item.icon}</span>
+                            <div class="notif-content">
+                                <div class="notif-top">
+                                    <strong>${escapeHtml(item.title)}</strong>
+                                    <time>${escapeHtml(formatTime(item.time))}</time>
+                                </div>
+                                <p class="notif-body">${escapeHtml(item.body)}</p>
+                                <span class="notif-tag">${escapeHtml(item.categoryLabel)}</span>
+                            </div>
+                            ${isUnread ? '<span class="notif-dot" aria-label="Unread notification"></span>' : ''}
+                        </a>
+                    `;
+                }).join('');
+            }
+
+            streamNode.addEventListener('click', (event) => {
+                const row = event.target.closest('[data-notif-key]');
+                if (!row) return;
+                const seenMap = readJson(SEEN_KEY, {});
+                seenMap[row.dataset.notifKey] = true;
+                writeJson(SEEN_KEY, seenMap);
+            });
+
+            document.getElementById('markAllReadBtn').addEventListener('click', () => {
+                const seenMap = readJson(SEEN_KEY, {});
+                allItems.forEach((item) => { seenMap[item.key] = true; });
+                writeJson(SEEN_KEY, seenMap);
+                renderStream();
+            });
+
+            document.querySelector('.filter-bar').addEventListener('click', (event) => {
+                const btn = event.target.closest('[data-filter]');
+                if (!btn) return;
+                currentFilter = btn.dataset.filter;
+                document.querySelectorAll('.filter-pill').forEach((pill) => pill.classList.toggle('active', pill === btn));
+                renderStream();
+            });
+
+            async function loadNotifications() {
+                const cached = readJson(CACHE_KEY, null);
+                if (Array.isArray(cached) && cached.length && !allItems.length) {
+                    allItems = cached;
+                    renderStream();
+                }
+
+                const ordersEndpoint = role === 'farmer' ? '/api/orders' : '/api/orders/purchases';
+                const [chatRes, ordersRes, walletRes] = await Promise.all([
+                    fetch('/api/chat/conversations').then((r) => (r.ok ? r.json() : { conversations: [] })).catch(() => ({ conversations: [] })),
+                    fetch(ordersEndpoint).then((r) => (r.ok ? r.json() : { orders: [] })).catch(() => ({ orders: [] })),
+                    fetch('/api/wallet').then((r) => (r.ok ? r.json() : { transactions: [] })).catch(() => ({ transactions: [] }))
+                ]);
+
+                const items = [];
+                for (const conv of chatRes.conversations || []) {
+                    const unread = Number(conv.unreadCount) || 0;
+                    const key = `chat:${conv.id}:${conv.updatedAt}:${unread}`;
+                    items.push({
+                        key,
+                        category: 'chat',
+                        categoryLabel: unread > 0 ? `Chat · ${unread} unread` : 'Chat message',
+                        icon: '💬',
+                        title: unread > 0
+                            ? `${unread} unread message${unread === 1 ? '' : 's'} from ${conv.peerName}`
+                            : `Conversation with ${conv.peerName}`,
+                        body: conv.lastMessage || `Regarding ${conv.listingName || 'farm produce'}`,
+                        time: conv.updatedAt,
+                        href: 'chat.html'
+                    });
+                }
+
+                const ordersList = (ordersRes.orders && ordersRes.orders.length)
+                    ? ordersRes.orders
+                    : readJson('kituiFarmOrders', []).filter((o) => role === 'farmer' || o.buyerId === userId);
+
+                for (const order of ordersList.slice(0, 20)) {
+                    const latestUpdate = Array.isArray(order.deliveryUpdates) && order.deliveryUpdates.length
+                        ? order.deliveryUpdates[order.deliveryUpdates.length - 1]
+                        : null;
+                    const time = (latestUpdate && latestUpdate.createdAt) || order.createdAt;
+                    const status = order.status || 'Processing';
+                    const key = `order:${order.id}:${status}:${order.returnRequest ? order.returnRequest.status : ''}`;
+                    const productNames = Array.isArray(order.items) ? order.items.map((i) => i.name).join(', ') : 'Order';
+                    items.push({
+                        key,
+                        category: 'order',
+                        categoryLabel: `Order · ${status}`,
+                        icon: ['Delivered', 'Completed'].includes(status) ? '✅' : '📦',
+                        title: role === 'farmer' ? `Order ${order.id} · ${status}` : `Order ${order.id} is ${status}`,
+                        body: latestUpdate && latestUpdate.note
+                            ? `${productNames} — ${latestUpdate.note}`
+                            : `${productNames} · KES ${Number(order.total || 0).toLocaleString('en-KE')}`,
+                        time,
+                        href: role === 'farmer' ? 'farmer-dashboard.html#orders' : 'buyer-dashboard.html#orders'
+                    });
+                }
+
+                for (const tx of (walletRes.transactions || []).slice(0, 15)) {
+                    const key = `wallet:${tx.id}:${tx.status}`;
+                    const sign = tx.direction === 'credit' ? '+' : '−';
+                    items.push({
+                        key,
+                        category: 'wallet',
+                        categoryLabel: `Wallet · ${tx.status || 'completed'}`,
+                        icon: tx.direction === 'credit' ? '💰' : '💳',
+                        title: `Wallet ${tx.type}: ${sign}KES ${Number(tx.amount || 0).toLocaleString('en-KE')}`,
+                        body: tx.description || 'KITUI FARM Wallet transaction',
+                        time: tx.createdAt,
+                        href: 'wallet.html'
+                    });
+                }
+
+                items.sort((a, b) => new Date(b.time || 0) - new Date(a.time || 0));
+                allItems = items;
+                writeJson(CACHE_KEY, items);
+                renderStream();
+            }
+
+            document.getElementById('refreshNotifsBtn').addEventListener('click', loadNotifications);
+            loadNotifications();
+        })();
+    </script>
+</body>
+</html>

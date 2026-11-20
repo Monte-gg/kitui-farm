@@ -12,19 +12,19 @@ const COOKIE = 'kitui_farm_session';
 // Static front ends (for example GitHub Pages) are allowed to call this API.
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://monte-gg.github.io')
     .split(',').map(origin => origin.trim()).filter(Boolean);
-const SESSION_MS = 30 * 24 * 60 * 60 * 1000;
+const SESSION_MS = 180 * 24 * 60 * 60 * 1000;
 const DEFAULT_SETTINGS = { theme: 'system', density: 'comfortable', confirmDeletes: true };
 const CATEGORIES = new Set(['Fruits', 'Vegetables', 'Grains & Pulses', 'Roots & Tubers']);
 const PAYMENT_METHODS = new Set([
     'KITUI FARM Wallet'
 ]);
 const STATIC_ASSETS = [
-    'api-base.js', 'brand-theme.css', 'brand.js', 'mobile-layout.css',
-    'site-only.js', 'subpage-nav.css', 'subpage-nav.js', 'theme-init.js', 'update-notification.js'
+    'api-base.js', 'app-layout.css', 'app-shell.js', 'brand-theme.css', 'brand.js', 'mobile-layout.css',
+    'site-only.js', 'subpage-nav.css', 'subpage-nav.js', 'sw.js', 'theme-init.js', 'update-notification.js'
 ];
 const PAGES = [
     'about-us.html', 'admin-register.html', 'admin-signin.html', 'buyer-dashboard.html', 'chat.html', 'customer-service.html', 'email-verify.html', 'farmer-dashboard.html', 'farmer-store.html',
-    'forgot-password.html', 'index.html', 'login.html', 'payment.html', 'profile.html', 'receipt.html', 'receipts.html',
+    'forgot-password.html', 'index.html', 'login.html', 'notifications.html', 'payment.html', 'profile.html', 'receipt.html', 'receipts.html',
     'settings.html', 'signup.html', 'wallet.html'
 ];
 

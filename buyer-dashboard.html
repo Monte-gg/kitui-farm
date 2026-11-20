@@ -3,8 +3,8 @@
 <head>
     <script src="api-base.js"></script>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="theme-init.js?v=1"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <script src="theme-init.js?v=2"></script>
 
     <meta name="theme-color" content="#08723d">
     <title>Marketplace - KITUI FARM</title>
@@ -237,11 +237,11 @@
             .more-toggle { width: 40px; height: 40px; }
         }
 </style>
-    <script src="site-only.js" defer></script>
-    <script defer src="update-notification.js?v=4"></script>
+    <script src="site-only.js?v=2" defer></script>
+    <script defer src="update-notification.js?v=5"></script>
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
     <link rel="stylesheet" href="brand-theme.css?v=5" data-brand-theme>
-    <script src="brand.js?v=4" defer></script>
+    <script src="brand.js?v=5" defer></script>
     <link rel="stylesheet" href="mobile-layout.css?v=2">
 </head>
 <body>
@@ -776,7 +776,7 @@
             setCartOpen(false);
         });
         cartMenu.addEventListener('focusout', event => {
-            if (!cartMenu.contains(event.relatedTarget)) setCartOpen(false);
+            if (event.relatedTarget && !cartMenu.contains(event.relatedTarget)) setCartOpen(false);
         });
         cartToggle.addEventListener('click', () => setCartOpen(cartPanel.hidden));
         cartMenu.addEventListener('keydown', event => {
@@ -798,7 +798,7 @@
         };
         moreToggle.addEventListener('click', () => setMoreOpen(morePanel.hidden));
         moreMenu.addEventListener('focusout', event => {
-            if (!moreMenu.contains(event.relatedTarget)) setMoreOpen(false);
+            if (event.relatedTarget && !moreMenu.contains(event.relatedTarget)) setMoreOpen(false);
         });
         moreMenu.addEventListener('keydown', event => {
             if (event.key === 'Escape' && !morePanel.hidden) {
@@ -857,12 +857,13 @@
                 return;
             }
             sessionStorage.removeItem('kituiFarmSession');
+            sessionStorage.removeItem('kituiFarmToken');
             const rememberedSession = JSON.parse(localStorage.getItem('kituiFarmSession') || 'null');
             if (rememberedSession?.userId === buyer.userId) {
                 localStorage.removeItem('kituiFarmSession');
                 localStorage.removeItem('kituiFarmToken');
             }
-            window.location.replace('login.html');
+            window.location.replace('login.html?loggedOut=1');
         });
         window.addEventListener('storage', event => {
             if (event.key === `kituiFarmSettings_${buyer.userId}`) {

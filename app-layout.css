@@ -1,0 +1,856 @@
+/* =========================================================================
+   KITUI FARM — Dedicated Android APK Layout (html.kf-app)
+   Loaded ONLY inside the KITUI FARM Android APK (KituiFarmAndroidApp).
+   Website browsers never load or apply any styles in this file.
+   ========================================================================= */
+
+/* 1. Fast, smooth viewport & touch foundations */
+html.kf-app,
+html.kf-app body {
+  min-height: 100dvh !important;
+  overflow-x: clip !important;
+  background-image: none !important;
+  -webkit-overflow-scrolling: touch;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* Smooth lightweight section settle on navigation (GPU opacity only) */
+html.kf-app main {
+  animation: kfAppFadeIn 0.12s ease-out;
+}
+@keyframes kfAppFadeIn {
+  from { opacity: 0.9; }
+  to { opacity: 1; }
+}
+
+/* 2. Uniform 56px Top App Bar across EVERY page (dashboards & subpages identical) */
+html.kf-app .topbar,
+html.kf-app header,
+html.kf-app header.top,
+html.kf-app header.kf-subpage-header {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 1001 !important;
+  width: 100% !important;
+  min-height: calc(56px + env(safe-area-inset-top, 0px)) !important;
+  padding: env(safe-area-inset-top, 0px) 0 0 !important;
+  margin: 0 !important;
+  background: var(--surface, #fffdf7) !important;
+  border-bottom: 1px solid var(--line, #e5dcc6) !important;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.06) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.kf-app .topbar-inner,
+html.kf-app .bar,
+html.kf-app header.kf-subpage-header .topbar-inner,
+html.kf-app header.kf-subpage-header .bar {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: 56px !important;
+  min-height: 56px !important;
+  max-height: 56px !important;
+  padding: 0 12px !important;
+  margin: 0 !important;
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+}
+
+html.kf-app header.top {
+  width: 100% !important;
+  max-width: 100% !important;
+  height: calc(56px + env(safe-area-inset-top, 0px)) !important;
+  min-height: calc(56px + env(safe-area-inset-top, 0px)) !important;
+  max-height: none !important;
+  padding: env(safe-area-inset-top, 0px) 12px 0 !important;
+  margin: 0 !important;
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+}
+
+/* Hide legacy desktop nav links & unmigrated buttons inside app top bar */
+html.kf-app header nav.nav,
+html.kf-app header .nav-links,
+html.kf-app header .kf-legacy-controls,
+html.kf-app header .menu-toggle,
+html.kf-app header .hamburger,
+html.kf-app header.top > a.button {
+  display: none !important;
+}
+
+/* Compact Back icon on deep detail pages only */
+html.kf-app .kf-back-button {
+  display: none !important;
+}
+html.kf-app.kf-app-show-back .kf-back-button {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 38px !important;
+  height: 38px !important;
+  min-width: 38px !important;
+  min-height: 38px !important;
+  padding: 0 !important;
+  margin: 0 2px 0 0 !important;
+  border-radius: 11px !important;
+  border: 1px solid var(--line, #e5dcc6) !important;
+  background: transparent !important;
+  color: var(--ink, #342718) !important;
+  flex: 0 0 38px !important;
+}
+html.kf-app .kf-back-button span {
+  display: none !important;
+}
+html.kf-app .kf-back-button svg {
+  width: 19px !important;
+  height: 19px !important;
+}
+
+/* Crisp Brand Emblem + Single-line "KITUI FARM" Title */
+html.kf-app .brand,
+html.kf-app .brand.kitui-brand {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  margin: 0 auto 0 0 !important;
+  padding: 4px 2px !important;
+  text-decoration: none !important;
+  cursor: pointer;
+}
+html.kf-app .brand img,
+html.kf-app .kitui-brand-icon,
+html.kf-app .brand-mark.kitui-brand-icon {
+  width: 30px !important;
+  height: 30px !important;
+  flex: 0 0 30px !important;
+  border-radius: 8px !important;
+  object-fit: cover !important;
+}
+html.kf-app .kf-app-brand-title {
+  display: block;
+  font-size: 15.5px;
+  font-weight: 850;
+  letter-spacing: 0.015em;
+  color: var(--green-dark, #17472c);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Uniform Right Action Buttons (Home, Cart, Bell, Menu) */
+html.kf-app .header-actions,
+html.kf-app .kf-app-header-actions {
+  width: auto !important;
+  flex: 0 0 auto !important;
+  display: inline-flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 6px !important;
+  margin-left: auto !important;
+}
+html.kf-app .kf-menu-wrap {
+  margin-left: 0 !important;
+  flex: 0 0 auto !important;
+}
+
+html.kf-app .kf-app-icon-btn,
+html.kf-app .more-toggle,
+html.kf-app .kf-menu-button,
+html.kf-app .cart-button {
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 38px !important;
+  height: 38px !important;
+  min-width: 38px !important;
+  min-height: 38px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border-radius: 11px !important;
+  border: 1px solid var(--line, #e5dcc6) !important;
+  background: var(--surface, #fffdf7) !important;
+  color: var(--ink, #342718) !important;
+  font-size: 18px !important;
+  line-height: 1 !important;
+  text-decoration: none !important;
+  cursor: pointer;
+  flex: 0 0 38px !important;
+  transition: transform 0.1s ease, background-color 0.12s ease, border-color 0.12s ease;
+}
+html.kf-app .kf-app-icon-btn svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+html.kf-app .kf-app-icon-btn:active,
+html.kf-app .more-toggle:active,
+html.kf-app .kf-menu-button:active,
+html.kf-app .cart-button:active {
+  transform: scale(0.94);
+  background: var(--green-light, #e5f0d8) !important;
+}
+html.kf-app .kf-app-icon-btn.is-active {
+  background: var(--green-light, #e5f0d8) !important;
+  color: var(--green, #08723d) !important;
+  border-color: var(--green, #08723d) !important;
+}
+html.kf-app .cart-count,
+html.kf-app .kf-app-badge {
+  position: absolute !important;
+  top: -5px !important;
+  right: -5px !important;
+  display: grid !important;
+  place-items: center !important;
+  min-width: 18px !important;
+  height: 18px !important;
+  padding: 0 4px !important;
+  border: 2px solid var(--surface, #fffdf7) !important;
+  border-radius: 999px !important;
+  background: var(--accent-orange, #d77b20) !important;
+  color: #fff !important;
+  font-size: 10px !important;
+  font-weight: 800 !important;
+  line-height: 1 !important;
+}
+html.kf-app .kf-app-badge[hidden] {
+  display: none !important;
+}
+
+/* 3. Spacious Main Content Area (matches bottom nav height + safe area) */
+html.kf-app main:not(.container):not(.card):not(.auth-card),
+html.kf-app main.page {
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 !important;
+  padding: 14px 14px 28px !important;
+}
+html.kf-app.kf-has-bottom-bar main:not(.container):not(.card):not(.auth-card),
+html.kf-app.kf-has-bottom-bar main.page {
+  padding: 14px 14px calc(86px + env(safe-area-inset-bottom, 0px)) !important;
+}
+html.kf-app main.container,
+html.kf-app main.card,
+html.kf-app main.auth-card {
+  width: calc(100% - 24px) !important;
+  max-width: 440px !important;
+  margin: 20px auto !important;
+  padding: 22px 18px !important;
+  border-radius: 18px !important;
+}
+
+/* Consistent typography spacing */
+html.kf-app h1 {
+  font-size: 22px !important;
+  line-height: 1.22 !important;
+  margin: 0 0 6px !important;
+}
+html.kf-app h2 {
+  font-size: 17px !important;
+  line-height: 1.28 !important;
+}
+html.kf-app .intro,
+html.kf-app .subheading {
+  font-size: 13.5px !important;
+  line-height: 1.45 !important;
+  margin-bottom: 12px !important;
+}
+
+/* 4. Dashboard Search Slot & Fast-Access Quick Shortcuts Strip */
+html.kf-app .topbar .header-search,
+html.kf-app header .header-search {
+  display: none !important;
+}
+html.kf-app .kf-app-search-slot {
+  margin: 0 0 12px;
+}
+html.kf-app .kf-app-search-slot .search-box {
+  width: 100% !important;
+  max-width: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 4px 5px 4px 12px !important;
+  border-radius: 14px !important;
+  border: 1px solid var(--line, #e5dcc6) !important;
+  background: var(--surface, #fffdf7) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04) !important;
+}
+html.kf-app .kf-app-search-slot .search-box input {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  min-height: 38px !important;
+  padding: 6px 4px !important;
+  border: 0 !important;
+  background: transparent !important;
+  font-size: 15px !important;
+}
+html.kf-app .kf-app-search-slot .search-box .button {
+  min-height: 38px !important;
+  padding: 7px 14px !important;
+  border-radius: 10px !important;
+  font-size: 13.5px !important;
+  flex: 0 0 auto !important;
+}
+
+html.kf-app .kf-quick-strip {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  margin: 0 -2px 14px;
+  padding: 2px;
+}
+html.kf-app .kf-quick-strip::-webkit-scrollbar {
+  display: none;
+}
+html.kf-app .kf-quick-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 7px 12px;
+  border: 1px solid var(--line, #e5dcc6);
+  border-radius: 999px;
+  background: var(--surface, #fffdf7);
+  color: var(--ink, #342718) !important;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none !important;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.1s ease, background-color 0.12s ease, border-color 0.12s ease;
+}
+html.kf-app .kf-quick-chip svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: var(--green, #08723d);
+  stroke-width: 2.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  flex: 0 0 15px;
+}
+html.kf-app .kf-quick-chip:active {
+  transform: scale(0.96);
+  background: var(--green-light, #e5f0d8);
+  border-color: var(--green, #08723d);
+}
+html.kf-app .kf-quick-chip.is-primary {
+  background: var(--green-light, #e5f0d8);
+  border-color: color-mix(in srgb, var(--green, #08723d) 35%, var(--line, #e5dcc6));
+  color: var(--green-dark, #17472c) !important;
+}
+
+/* 5. Clean Content Flow, Good Spacing & Strict Anti-Overflow */
+html.kf-app .hero,
+html.kf-app .welcome {
+  padding: 16px !important;
+  margin-bottom: 14px !important;
+  border-radius: 16px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04) !important;
+}
+html.kf-app .card,
+html.kf-app .panel,
+html.kf-app .metric,
+html.kf-app .product-card,
+html.kf-app .receipt-card,
+html.kf-app .contact,
+html.kf-app .welcome-panel,
+html.kf-app .notif-card {
+  max-width: 100% !important;
+  overflow: hidden !important;
+  border-radius: 16px !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
+  transform: none !important;
+  transition: none !important;
+}
+html.kf-app .panel {
+  margin-bottom: 14px !important;
+}
+html.kf-app .panel-header {
+  gap: 10px !important;
+  padding-bottom: 12px !important;
+}
+
+/* Prevent any long words, amounts, phones, or error strings from spilling outside cards */
+html.kf-app .card p,
+html.kf-app .card small,
+html.kf-app .card span,
+html.kf-app .card li,
+html.kf-app .panel p,
+html.kf-app .panel small,
+html.kf-app .panel li,
+html.kf-app .entry,
+html.kf-app .notice {
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+}
+
+/* Clean category chips */
+html.kf-app .filters {
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto !important;
+  gap: 8px !important;
+  margin: 0 -2px 14px !important;
+  padding: 2px !important;
+  scrollbar-width: none;
+}
+html.kf-app .filters::-webkit-scrollbar { display: none; }
+html.kf-app .filter-button {
+  flex: 0 0 auto !important;
+  min-height: 36px !important;
+  padding: 7px 14px !important;
+  font-size: 13px !important;
+  white-space: nowrap !important;
+}
+
+/* Spacious product feed */
+html.kf-app .product-grid {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 14px !important;
+}
+html.kf-app .product-image {
+  height: 180px !important;
+}
+html.kf-app .product-content {
+  padding: 14px 15px 15px !important;
+}
+html.kf-app .product-actions {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+  gap: 8px !important;
+}
+html.kf-app .product-actions .button {
+  min-height: 44px !important;
+  font-size: 13px !important;
+}
+
+/* Balanced 2-col Metrics Grid (3rd odd item spans full width cleanly) */
+html.kf-app .metrics,
+html.kf-app .stats {
+  display: grid !important;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  gap: 10px !important;
+  margin-bottom: 14px !important;
+}
+html.kf-app .metrics .metric:last-child:nth-child(odd) {
+  grid-column: 1 / -1 !important;
+}
+html.kf-app .metric,
+html.kf-app .stat {
+  padding: 13px 14px !important;
+}
+html.kf-app .metric-value,
+html.kf-app .stat strong {
+  font-size: 20px !important;
+}
+
+/* Farmer welcome actions cleanly arranged */
+html.kf-app .welcome-actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  width: 100% !important;
+}
+html.kf-app .welcome-actions #quickAddProduceButton {
+  flex: 1 1 100% !important;
+  min-height: 44px !important;
+}
+html.kf-app .welcome-actions #viewMyStoreButton {
+  flex: 1 1 auto !important;
+  min-height: 42px !important;
+}
+
+/* Wallet: clean full-width cards & non-clipping amount rows */
+html.kf-app .grid,
+html.kf-app .split,
+html.kf-app .two-col,
+html.kf-app .columns,
+html.kf-app .dashboard-grid,
+html.kf-app .settings-grid {
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 14px !important;
+}
+html.kf-app .wide {
+  grid-column: auto !important;
+}
+html.kf-app .card {
+  padding: 16px !important;
+}
+html.kf-app .balance {
+  font-size: 32px !important;
+}
+html.kf-app .entry {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 8px !important;
+  padding: 13px 0 !important;
+}
+html.kf-app .entry > span:first-child {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+html.kf-app .entry .amount {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  flex-wrap: wrap !important;
+  gap: 8px !important;
+  width: 100% !important;
+  white-space: normal !important;
+  font-size: 15px !important;
+}
+html.kf-app .field button[type="submit"],
+html.kf-app form .button.primary {
+  min-height: 44px !important;
+  border-radius: 12px !important;
+}
+
+/* Chat page fits viewport height cleanly above Bottom Bar */
+html.kf-app .chat-layout {
+  min-height: calc(100dvh - 156px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) !important;
+  border-radius: 16px !important;
+}
+
+/* Settings & Permissions Card */
+html.kf-app .setting-row {
+  gap: 10px !important;
+  padding: 13px 0 !important;
+  flex-wrap: wrap !important;
+}
+html.kf-app .kf-perm-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--green-light, #e5f0d8);
+  color: var(--green-dark, #17472c);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+/* Native <select> Dropdown Highlighter */
+html.kf-app select {
+  min-height: 44px !important;
+  padding: 9px 12px !important;
+  border-radius: 11px !important;
+  border: 1.5px solid var(--line, #e5dcc6) !important;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease;
+}
+html.kf-app select:focus,
+html.kf-app select:active {
+  outline: none !important;
+  border-color: var(--green, #08723d) !important;
+  background-color: color-mix(in srgb, var(--green-light, #e5f0d8) 40%, var(--surface, #fffdf7)) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green, #08723d) 24%, transparent) !important;
+}
+
+/* 6. Focused Orders View (activated by Bottom Bar "Orders" tab) */
+html.kf-app .kf-orders-topbar {
+  display: none;
+}
+html.kf-app.kf-app-orders-view main > section:not(#orders):not(.kf-orders-topbar),
+html.kf-app.kf-app-orders-view .kf-app-search-slot,
+html.kf-app.kf-app-orders-view .kf-quick-strip {
+  display: none !important;
+}
+html.kf-app.kf-app-orders-view .kf-orders-topbar {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+html.kf-app.kf-app-orders-view .kf-orders-topbar h1 {
+  margin: 0 !important;
+  font-size: 21px !important;
+}
+html.kf-app.kf-app-orders-view .kf-orders-topbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+html.kf-app.kf-app-orders-view #orders {
+  display: block !important;
+  margin-top: 0 !important;
+}
+
+/* 7. 3-Tab Fixed Bottom Navigation Bar (Orders · Wallet · Messages) */
+html.kf-app .kf-bottom-bar {
+  position: fixed !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100% !important;
+  z-index: 1000 !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: 8px !important;
+  padding: 6px max(12px, env(safe-area-inset-right, 0px)) calc(6px + env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px)) !important;
+  background: var(--surface, #fffdf7) !important;
+  border-top: 1px solid var(--line, #e5dcc6) !important;
+  box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.08) !important;
+  contain: layout style;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html.kf-app .kf-bottom-tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 44px;
+  min-height: 52px;
+  padding: 6px 8px;
+  border-radius: 14px;
+  color: var(--muted, #766b53) !important;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-decoration: none !important;
+  transition: transform 0.1s ease, background-color 0.12s ease, color 0.12s ease;
+}
+html.kf-app .kf-bottom-tab svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+html.kf-app .kf-bottom-tab:active {
+  transform: scale(0.95);
+}
+html.kf-app .kf-bottom-tab.is-active,
+html.kf-app .kf-bottom-tab[aria-current="page"] {
+  background: var(--green-light, #e5f0d8) !important;
+  color: var(--green-dark, #17472c) !important;
+  font-weight: 800 !important;
+}
+html.kf-app .kf-bottom-tab.is-active svg,
+html.kf-app .kf-bottom-tab[aria-current="page"] svg {
+  color: var(--green, #08723d) !important;
+  stroke-width: 2.35;
+}
+
+html.kf-app .kf-bottom-tab__badge {
+  position: absolute;
+  top: 4px;
+  right: calc(50% - 22px);
+  display: grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 2px solid var(--surface, #fffdf7);
+  background: var(--accent-orange, #d77b20);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+html.kf-app .kf-bottom-tab__badge[hidden] {
+  display: none !important;
+}
+
+/* 8. Slide-Up Bottom Sheets (Menus, Cart, Dialogs) + Rich Dropdown Highlighters */
+html.kf-app .kf-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1090;
+  background: rgba(10, 18, 12, 0.48);
+}
+html.kf-app .kf-sheet-backdrop[hidden] {
+  display: none !important;
+}
+
+html.kf-app header .more-panel,
+html.kf-app header .kf-feature-menu,
+html.kf-app header .cart-panel,
+html.kf-app .topbar .more-panel,
+html.kf-app .topbar .kf-feature-menu,
+html.kf-app .topbar .cart-panel {
+  position: fixed !important;
+  top: auto !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  max-height: 80dvh !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  margin: 0 !important;
+  padding: 22px 14px calc(18px + env(safe-area-inset-bottom, 0px)) !important;
+  border: 1px solid var(--line, #e5dcc6) !important;
+  border-bottom: 0 !important;
+  border-radius: 22px 22px 0 0 !important;
+  background: var(--surface, #fffdf7) !important;
+  box-shadow: 0 -14px 40px rgba(0, 0, 0, 0.24) !important;
+  z-index: 1100 !important;
+  animation: kfAppSheetUp 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+html.kf-app header .more-panel::before,
+html.kf-app header .kf-feature-menu::before,
+html.kf-app header .cart-panel::before,
+html.kf-app .topbar .more-panel::before,
+html.kf-app .topbar .kf-feature-menu::before,
+html.kf-app .topbar .cart-panel::before {
+  content: "";
+  position: absolute;
+  top: 8px;
+  left: 50%;
+  width: 40px;
+  height: 4px;
+  margin-left: -20px;
+  border-radius: 999px;
+  background: var(--line, #e5dcc6);
+}
+
+/* Rich Menu Item Highlighters (active page + instant touch highlight) */
+html.kf-app .more-panel a,
+html.kf-app .more-panel button,
+html.kf-app .kf-feature-menu a,
+html.kf-app .kf-feature-menu button,
+html.kf-app .menu-panel button,
+html.kf-app .menu-panel a {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  width: 100% !important;
+  min-height: 48px !important;
+  padding: 10px 14px !important;
+  margin: 2px 0 !important;
+  border-radius: 12px !important;
+  font-size: 15px !important;
+  font-weight: 650 !important;
+  text-decoration: none !important;
+  text-align: left !important;
+  background: transparent !important;
+  color: var(--ink, #342718) !important;
+  transition: background-color 0.1s ease, color 0.1s ease, box-shadow 0.1s ease, transform 0.08s ease;
+}
+
+html.kf-app .more-panel a.menu-profile {
+  justify-content: flex-start !important;
+  margin-bottom: 6px !important;
+  background: color-mix(in srgb, var(--green-light, #e5f0d8) 45%, var(--surface, #fffdf7)) !important;
+}
+
+/* Highlight active / current page inside menu */
+html.kf-app .more-panel a.is-current-page,
+html.kf-app .more-panel a[aria-current="page"],
+html.kf-app .kf-feature-menu a.is-current-page,
+html.kf-app .kf-feature-menu a[aria-current="page"] {
+  background: var(--green-light, #e5f0d8) !important;
+  color: var(--green-dark, #17472c) !important;
+  font-weight: 800 !important;
+  box-shadow: inset 4px 0 0 var(--green, #08723d) !important;
+}
+
+/* Highlight touched / focused item */
+html.kf-app .more-panel a.is-pressed,
+html.kf-app .more-panel button:not(.menu-logout).is-pressed,
+html.kf-app .kf-feature-menu a.is-pressed,
+html.kf-app .kf-feature-menu button:not(.menu-logout).is-pressed,
+html.kf-app .menu-panel button.is-pressed,
+html.kf-app .more-panel a:active,
+html.kf-app .more-panel button:not(.menu-logout):active,
+html.kf-app .kf-feature-menu a:active,
+html.kf-app .kf-feature-menu button:not(.menu-logout):active,
+html.kf-app .menu-panel button:active,
+html.kf-app .more-panel a:focus-visible,
+html.kf-app .kf-feature-menu a:focus-visible {
+  background: color-mix(in srgb, var(--green, #08723d) 16%, var(--surface, #fffdf7)) !important;
+  color: var(--green-dark, #17472c) !important;
+  box-shadow: inset 4px 0 0 var(--green, #08723d) !important;
+  transform: scale(0.99);
+}
+
+/* Dark theme high-contrast highlights */
+html.kf-app[data-theme="dark"] .more-panel a.is-current-page,
+html.kf-app[data-theme="dark"] .more-panel a[aria-current="page"],
+html.kf-app[data-theme="dark"] .kf-feature-menu a.is-current-page,
+html.kf-app[data-theme="dark"] .kf-feature-menu a[aria-current="page"],
+html.kf-app[data-theme="dark"] .more-panel a.is-pressed,
+html.kf-app[data-theme="dark"] .more-panel button:not(.menu-logout).is-pressed,
+html.kf-app[data-theme="dark"] .kf-feature-menu a.is-pressed,
+html.kf-app[data-theme="dark"] .kf-feature-menu button:not(.menu-logout).is-pressed,
+html.kf-app[data-theme="dark"] .menu-panel button.is-pressed {
+  background: #294331 !important;
+  color: #ebf8ee !important;
+  box-shadow: inset 4px 0 0 #63b67f !important;
+}
+
+/* Logout highlight */
+html.kf-app .more-panel button.menu-logout,
+html.kf-app .kf-feature-menu button.menu-logout {
+  color: #b42318 !important;
+  border: 0 !important;
+  cursor: pointer;
+}
+html.kf-app .more-panel button.menu-logout.is-pressed,
+html.kf-app .kf-feature-menu button.menu-logout.is-pressed,
+html.kf-app .more-panel button.menu-logout:active,
+html.kf-app .kf-feature-menu button.menu-logout:active {
+  background: rgba(180, 35, 24, 0.12) !important;
+  box-shadow: inset 4px 0 0 #b42318 !important;
+}
+
+/* Modals / Dialogs restyled as slide-up bottom sheets */
+html.kf-app dialog[open] {
+  position: fixed !important;
+  inset: auto 0 0 0 !important;
+  margin: 0 !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  max-height: 90dvh !important;
+  overflow-y: auto !important;
+  border-radius: 22px 22px 0 0 !important;
+  border-bottom: 0 !important;
+  padding-bottom: env(safe-area-inset-bottom, 0px) !important;
+  animation: kfAppSheetUp 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+html.kf-app .tracking-body {
+  max-height: calc(90dvh - 120px) !important;
+}
+
+@keyframes kfAppSheetUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}

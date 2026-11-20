@@ -1,6 +1,8 @@
 (function () {
   'use strict';
 
+  if (/KituiFarmAndroidApp/i.test(navigator.userAgent || '') || window.KituiAndroid) return;
+
   // Remove service workers and caches left by earlier app installs.
   var script = document.currentScript;
   var appPath = script ? new URL('.', script.src).pathname : null;

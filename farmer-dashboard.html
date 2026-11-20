@@ -3,8 +3,8 @@
 <head>
     <script src="api-base.js"></script>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="theme-init.js?v=1"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <script src="theme-init.js?v=2"></script>
 
     <meta name="theme-color" content="#08723d">
     <title>Farmer Dashboard - KITUI FARM</title>
@@ -193,11 +193,11 @@
             .brand-mark { width: 38px; height: 38px; }
         }
 </style>
-    <script src="site-only.js" defer></script>
-    <script defer src="update-notification.js?v=4"></script>
+    <script src="site-only.js?v=2" defer></script>
+    <script defer src="update-notification.js?v=5"></script>
     <link rel="icon" type="image/png" href="assets/kitui-farm-emblem.png">
     <link rel="stylesheet" href="brand-theme.css?v=4" data-brand-theme>
-    <script src="brand.js?v=4" defer></script>
+    <script src="brand.js?v=5" defer></script>
     <link rel="stylesheet" href="mobile-layout.css?v=2">
 </head>
 <body>
@@ -299,9 +299,9 @@
             </div>
         </section>
 
-        <section class="panel">
+        <section class="panel" id="orders" aria-labelledby="farmerOrdersTitle">
             <div class="panel-header">
-                <div><h2>Recent orders &amp; buyer requests</h2><p>Orders containing one of your listed crops.</p></div>
+                <div><h2 id="farmerOrdersTitle">Recent orders &amp; buyer requests</h2><p>Orders containing one of your listed crops.</p></div>
                 <p class="form-message" id="ordersMessage" role="status" aria-live="polite" hidden></p>
             </div>
             <div class="table-wrap">
@@ -360,7 +360,7 @@
         };
         moreToggle.addEventListener('click', () => setMoreOpen(morePanel.hidden));
         moreMenu.addEventListener('focusout', event => {
-            if (!moreMenu.contains(event.relatedTarget)) setMoreOpen(false);
+            if (event.relatedTarget && !moreMenu.contains(event.relatedTarget)) setMoreOpen(false);
         });
         moreMenu.addEventListener('keydown', event => {
             if (event.key === 'Escape' && !morePanel.hidden) {
@@ -754,36 +754,49 @@
         });
         listingForm.addEventListener('input', scheduleDraftSave);
         listingForm.addEventListener('change', scheduleDraftSave);
-        document.getElementById('useCurrentLocationButton').addEventListener('click', async () => {
+        document.getElementById('useCurrentLocationButton').addEventListener('click', () => {
             const button = document.getElementById('useCurrentLocationButton');
             const status = document.getElementById('locationStatus');
-            if (!navigator.geolocation) {
+            const getLoc = window.KITUI_GET_CURRENT_LOCATION;
+            if (!getLoc && !navigator.geolocation) {
                 status.textContent = 'Location is unavailable in this browser. Enter your farm area manually.';
                 return;
             }
-            if (!window.isSecureContext) {
+            if (!getLoc && !window.isSecureContext) {
                 status.textContent = 'Device location needs a secure HTTPS connection. Enter your farm area manually.';
                 return;
             }
             button.disabled = true;
             status.textContent = 'Getting your location…';
-            navigator.geolocation.getCurrentPosition(async position => {
+            const handleCoords = async ({ latitude, longitude }) => {
                 try {
                     status.textContent = 'Finding your town or neighbourhood…';
-                    const result = await apiRequest(`/api/location/reverse?lat=${encodeURIComponent(position.coords.latitude)}&lon=${encodeURIComponent(position.coords.longitude)}`);
+                    const result = await apiRequest(`/api/location/reverse?lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}`);
                     document.getElementById('location').value = result.location;
                     status.textContent = `Area found: ${result.location}. You can edit it.`;
                 } catch (error) {
                     status.textContent = error.message || 'Could not identify the nearby area. Enter it manually.';
                 } finally { button.disabled = false; }
-            }, error => {
-                status.textContent = error.code === 1
-                    ? 'Location permission was denied. Allow it in your browser settings or enter the farm area manually.'
-                    : error.code === 2
-                        ? 'Your device could not determine its location. Enter the farm area manually.'
-                        : 'Location lookup timed out. Try again or enter the farm area manually.';
+            };
+            const handleErr = (msg) => {
+                status.textContent = msg || 'Your device could not determine its location. Enter the farm area manually.';
                 button.disabled = false;
-            }, { enableHighAccuracy:true, timeout:15000, maximumAge:60000 });
+            };
+            if (typeof getLoc === 'function') {
+                getLoc(handleCoords, handleErr);
+            } else {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => handleCoords({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
+                    (error) => {
+                        handleErr(error.code === 1
+                            ? 'Location permission was denied. Allow it in your browser settings or enter the farm area manually.'
+                            : error.code === 2
+                                ? 'Your device could not determine its location. Enter the farm area manually.'
+                                : 'Location lookup timed out. Try again or enter the farm area manually.');
+                    },
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+                );
+            }
         });
         listingForm.addEventListener('submit', async event => {
             event.preventDefault();
@@ -995,12 +1008,13 @@
                 return;
             }
             sessionStorage.removeItem('kituiFarmSession');
+            sessionStorage.removeItem('kituiFarmToken');
             const rememberedSession = JSON.parse(localStorage.getItem('kituiFarmSession') || 'null');
             if (rememberedSession?.userId === farmer.userId) {
                 localStorage.removeItem('kituiFarmSession');
                 localStorage.removeItem('kituiFarmToken');
             }
-            window.location.replace('login.html');
+            window.location.replace('login.html?loggedOut=1');
         });
 
         (async () => {
