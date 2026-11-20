@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kitui-farm-apk-v1.0.7';
+const CACHE_NAME = 'kitui-farm-apk-v1.0.7-live1';
 
 const SHELL_ASSETS = [
   './',

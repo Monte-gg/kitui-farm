@@ -678,3 +678,98 @@ test('lets an administrator start a Daraja B2C payout from the admin console', a
         assert.equal((await request('/api/wallet', { cookie: buyer.cookie })).data.wallet.balance, 700);
     } finally { daraja.restore(); restoreEnv(); }
 });
+
+test('version 4 clean-slate migration wipes users, admins, wallets, orders, chats, and user listings once while preserving demo listings', async () => {
+    const fs = require('node:fs');
+    const os = require('node:os');
+    const path = require('node:path');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kf-clean-slate-'));
+    const dbPath = path.join(tmpDir, 'kitui.sqlite');
+    const now = new Date().toISOString();
+    const buyerId = crypto.randomUUID();
+    const farmerId = crypto.randomUUID();
+    const adminId = crypto.randomUUID();
+
+    try {
+        const first = createApp({ dbPath });
+        await first.db.run('DELETE FROM wallet_schema_migrations WHERE version = 4');
+        await first.db.run(
+            "INSERT INTO users (id, name, email, phone, role, password_salt, password_hash, created_at) VALUES (?, ?, ?, ?, 'buyer', 's', 'h', ?)",
+            [buyerId, 'Old Buyer', 'oldbuyer@gmail.com', '+254700000001', now]
+        );
+        await first.db.run(
+            "INSERT INTO users (id, name, email, phone, role, password_salt, password_hash, created_at) VALUES (?, ?, ?, ?, 'farmer', 's', 'h', ?)",
+            [farmerId, 'Old Farmer', 'oldfarmer@gmail.com', '+254700000002', now]
+        );
+        await first.db.run(
+            "INSERT INTO users (id, name, email, phone, role, password_salt, password_hash, created_at) VALUES (?, ?, ?, ?, 'buyer', 's', 'h', ?)",
+            [adminId, 'Old Admin', 'oldadmin@gmail.com', 'ADMIN-1', now]
+        );
+        await first.db.run('INSERT INTO wallet_admins (user_id, created_at) VALUES (?, ?)', [adminId, now]);
+        await first.db.run('INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)', ['tok-1', buyerId, Date.now() + 60_000]);
+        await first.db.run(
+            "INSERT INTO wallet_accounts (user_id, wallet_id, balance_cents, created_at, updated_at) VALUES (?, 'KF-OLD-1', 50000, ?, ?)",
+            [buyerId, now, now]
+        );
+        await first.db.run(
+            "INSERT INTO wallet_transactions (id, user_id, kind, amount_cents, reference_key, description, created_at) VALUES ('tx-1', ?, 'credit', 50000, 'ref-1', 'old credit', ?)",
+            [buyerId, now]
+        );
+        await first.db.run(
+            "INSERT INTO wallet_operations (id, user_id, kind, amount_cents, channel, status, created_at, updated_at) VALUES ('op-1', ?, 'deposit', 50000, 'mpesa', 'completed', ?, ?)",
+            [buyerId, now, now]
+        );
+        await first.db.run("INSERT INTO checkout_requests (checkout_key, buyer_id, payload_hash, created_at) VALUES ('ck-1', ?, 'ph', ?)", [buyerId, now]);
+        await first.db.run(
+            "INSERT INTO orders (id, buyer_id, buyer_name, address, payment_method, status, checkout_key, total, created_at) VALUES ('ord-1', ?, 'Old Buyer', 'Kitui', 'KITUI FARM Wallet', 'Paid', 'ck-1', 200, ?)",
+            [buyerId, now]
+        );
+        await first.db.run(
+            "INSERT INTO order_items (order_id, product_id, farmer_id, name, seller_name, location, quantity, price) VALUES ('ord-1', 'l-1', ?, 'Tomatoes', 'Old Farmer', 'Kitui', 2, 100)",
+            [farmerId]
+        );
+        await first.db.run(
+            "INSERT INTO chat_conversations (id, buyer_id, farmer_id, listing_id, created_at, last_message_at) VALUES ('conv-1', ?, ?, 'l-1', ?, ?)",
+            [buyerId, farmerId, now, now]
+        );
+        await first.db.run(
+            "INSERT INTO chat_messages (id, conversation_id, sender_id, body, created_at) VALUES ('msg-1', 'conv-1', ?, 'hello', ?)",
+            [buyerId, now]
+        );
+        await first.db.run(
+            "INSERT INTO listings (id, farmer_id, seller_name, name, category, quantity, minimum_order, price, location, created_at) VALUES ('user-listing-1', ?, 'Old Farmer', 'Old Kale', 'Vegetables', 10, 1, 50, 'Kitui', ?)",
+            [farmerId, now]
+        );
+        await first.db.close();
+
+        const second = createApp({ dbPath });
+        for (const table of [
+            'users', 'wallet_admins', 'sessions', 'wallet_accounts', 'wallet_transactions',
+            'wallet_operations', 'orders', 'checkout_requests', 'chat_conversations', 'chat_messages'
+        ]) {
+            const countRow = await second.db.get(`SELECT COUNT(*) AS count FROM ${table}`);
+            assert.equal(countRow.count, 0, `${table} should be wiped on clean slate v4`);
+        }
+        const userListings = await second.db.get("SELECT COUNT(*) AS count FROM listings WHERE farmer_id NOT LIKE 'demo-%'");
+        assert.equal(userListings.count, 0, 'user-created listings should be wiped');
+        const demoListings = await second.db.get("SELECT COUNT(*) AS count FROM listings WHERE farmer_id LIKE 'demo-%'");
+        assert.equal(demoListings.count, 6, 'demo produce listings should be preserved');
+        const v4Row = await second.db.get('SELECT version FROM wallet_schema_migrations WHERE version = 4');
+        assert.equal(v4Row.version, 4);
+
+        // Insert a brand-new live record and confirm restarting does NOT wipe again.
+        const freshId = crypto.randomUUID();
+        await second.db.run(
+            "INSERT INTO users (id, name, email, phone, role, password_salt, password_hash, created_at) VALUES (?, 'Fresh User', 'fresh@gmail.com', '+254799999999', 'buyer', 's', 'h', ?)",
+            [freshId, now]
+        );
+        await second.db.close();
+
+        const third = createApp({ dbPath });
+        const freshCount = await third.db.get('SELECT COUNT(*) AS count FROM users');
+        assert.equal(freshCount.count, 1, 'clean-slate v4 must only run once');
+        await third.db.close();
+    } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+});

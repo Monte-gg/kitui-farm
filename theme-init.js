@@ -3,6 +3,25 @@
     const THEME_KEY = 'kituiFarmTheme';
     const SESSION_KEY = 'kituiFarmSession';
     const TOKEN_KEY = 'kituiFarmToken';
+    const CLEAN_SLATE_EPOCH = '2026-11-20-live-v1';
+
+    try {
+        if (localStorage.getItem('kituiFarmCleanSlateEpoch') !== CLEAN_SLATE_EPOCH) {
+            const preserve = new Set([
+                'kituiFarmTheme',
+                'kituiFarmApkDismissed_107',
+                'kituiFarmSiteVersion'
+            ]);
+            Object.keys(localStorage).forEach((key) => {
+                if (!preserve.has(key) && (key.startsWith('kituiFarm') || key.startsWith('kituiApk') || key.startsWith('kf'))) {
+                    localStorage.removeItem(key);
+                }
+            });
+            sessionStorage.clear();
+            localStorage.setItem('kituiFarmCleanSlateEpoch', CLEAN_SLATE_EPOCH);
+        }
+    } catch (_) {}
+
     const isApp = /KituiFarmAndroidApp/i.test(navigator.userAgent || '') || Boolean(window.KituiAndroid);
 
     if (isApp) {

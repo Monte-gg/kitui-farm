@@ -514,6 +514,39 @@ function createSqliteStore(dbPath) {
             db.exec('COMMIT');
         } catch (error) { db.exec('ROLLBACK'); throw error; }
     }
+    if (!db.prepare('SELECT version FROM wallet_schema_migrations WHERE version = 4').get()) {
+        db.exec('BEGIN IMMEDIATE');
+        try {
+            // Explicitly authorized live clean-slate reset: remove all accounts, admin grants,
+            // wallets, orders, chats, sessions, and user-created listings while keeping demo produce.
+            db.exec(`
+                DELETE FROM chat_messages;
+                DELETE FROM chat_conversation_states;
+                DELETE FROM chat_conversations;
+                DELETE FROM chat_presence;
+                DELETE FROM wishlist_items;
+                DELETE FROM order_delivery_updates;
+                DELETE FROM order_return_requests;
+                DELETE FROM order_items;
+                DELETE FROM orders;
+                DELETE FROM checkout_requests;
+                DELETE FROM wallet_transactions;
+                DELETE FROM wallet_operations;
+                DELETE FROM wallet_payment_methods;
+                DELETE FROM wallet_accounts;
+                DELETE FROM wallet_admins;
+                DELETE FROM listing_drafts;
+                DELETE FROM user_settings;
+                DELETE FROM password_reset_codes;
+                DELETE FROM pending_signups;
+                DELETE FROM sessions;
+                DELETE FROM listings WHERE farmer_id NOT LIKE 'demo-%';
+                DELETE FROM users;
+            `);
+            db.prepare('INSERT INTO wallet_schema_migrations (version, applied_at) VALUES (4, ?)').run(new Date().toISOString());
+            db.exec('COMMIT');
+        } catch (error) { db.exec('ROLLBACK'); throw error; }
+    }
     db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_accounts_wallet_id ON wallet_accounts(wallet_id)');
     const userColumns = db.prepare('PRAGMA table_info(users)').all();
     if (!userColumns.some(column => column.name === 'profile_photo')) {
@@ -741,6 +774,33 @@ function createPostgresStore(connectionString, options = {}) {
                 created_at text not null,
                 primary key (user_id, listing_id)
             )`,
+                `DO $clean_slate_v4$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM wallet_schema_migrations WHERE version = 4) THEN
+                        DELETE FROM chat_messages;
+                        DELETE FROM chat_conversation_states;
+                        DELETE FROM chat_conversations;
+                        DELETE FROM chat_presence;
+                        DELETE FROM wishlist_items;
+                        DELETE FROM order_delivery_updates;
+                        DELETE FROM order_return_requests;
+                        DELETE FROM order_items;
+                        DELETE FROM orders;
+                        DELETE FROM checkout_requests;
+                        DELETE FROM wallet_transactions;
+                        DELETE FROM wallet_operations;
+                        DELETE FROM wallet_payment_methods;
+                        DELETE FROM wallet_accounts;
+                        DELETE FROM wallet_admins;
+                        DELETE FROM listing_drafts;
+                        DELETE FROM user_settings;
+                        DELETE FROM password_reset_codes;
+                        DELETE FROM pending_signups;
+                        DELETE FROM sessions;
+                        DELETE FROM listings WHERE farmer_id NOT LIKE 'demo-%';
+                        DELETE FROM users;
+                        INSERT INTO wallet_schema_migrations (version, applied_at) VALUES (4, now()::text);
+                    END IF;
+                END; $clean_slate_v4$`,
                 'CREATE INDEX IF NOT EXISTS idx_wallet_transactions_user ON wallet_transactions(user_id, created_at)',
                 'CREATE UNIQUE INDEX IF NOT EXISTS idx_wallet_accounts_wallet_id ON wallet_accounts(wallet_id)',
                 'CREATE INDEX IF NOT EXISTS idx_wallet_operations_user ON wallet_operations(user_id, created_at)',
